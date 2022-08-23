@@ -7,10 +7,14 @@
     "vscode": "^1.68.0"
   },
   "categories": [
-    "Other"
+    "Programming Languages",
+    "Snippets",
+    "Formatters"
   ],
   "activationEvents": [
-    "onCommand:cmake-ls.helloWorld"
+    "onCommand:cmake-ls.helloWorld",
+    "onLanguage:cmake",
+    "workspaceContains:CMakeLists.txt"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -19,27 +23,67 @@
         "command": "cmake-ls.helloWorld",
         "title": "Hello World"
       }
+    ],
+    "grammars": [
+      {
+        "language": "cmake",
+        "scopeName": "source.cmake",
+        "path": "./syntaxes/cmake.tmLanguage.json"
+      },
+      {
+        "language": "cmakecache",
+        "scopeName": "source.cmakecache",
+        "path": "./syntaxes/cmakecache.tmLanguage.json"
+      }
+    ],
+    "languages": [
+      {
+        "id": "cmake",
+        "extensions": [
+          ".cmake"
+        ],
+        "filenames": [
+          "CMakeLists.txt"
+        ],
+        "aliases": [
+          "CMake"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "cmakecache",
+        "filenames": [
+          "CMakeCache.txt"
+        ],
+        "aliases": [
+          "CMakeCache"
+        ]
+      }
     ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "grammar-cmake": "npx js-yaml ./syntaxes/cmake.tmLanguage.yml > ./syntaxes/cmake.tmLanguage.json",
+    "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
+    "grammar": "npm run grammar-cmake && npm run grammar-cmakecache",
+    "compile": "npm run grammar && tsc -p ./",
+    "watch": "npm run grammar && tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
-    "@types/vscode": "^1.70.0",
     "@types/glob": "^7.2.0",
     "@types/mocha": "^9.1.1",
     "@types/node": "16.x",
+    "@types/vscode": "^1.68.0",
     "@typescript-eslint/eslint-plugin": "^5.31.0",
     "@typescript-eslint/parser": "^5.31.0",
+    "@vscode/test-electron": "^2.1.5",
     "eslint": "^8.20.0",
     "glob": "^8.0.3",
+    "js-yaml": "^4.1.0",
     "mocha": "^10.0.0",
-    "typescript": "^4.7.4",
-    "@vscode/test-electron": "^2.1.5"
+    "typescript": "^4.7.4"
   }
 }

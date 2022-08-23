@@ -1,0 +1,48 @@
+fileTypes:
+  - cmakecache
+  - CMakeCache.txt
+scopeName: source.cmakecache
+repository:
+  variable-reference:
+    name: variable.other.cmake
+    begin: \$(ENV|CACHE)?{
+    beginCaptures:
+      "0": { name: punctuation.definition.variable-ref.start.cmake }
+    end: "}"
+    endCaptures:
+      "0": { name: punctuation.definition.variable-ref.end.cmake }
+    patterns:
+      - include: "#variable-reference"
+patterns:
+  # comment line start with #
+  - name: comment.line.number-sign.cmakecache
+    match: "#.*$"
+  # comment line start with //
+  - name: comment.line.double-slash.cmakecache
+    match: //.*$
+  - name: asign.cmakecache
+    match: '\s*([\w-]+):(\w+)(=)(.+)?'
+    captures:
+      "1": { name: variable.cmakecache } # cache variable name
+      "2": { name: entity.name.type.cmakecache } # cache variable type
+      "3": { name: asign.cmakecache } # =
+      # right-hand side of the =
+      "4":
+        name: value.cmakecache
+        # https://macromates.com/manual/en/language_grammars
+        # The value of these keys is a dictionary with the key being the capture 
+        # number and the value being a dictionary of attributes to assign to the
+        # captured text. Currently name is the only attribute supported.
+        # 上面的链接中的文档说 captures 目前只支持 name 属性，实际上也支持 patterns 属性
+        patterns:
+          - name: string.quoted.double.cmake
+            begin: '"'
+            end: '"'
+            patterns:
+              - include: "#variable-reference"
+              - name: constant.character.escape.cmake # escaped character in quoted string
+                match: \\.
+          - name: constant.numeric.cmakecache
+            match: \b[0-9\.]+\b
+          - name: constant.language.bool.cmakecache
+            match: \b(?i:\w*-NOTFOUND|NOTFOUND|ON|YES|TRUE|Y|OFF|NO|FALSE|N|IGNORE)$
