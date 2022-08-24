@@ -59,6 +59,12 @@
           "CMakeCache"
         ]
       }
+    ],
+    "snippets": [
+      {
+        "language": "cmake",
+        "path": "./snippets.json"
+      }
     ]
   },
   "scripts": {
