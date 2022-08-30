@@ -1,5 +1,5 @@
 {
-  "name": "cmake-ls",
+  "name": "cmake-intellisence",
   "displayName": "CMake IntelliSence",
   "description": "CMake IntelliSence for Visual Studio Code",
   "version": "0.0.1",
@@ -12,18 +12,11 @@
     "Formatters"
   ],
   "activationEvents": [
-    "onCommand:cmake-ls.helloWorld",
     "onLanguage:cmake",
     "workspaceContains:CMakeLists.txt"
   ],
   "main": "./out/extension.js",
   "contributes": {
-    "commands": [
-      {
-        "command": "cmake-ls.helloWorld",
-        "title": "Hello World"
-      }
-    ],
     "grammars": [
       {
         "language": "cmake",
@@ -65,6 +58,19 @@
         "language": "cmake",
         "path": "./snippets.json"
       }
+    ],
+    "configuration":[
+      {
+        "title": "CMake IntelliSence",
+        "properties": {
+          "cmakeIntelliSence.languageServerPath": {
+            "scope": "resource",
+            "type": "string",
+            "default": "cmakels",
+            "description": "Path to CMake Language Server"
+          }
+        }
+      }
     ]
   },
   "scripts": {
@@ -91,5 +97,8 @@
     "js-yaml": "^4.1.0",
     "mocha": "^10.0.0",
     "typescript": "^4.7.4"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.0.2"
   }
 }
