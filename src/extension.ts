@@ -1,32 +1,24 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
-import * as path from 'path';
+import * as net from 'net';
 import * as vscode from 'vscode';
-import {
-    LanguageClient,
-    LanguageClientOptions,
-    ServerOptions,
-    TransportKind
-} from 'vscode-languageclient/node';
+import { getConfigLogLevel, Logger } from './logging';
+import { LanguageClient, LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node';
+
+
+export const SERVER_ID = 'cmakeIntelliSence';
+export const SERVER_NAME = 'CMake Language Server';
 
 let client: LanguageClient;
 
-// this method is called when your extension is activated
-// your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+    const config = vscode.workspace.getConfiguration(SERVER_ID);
+    const logger = new Logger();
+    logger.setLogLevel(getConfigLogLevel(config));
 
-    const config = vscode.workspace.getConfiguration('cmakeIntelliSence');
-    let cmakels = config.get<string>('languageServerPath');
-    if (cmakels === undefined) {
-        cmakels = 'cmakels';
-    }
-
-    // language server options
-    // default transport is TransportKind.stdio
-    const serverOptions: ServerOptions = {
-        command: cmakels,
-        // args: [serverEntryPath]
-    };
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration(`${SERVER_ID}.loggingLevel`)) {
+            logger.setLogLevel(getConfigLogLevel(config));
+        }
+    }));
 
     // Options to control the language client
     const clientOptions: LanguageClientOptions = {
@@ -34,22 +26,44 @@ export function activate(context: vscode.ExtensionContext) {
             { language: 'cmake', scheme: 'file' },
             { language: 'cmake', scheme: 'untitled' }
         ],
-        outputChannel: vscode.window.createOutputChannel('CMake IntelliSence')
+        outputChannel: logger.getOutputChannel()
     };
 
-    // Create the language client and start the client.
-    client = new LanguageClient(
-        'cmakeLanguageServer',
-        'CMake Language Server',
-        serverOptions,
-        clientOptions
-    );
+    // language server options
+    let serverOptions: ServerOptions;
+    let mode: string;
+    if (context.extensionMode === vscode.ExtensionMode.Development) {
+        // Development - communicate using tcp
+        serverOptions = () => {
+            return new Promise((resolve) => {
+                const clientSocket = new net.Socket();
+                clientSocket.connect(2088, "127.0.0.1", () => {
+                    resolve({
+                        reader: clientSocket,
+                        writer: clientSocket
+                    });
+                });
+                clientSocket.on('connect', () => { logger.info('Connected'); });
+                clientSocket.on('error', (err) => { logger.info('error', err); });
+                clientSocket.on('close', () => { logger.info('connection closed'); });
+            });
+        };
+        mode = 'Development';
+    } else {
+        // Production - communicate using stdio
+        serverOptions = {
+            command: 'cmakels'
+        };
+        mode = 'Production';
+    }
+    client = new LanguageClient(SERVER_ID, SERVER_NAME, serverOptions, clientOptions);
 
     // start the client. This will also launch the server
+    logger.info(`Start ${SERVER_NAME} in ${mode} mode...`);
     client.start();
 }
 
-// this method is called when your extension is deactivated
+
 export function deactivate() {
     if (!client) {
         return undefined;

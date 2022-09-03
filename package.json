@@ -64,10 +64,30 @@
         "title": "CMake IntelliSence",
         "properties": {
           "cmakeIntelliSence.languageServerPath": {
-            "scope": "resource",
             "type": "string",
             "default": "cmakels",
             "description": "Path to CMake Language Server"
+          },
+          "cmakeIntelliSence.loggingLevel": {
+            "type": "string",
+            "enum": [
+              "Off",
+              "Error",
+              "Warnning",
+              "Info",
+              "Debug"
+            ],
+            "default": "Info",
+            "markdownDescription": "Control the logging level"
+          },
+          "cmakeIntelliSence.trace.server": {
+            "type": "string",
+            "enum": [
+              "verbose",
+              "message",
+              "off"
+            ],
+            "default": "verbose"
           }
         }
       }
