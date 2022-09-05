@@ -97,7 +97,7 @@
     "vscode:prepublish": "npm run compile",
     "grammar-cmake": "npx js-yaml ./syntaxes/cmake.tmLanguage.yml > ./syntaxes/cmake.tmLanguage.json",
     "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
-    "grammar": "npm run grammar-cmake && npm run grammar-cmakecache",
+    "grammar": "node ./build/yaml-to-json.mjs",
     "compile": "npm run grammar && tsc -p ./",
     "watch": "npm run grammar && tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
