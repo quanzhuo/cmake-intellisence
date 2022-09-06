@@ -27,6 +27,11 @@
         "language": "cmakecache",
         "scopeName": "source.cmakecache",
         "path": "./syntaxes/cmakecache.tmLanguage.json"
+      },
+      {
+        "language": "cmdsignature",
+        "scopeName": "source.cmdsignature",
+        "path": "./syntaxes/cmdsignature.tmLanguage.json"
       }
     ],
     "languages": [
@@ -51,6 +56,9 @@
         "aliases": [
           "CMakeCache"
         ]
+      },
+      {
+        "id": "cmdsignature"
       }
     ],
     "snippets": [
@@ -97,6 +105,7 @@
     "vscode:prepublish": "npm run compile",
     "grammar-cmake": "npx js-yaml ./syntaxes/cmake.tmLanguage.yml > ./syntaxes/cmake.tmLanguage.json",
     "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
+    "grammar-cmdsignature": "npx js-yaml ./syntaxes/cmdsignature.tmLanguage.yml > ./syntaxes/cmdsignature.tmLanguage.json",
     "grammar": "node ./build/yaml-to-json.mjs",
     "compile": "npm run grammar && tsc -p ./",
     "watch": "npm run grammar && tsc -watch -p ./",

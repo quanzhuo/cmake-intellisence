@@ -28,6 +28,10 @@ function yamlToJson() {
     if (isGrammarOutdate('cmakecache.tmLanguage.json')) {
         execSync('npm run grammar-cmakecache');
     }
+
+    if (isGrammarOutdate('cmdsignature.tmLanguage.json')) {
+        execSync('npm run grammar-cmdsignature');
+    }
 }
 
 yamlToJson();

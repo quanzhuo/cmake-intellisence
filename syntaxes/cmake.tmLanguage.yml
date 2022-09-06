@@ -63,13 +63,13 @@ patterns:
   - name: keyword.control.cmake
     match: ^\s*\b(if|elif|else|endif|while|endwhile|break|continue|foreach|endforeach|return)\b
   # unary tests operators
-  - name: keyword.operator.unary.cmake
+  - name: keyword.other.unary.cmake
     match: \b(EXISTS|COMMAND|DEFINED)\b
   # binary tests operators
-  - name: keyword.operator.binary.cmake
+  - name: keyword.other.binary.cmake
     match: \b(EQUAL|LESS|LESS_EQUAL|GREATER|GREATER_EQUAL|STREQUAL|STRLESS|STRLESS_EQUAL|STRGREATER|STRGREATER_EQUAL|VERSION_EQUAL|VERSION_LESS|VERSION_LESS_EQUAL|VERSION_GREATER|VERSION_GREATER_EQUAL|MATCHES)\b
   # logical operators
-  - name: keyword.operator.logical.cmake
+  - name: keyword.other.logical.cmake
     match: \b(NOT|AND|OR)\b
   # CACHE variable type
   - name: entity.name.type.cmake
