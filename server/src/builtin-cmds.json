@@ -1,0 +1,1049 @@
+{
+  "add_compile_definitions": {
+    "doc": "Adds preprocessor definitions to the compiler command line.",
+    "sig": [
+      "add_compile_definitions(<definition> ...)"
+    ]
+  },
+  "add_compile_options": {
+    "doc": "Adds options to the COMPILE_OPTIONS directory property. These options are used when compiling targets from the current directory and below",
+    "sig": [
+      "add_compile_options(<option> ...)"
+    ]
+  },
+  "add_custom_command": {
+    "doc": "Add a custom build rule to the generated build system.",
+    "sig": [
+      "add_custom_command(OUTPUT output1 [output2 ...] COMMAND command1 [ARGS] [args1...] [COMMAND command2 [ARGS] [args2...] ...] [MAIN_DEPENDENCY depend] [DEPENDS [depends...]] [BYPRODUCTS [files...]] [IMPLICIT_DEPENDS <lang1> depend1 [<lang2> depend2] ...] [WORKING_DIRECTORY dir] [COMMENT comment] [DEPFILE depfile] [JOB_POOL job_pool] [VERBATIM] [APPEND] [USES_TERMINAL] [COMMAND_EXPAND_LISTS])",
+      "add_custom_command(TARGET <target> PRE_BUILD | PRE_LINK | POST_BUILD COMMAND command1 [ARGS] [args1...] [COMMAND command2 [ARGS] [args2...] ...] [BYPRODUCTS [files...]] [WORKING_DIRECTORY dir] [COMMENT comment] [VERBATIM] [USES_TERMINAL] [COMMAND_EXPAND_LISTS])"
+    ]
+  },
+  "add_custom_target": {
+    "doc": "Adds a target with the given name that executes the given commands.",
+    "sig": [
+      "add_custom_target(Name [ALL] [command1 [args1...]] [COMMAND command2 [args2...] ...] [DEPENDS depend depend depend ... ] [BYPRODUCTS [files...]] [WORKING_DIRECTORY dir] [COMMENT comment] [JOB_POOL job_pool] [VERBATIM] [USES_TERMINAL] [COMMAND_EXPAND_LISTS] [SOURCES src1 [src2...]])"
+    ]
+  },
+  "add_definitions": {
+    "doc": "Add -D define flags to the compilation of source files.",
+    "sig": [
+      "add_definitions(-DFOO -DBAR ...)"
+    ]
+  },
+  "add_dependencies": {
+    "doc": "Add a dependency between top-level targets.",
+    "sig": [
+      "add_dependencies(<target> [<target-dependency>]...)"
+    ]
+  },
+  "add_executable": {
+    "doc": "Adds an executable target called <name> to be built from the source files listed in the command invocation.",
+    "sig": [
+      "add_executable(<name> [WIN32] [MACOSX_BUNDLE] [EXCLUDE_FROM_ALL] [source1] [source2 ...])",
+      "add_executable(<name> IMPORTED [GLOBAL])",
+      "add_executable(<name> ALIAS <target>)"
+    ]
+  },
+  "add_library": {
+    "doc": "Adds a library target called <name> to be built from the source files listed in the command invocation.",
+    "sig": [
+      "add_library(<name> [STATIC | SHARED | MODULE] [EXCLUDE_FROM_ALL] [<source>...])",
+      "add_library(<name> OBJECT [<source>...])",
+      "add_library(... $<TARGET_OBJECTS:objlib> ...)",
+      "add_library(<name> INTERFACE)",
+      "add_library(<name> INTERFACE [<source>...] [EXCLUDE_FROM_ALL])",
+      "add_library(<name> <type> IMPORTED [GLOBAL])",
+      "add_library(<name> ALIAS <target>)"
+    ]
+  },
+  "add_link_options": {
+    "doc": "Add options to the link step for executable, shared library or module library targets in the current directory and below that are added after this command is invoked.",
+    "sig": [
+      "add_link_options(<option> ...)"
+    ]
+  },
+  "add_subdirectory": {
+    "doc": "Add a subdirectory to the build.",
+    "sig": [
+      "add_subdirectory(source_dir [binary_dir] [EXCLUDE_FROM_ALL])"
+    ]
+  },
+  "add_test": {
+    "doc": "Add a test to the project to be run by ctest(1).",
+    "sig": [
+      "add_test(NAME <name> COMMAND <command> [<arg>...] [CONFIGURATIONS <config>...] [WORKING_DIRECTORY <dir>] [COMMAND_EXPAND_LISTS])",
+      "add_test(<name> <command> [<arg>...])"
+    ]
+  },
+  "aux_source_directory": {
+    "doc": "Collects the names of all the source files in the specified directory and stores the list in the <variable> provided.",
+    "sig": [
+      "aux_source_directory(<dir> <variable>)"
+    ]
+  },
+  "break": {
+    "doc": "Breaks from an enclosing foreach() or while() loop.",
+    "sig": [
+      "break()"
+    ]
+  },
+  "build_command": {
+    "doc": "Get a command line to build the current project. This is mainly intended for internal use by the CTest module.",
+    "sig": [
+      "build_command(<variable> [CONFIGURATION <config>] [PARALLEL_LEVEL <parallel>] [TARGET <target>] [PROJECT_NAME <projname>] # legacy, causes warning)",
+      "build_command(<cachevariable> <makecommand>)"
+    ]
+  },
+  "build_name": {
+    "doc": "Disallowed since version 3.0. Sets the specified variable to a string representing the platform and compiler settings",
+    "sig": [
+      "build_name(variable)"
+    ]
+  },
+  "cmake_host_system_information": {
+    "doc": "Query various host system information.",
+    "sig": [
+      "cmake_host_system_information(RESULT <variable> QUERY <key> ...)",
+      "cmake_host_system_information(RESULT <variable> QUERY WINDOWS_REGISTRY <key> [VALUE_NAMES|SUBKEYS|VALUE <name>] [VIEW (64|32|64_32|32_64|HOST|TARGET|BOTH)] [SEPARATOR <separator>] [ERROR_VARIABLE <result>])"
+    ]
+  },
+  "cmake_language": {
+    "doc": "This command will call meta-operations on built-in CMake commands or those created via the macro() or function() commands.",
+    "sig": [
+      "cmake_language(CALL <command> [<arg>...])",
+      "cmake_language(EVAL CODE <code>...)",
+      "cmake_language(DEFER <options>... CALL <command> [<arg>...])",
+      "cmake_language(DEFER [DIRECTORY <dir>] GET_CALL_IDS <var>)",
+      "cmake_language(DEFER [DIRECTORY <dir>] GET_CALL <id> <var>)",
+      "cmake_language(DEFER [DIRECTORY <dir>] CANCEL_CALL <id>...)",
+      "cmake_language(SET_DEPENDENCY_PROVIDER <command> SUPPORTED_METHODS <methods>...)"
+    ]
+  },
+  "cmake_minimum_required": {
+    "doc": "Sets the minimum required version of cmake for a project.",
+    "sig": [
+      "cmake_minimum_required(VERSION <min>[...<policy_max>] [FATAL_ERROR])"
+    ]
+  },
+  "cmake_parse_arguments": {
+    "doc": "Parse function or macro arguments.",
+    "sig": [
+      "cmake_parse_arguments(<prefix> <options> <one_value_keywords> <multi_value_keywords> <args>...)",
+      "cmake_parse_arguments(PARSE_ARGV <N> <prefix> <options> <one_value_keywords> <multi_value_keywords>)"
+    ]
+  },
+  "cmake_path": {
+    "doc": "This command is for the manipulation of paths",
+    "sig": [
+      "cmake_path(GET <path-var> ROOT_NAME <out-var>)",
+      "cmake_path(GET <path-var> ROOT_DIRECTORY <out-var>)",
+      "cmake_path(GET <path-var> ROOT_PATH <out-var>)",
+      "cmake_path(GET <path-var> FILENAME <out-var>)",
+      "cmake_path(GET <path-var> EXTENSION [LAST_ONLY] <out-var>)",
+      "cmake_path(GET <path-var> STEM [LAST_ONLY] <out-var>)",
+      "cmake_path(GET <path-var> RELATIVE_PART <out-var>)",
+      "cmake_path(GET <path-var> PARENT_PATH <out-var>)",
+      "cmake_path(HAS_ROOT_NAME <path-var> <out-var>)",
+      "cmake_path(HAS_ROOT_DIRECTORY <path-var> <out-var>)",
+      "cmake_path(HAS_ROOT_PATH <path-var> <out-var>)",
+      "cmake_path(HAS_FILENAME <path-var> <out-var>)",
+      "cmake_path(HAS_EXTENSION <path-var> <out-var>)",
+      "cmake_path(HAS_STEM <path-var> <out-var>)",
+      "cmake_path(HAS_RELATIVE_PART <path-var> <out-var>)",
+      "cmake_path(HAS_PARENT_PATH <path-var> <out-var>)",
+      "cmake_path(IS_ABSOLUTE <path-var> <out-var>)",
+      "cmake_path(IS_RELATIVE <path-var> <out-var>)",
+      "cmake_path(IS_PREFIX <path-var> <input> [NORMALIZE] <out-var>)",
+      "cmake_path(COMPARE <input1> EQUAL <input2> <out-var>)",
+      "cmake_path(COMPARE <input1> NOT_EQUAL <input2> <out-var>)",
+      "cmake_path(SET <path-var> [NORMALIZE] <input>)",
+      "cmake_path(APPEND <path-var> [<input>...] [OUTPUT_VARIABLE <out-var>])",
+      "cmake_path(APPEND_STRING <path-var> [<input>...] [OUTPUT_VARIABLE <out-var>])",
+      "cmake_path(REMOVE_FILENAME <path-var> [OUTPUT_VARIABLE <out-var>])",
+      "cmake_path(REPLACE_FILENAME <path-var> <input> [OUTPUT_VARIABLE <out-var>])",
+      "cmake_path(REMOVE_EXTENSION <path-var> [LAST_ONLY] [OUTPUT_VARIABLE <out-var>])",
+      "cmake_path(REPLACE_EXTENSION <path-var> [LAST_ONLY] <input> [OUTPUT_VARIABLE <out-var>])",
+      "cmake_path(NORMAL_PATH <path-var> [OUTPUT_VARIABLE <out-var>])",
+      "cmake_path(RELATIVE_PATH <path-var> [BASE_DIRECTORY <input>] [OUTPUT_VARIABLE <out-var>])",
+      "cmake_path(ABSOLUTE_PATH <path-var> [BASE_DIRECTORY <input>] [NORMALIZE] [OUTPUT_VARIABLE <out-var>])",
+      "cmake_path(NATIVE_PATH <path-var> [NORMALIZE] <out-var>)",
+      "cmake_path(CONVERT <input> TO_CMAKE_PATH_LIST <out-var> [NORMALIZE])",
+      "cmake_path(CONVERT <input> TO_NATIVE_PATH_LIST <out-var> [NORMALIZE])",
+      "cmake_path(HASH <path-var> <out-var>)"
+    ]
+  },
+  "cmake_policy": {
+    "doc": "Manage CMake Policy settings",
+    "sig": [
+      "cmake_policy(VERSION <min>[...<max>])",
+      "cmake_policy(SET CMP<NNNN> NEW)",
+      "cmake_policy(SET CMP<NNNN> OLD)",
+      "cmake_policy(GET CMP<NNNN> <variable>)",
+      "cmake_policy(PUSH)",
+      "cmake_policy(POP)"
+    ]
+  },
+  "configure_file": {
+    "doc": "Copy a file to another location and modify its contents.",
+    "sig": [
+      "configure_file(<input> <output> [NO_SOURCE_PERMISSIONS | USE_SOURCE_PERMISSIONS | FILE_PERMISSIONS <permissions>...] [COPYONLY] [ESCAPE_QUOTES] [@ONLY] [NEWLINE_STYLE [UNIX|DOS|WIN32|LF|CRLF] ])"
+    ]
+  },
+  "continue": {
+    "doc": "The continue command allows a cmake script to abort the rest of a block in a foreach() or while() loop, and start at the top of the next iteration.",
+    "sig": [
+      "continue()"
+    ]
+  },
+  "create_test_sourcelist": {
+    "doc": "Create a test driver and source list for building test programs.",
+    "sig": [
+      "create_test_sourcelist(sourceListName driverName test1 test2 test3 EXTRA_INCLUDE include.h FUNCTION function)"
+    ]
+  },
+  "ctest_build": {
+    "doc": "Perform the CTest Build Step as a Dashboard Client.",
+    "sig": [
+      "ctest_build([BUILD <build-dir>] [APPEND] [CONFIGURATION <config>] [PARALLEL_LEVEL <parallel>] [FLAGS <flags>] [PROJECT_NAME <project-name>] [TARGET <target-name>] [NUMBER_ERRORS <num-err-var>] [NUMBER_WARNINGS <num-warn-var>] [RETURN_VALUE <result-var>] [CAPTURE_CMAKE_ERROR <result-var>])"
+    ]
+  },
+  "ctest_configure": {
+    "doc": "Perform the CTest Configure Step as a Dashboard Client.",
+    "sig": [
+      "ctest_configure([BUILD <build-dir>] [SOURCE <source-dir>] [APPEND] [OPTIONS <options>] [RETURN_VALUE <result-var>] [QUIET] [CAPTURE_CMAKE_ERROR <result-var>])"
+    ]
+  },
+  "ctest_coverage": {
+    "doc": "Perform the CTest Coverage Step as a Dashboard Client.",
+    "sig": [
+      "ctest_coverage([BUILD <build-dir>] [APPEND] [LABELS <label>...] [RETURN_VALUE <result-var>] [CAPTURE_CMAKE_ERROR <result-var>] [QUIET])"
+    ]
+  },
+  "ctest_empty_binary_directory": {
+    "doc": "empties the binary directory",
+    "sig": [
+      "ctest_empty_binary_directory( directory )"
+    ]
+  },
+  "ctest_memcheck": {
+    "doc": "Perform the CTest MemCheck Step as a Dashboard Client.",
+    "sig": [
+      "ctest_memcheck([BUILD <build-dir>] [APPEND] [START <start-number>] [END <end-number>] [STRIDE <stride-number>] [EXCLUDE <exclude-regex>] [INCLUDE <include-regex>] [EXCLUDE_LABEL <label-exclude-regex>] [INCLUDE_LABEL <label-include-regex>] [EXCLUDE_FIXTURE <regex>] [EXCLUDE_FIXTURE_SETUP <regex>] [EXCLUDE_FIXTURE_CLEANUP <regex>] [PARALLEL_LEVEL <level>] [RESOURCE_SPEC_FILE <file>] [TEST_LOAD <threshold>] [SCHEDULE_RANDOM <ON|OFF>] [STOP_ON_FAILURE] [STOP_TIME <time-of-day>] [RETURN_VALUE <result-var>] [CAPTURE_CMAKE_ERROR <result-var>] [REPEAT <mode>:<n>] [OUTPUT_JUNIT <file>] [DEFECT_COUNT <defect-count-var>] [QUIET])"
+    ]
+  },
+  "ctest_read_custom_files": {
+    "doc": "read CTestCustom files.",
+    "sig": [
+      "ctest_read_custom_files( directory ... )"
+    ]
+  },
+  "ctest_run_script": {
+    "doc": "Runs a script or scripts much like if it was run from ctest -S.",
+    "sig": [
+      "ctest_run_script([NEW_PROCESS] script_file_name script_file_name1 script_file_name2 ... [RETURN_VALUE var])"
+    ]
+  },
+  "ctest_sleep": {
+    "doc": "sleeps for some amount of time",
+    "sig": [
+      "ctest_sleep(<seconds>)",
+      "ctest_sleep(<time1> <duration> <time2>)"
+    ]
+  },
+  "ctest_start": {
+    "doc": "Starts the testing for a given model. The command should be called after the binary directory is initialized",
+    "sig": [
+      "ctest_start(<model> [<source> [<binary>]] [GROUP <group>] [QUIET])",
+      "ctest_start([<model> [<source> [<binary>]]] [GROUP <group>] APPEND [QUIET])"
+    ]
+  },
+  "ctest_submit": {
+    "doc": "Perform the CTest Submit Step as a Dashboard Client.",
+    "sig": [
+      "ctest_submit([PARTS <part>...] [FILES <file>...] [SUBMIT_URL <url>] [BUILD_ID <result-var>] [HTTPHEADER <header>] [RETRY_COUNT <count>] [RETRY_DELAY <delay>] [RETURN_VALUE <result-var>] [CAPTURE_CMAKE_ERROR <result-var>] [QUIET])",
+      "ctest_submit(CDASH_UPLOAD <file> [CDASH_UPLOAD_TYPE <type>] [SUBMIT_URL <url>] [BUILD_ID <result-var>] [HTTPHEADER <header>] [RETRY_COUNT <count>] [RETRY_DELAY <delay>] [RETURN_VALUE <result-var>] [QUIET])"
+    ]
+  },
+  "ctest_test": {
+    "doc": "Run tests in the project build tree and store results in Test.xml for submission with the ctest_submit() command.",
+    "sig": [
+      "ctest_test([BUILD <build-dir>] [APPEND] [START <start-number>] [END <end-number>] [STRIDE <stride-number>] [EXCLUDE <exclude-regex>] [INCLUDE <include-regex>] [EXCLUDE_LABEL <label-exclude-regex>] [INCLUDE_LABEL <label-include-regex>] [EXCLUDE_FIXTURE <regex>] [EXCLUDE_FIXTURE_SETUP <regex>] [EXCLUDE_FIXTURE_CLEANUP <regex>] [PARALLEL_LEVEL <level>] [RESOURCE_SPEC_FILE <file>] [TEST_LOAD <threshold>] [SCHEDULE_RANDOM <ON|OFF>] [STOP_ON_FAILURE] [STOP_TIME <time-of-day>] [RETURN_VALUE <result-var>] [CAPTURE_CMAKE_ERROR <result-var>] [REPEAT <mode>:<n>] [OUTPUT_JUNIT <file>] [QUIET])"
+    ]
+  },
+  "ctest_update": {
+    "doc": "Perform the CTest Update Step as a Dashboard Client.",
+    "sig": [
+      "ctest_update([SOURCE <source-dir>] [RETURN_VALUE <result-var>] [CAPTURE_CMAKE_ERROR <result-var>] [QUIET])"
+    ]
+  },
+  "ctest_upload": {
+    "doc": "Upload files to a dashboard server as a Dashboard Client.",
+    "sig": [
+      "ctest_upload(FILES <file>... [QUIET] [CAPTURE_CMAKE_ERROR <result-var>])"
+    ]
+  },
+  "define_property": {
+    "doc": "Define and document custom properties.",
+    "sig": [
+      "define_property(<GLOBAL | DIRECTORY | TARGET | SOURCE | TEST | VARIABLE | CACHED_VARIABLE> PROPERTY <name> [INHERITED] BRIEF_DOCS <brief-doc> [docs...] FULL_DOCS <full-doc> [docs...])"
+    ]
+  },
+  "else": {
+    "doc": "Starts the else portion of an if block.",
+    "sig": [
+      "else([<condition>])"
+    ]
+  },
+  "elseif": {
+    "doc": "Starts an elseif portion of an if block.",
+    "sig": [
+      "elseif(<condition>)",
+      "elseif(<constant>)",
+      "elseif(<variable|string>)",
+      "elseif(NOT <condition>)",
+      "elseif(<cond1> AND <cond2>)",
+      "elseif(<cond1> OR <cond2>)",
+      "elseif(DEFINED <name>|CACHE{<name>}|ENV{<name>})",
+      "elseif(<variable|string> IN_LIST <variable>)",
+      "elseif(<variable|string> MATCHES regex)",
+      "elseif(<variable|string> LESS <variable|string>)",
+      "elseif(<variable|string> GREATER <variable|string>)",
+      "elseif(<variable|string> EQUAL <variable|string>)",
+      "elseif(<variable|string> LESS_EQUAL <variable|string>)",
+      "elseif(<variable|string> GREATER_EQUAL <variable|string>)",
+      "elseif(<variable|string> STRLESS <variable|string>)",
+      "elseif(<variable|string> STRGREATER <variable|string>)",
+      "elseif(<variable|string> STREQUAL <variable|string>)",
+      "elseif(<variable|string> STRLESS_EQUAL <variable|string>)",
+      "elseif(<variable|string> STRGREATER_EQUAL <variable|string>)",
+      "elseif(<variable|string> VERSION_LESS <variable|string>)",
+      "elseif(<variable|string> VERSION_GREATER <variable|string>)",
+      "elseif(<variable|string> VERSION_EQUAL <variable|string>)",
+      "elseif(<variable|string> VERSION_LESS_EQUAL <variable|string>)",
+      "elseif(<variable|string> VERSION_GREATER_EQUAL <variable|string>)",
+      "elseif(var1)",
+      "elseif(var2)"
+    ]
+  },
+  "enable_language": {
+    "doc": "Enable a language (CXX/C/OBJC/OBJCXX/Fortran/etc)",
+    "sig": [
+      "enable_language(<lang> [OPTIONAL] )"
+    ]
+  },
+  "enable_testing": {
+    "doc": "Enable testing for current directory and below.",
+    "sig": [
+      "enable_testing()"
+    ]
+  },
+  "endforeach": {
+    "doc": "Ends a list of commands in a foreach block.",
+    "sig": [
+      "endforeach([<loop_var>])"
+    ]
+  },
+  "endfunction": {
+    "doc": "Ends a list of commands in a function block.",
+    "sig": [
+      "endfunction([<name>])"
+    ]
+  },
+  "endif": {
+    "doc": "Ends a list of commands in an if block.",
+    "sig": [
+      "endif([<condition>])"
+    ]
+  },
+  "endmacro": {
+    "doc": "Ends a list of commands in a macro block.",
+    "sig": [
+      "endmacro([<name>])"
+    ]
+  },
+  "endwhile": {
+    "doc": "Ends a list of commands in a while block.",
+    "sig": [
+      "endwhile([<condition>])"
+    ]
+  },
+  "exec_program": {
+    "doc": "Run an executable program during the processing of the CMakeList.txt file.",
+    "sig": [
+      "exec_program(Executable [directory in which to run] [ARGS <arguments to executable>] [OUTPUT_VARIABLE <var>] [RETURN_VALUE <var>])"
+    ]
+  },
+  "execute_process": {
+    "doc": "Execute one or more child processes.",
+    "sig": [
+      "execute_process(COMMAND <cmd1> [<arguments>] [COMMAND <cmd2> [<arguments>]]... [WORKING_DIRECTORY <directory>] [TIMEOUT <seconds>] [RESULT_VARIABLE <variable>] [RESULTS_VARIABLE <variable>] [OUTPUT_VARIABLE <variable>] [ERROR_VARIABLE <variable>] [INPUT_FILE <file>] [OUTPUT_FILE <file>] [ERROR_FILE <file>] [OUTPUT_QUIET] [ERROR_QUIET] [COMMAND_ECHO <where>] [OUTPUT_STRIP_TRAILING_WHITESPACE] [ERROR_STRIP_TRAILING_WHITESPACE] [ENCODING <name>] [ECHO_OUTPUT_VARIABLE] [ECHO_ERROR_VARIABLE] [COMMAND_ERROR_IS_FATAL <ANY|LAST>])"
+    ]
+  },
+  "export": {
+    "doc": "Export targets or packages for outside projects to use them directly from the current project's build tree, without installation.",
+    "sig": [
+      "export(EXPORT <export-name> [NAMESPACE <namespace>] [FILE <filename>])",
+      "export(TARGETS [target1 [target2 [...]]] [NAMESPACE <namespace>] [APPEND] FILE <filename> [EXPORT_LINK_INTERFACE_LIBRARIES])",
+      "export(PACKAGE <PackageName>)",
+      "export(TARGETS [target1 [target2 [...]]] [ANDROID_MK <filename>])"
+    ]
+  },
+  "export_library_dependencies": {
+    "doc": "Disallowed since version 3.0. Create a file named <file> that can be included into a CMake listfile with the INCLUDE command.",
+    "sig": [
+      "export_library_dependencies(<file> [APPEND])"
+    ]
+  },
+  "file": {
+    "doc": "File manipulation command.",
+    "sig": [
+      "file(READ <filename> <variable> [OFFSET <offset>] [LIMIT <max-in>] [HEX])",
+      "file(STRINGS <filename> <variable> [<options>...])",
+      "file(<HASH> <filename> <variable>)",
+      "file(TIMESTAMP <filename> <variable> [<format>] [UTC])",
+      "file(GET_RUNTIME_DEPENDENCIES [RESOLVED_DEPENDENCIES_VAR <deps_var>] [UNRESOLVED_DEPENDENCIES_VAR <unresolved_deps_var>] [CONFLICTING_DEPENDENCIES_PREFIX <conflicting_deps_prefix>] [EXECUTABLES [<executable_files>...]] [LIBRARIES [<library_files>...]] [MODULES [<module_files>...]] [DIRECTORIES [<directories>...]] [BUNDLE_EXECUTABLE <bundle_executable_file>] [PRE_INCLUDE_REGEXES [<regexes>...]] [PRE_EXCLUDE_REGEXES [<regexes>...]] [POST_INCLUDE_REGEXES [<regexes>...]] [POST_EXCLUDE_REGEXES [<regexes>...]] [POST_INCLUDE_FILES [<files>...]] [POST_EXCLUDE_FILES [<files>...]])",
+      "file(WRITE <filename> <content>...)",
+      "file(APPEND <filename> <content>...)",
+      "file(TOUCH [<files>...])",
+      "file(TOUCH_NOCREATE [<files>...])",
+      "file(GENERATE OUTPUT output-file <INPUT input-file|CONTENT content> [CONDITION expression] [TARGET target] [NO_SOURCE_PERMISSIONS | USE_SOURCE_PERMISSIONS | FILE_PERMISSIONS <permissions>...] [NEWLINE_STYLE [UNIX|DOS|WIN32|LF|CRLF] ])",
+      "file(CONFIGURE OUTPUT output-file CONTENT content [ESCAPE_QUOTES] [@ONLY] [NEWLINE_STYLE [UNIX|DOS|WIN32|LF|CRLF] ])",
+      "file(GLOB <variable> [LIST_DIRECTORIES true|false] [RELATIVE <path>] [CONFIGURE_DEPENDS] [<globbing-expressions>...])",
+      "file(GLOB_RECURSE <variable> [FOLLOW_SYMLINKS] [LIST_DIRECTORIES true|false] [RELATIVE <path>] [CONFIGURE_DEPENDS] [<globbing-expressions>...])",
+      "file(MAKE_DIRECTORY [<directories>...])",
+      "file(REMOVE [<files>...])",
+      "file(REMOVE_RECURSE [<files>...])",
+      "file(RENAME <oldname> <newname> [RESULT <result>] [NO_REPLACE])",
+      "file(COPY_FILE <oldname> <newname> [RESULT <result>] [ONLY_IF_DIFFERENT])",
+      "file(<COPY|INSTALL> <files>... DESTINATION <dir> [NO_SOURCE_PERMISSIONS | USE_SOURCE_PERMISSIONS] [FILE_PERMISSIONS <permissions>...] [DIRECTORY_PERMISSIONS <permissions>...] [FOLLOW_SYMLINK_CHAIN] [FILES_MATCHING] [[PATTERN <pattern> | REGEX <regex>] [EXCLUDE] [PERMISSIONS <permissions>...]] [...])",
+      "file(SIZE <filename> <variable>)",
+      "file(READ_SYMLINK <linkname> <variable>)",
+      "file(CREATE_LINK <original> <linkname> [RESULT <result>] [COPY_ON_ERROR] [SYMBOLIC])",
+      "file(CHMOD <files>... <directories>... [PERMISSIONS <permissions>...] [FILE_PERMISSIONS <permissions>...] [DIRECTORY_PERMISSIONS <permissions>...])",
+      "file(CHMOD_RECURSE <files>... <directories>... [PERMISSIONS <permissions>...] [FILE_PERMISSIONS <permissions>...] [DIRECTORY_PERMISSIONS <permissions>...])",
+      "file(REAL_PATH <path> <out-var> [BASE_DIRECTORY <dir>] [EXPAND_TILDE])",
+      "file(RELATIVE_PATH <variable> <directory> <file>)",
+      "file(TO_CMAKE_PATH \"<path>\" <variable>)",
+      "file(TO_NATIVE_PATH \"<path>\" <variable>)",
+      "file(DOWNLOAD <url> [<file>] [<options>...])",
+      "file(UPLOAD <file> <url> [<options>...])",
+      "file(LOCK <path> [DIRECTORY] [RELEASE] [GUARD <FUNCTION|FILE|PROCESS>] [RESULT_VARIABLE <variable>] [TIMEOUT <seconds>])",
+      "file(ARCHIVE_CREATE OUTPUT <archive> PATHS <paths>... [FORMAT <format>] [COMPRESSION <compression> [COMPRESSION_LEVEL <compression-level>]] [MTIME <mtime>] [VERBOSE])",
+      "file(ARCHIVE_EXTRACT INPUT <archive> [DESTINATION <dir>] [PATTERNS <patterns>...] [LIST_ONLY] [VERBOSE])"
+    ]
+  },
+  "find_file": {
+    "doc": "This command is used to find a full path to named file.",
+    "sig": [
+      "find_file(<VAR> name1 [path1 path2 ...])",
+      "find_file(<VAR> name | NAMES name1 [name2 ...] [HINTS [path | ENV var]... ] [PATHS [path | ENV var]... ] [PATH_SUFFIXES suffix1 [suffix2 ...]] [DOC \"cache documentation string\"] [NO_CACHE] [REQUIRED] [NO_DEFAULT_PATH] [NO_PACKAGE_ROOT_PATH] [NO_CMAKE_PATH] [NO_CMAKE_ENVIRONMENT_PATH] [NO_SYSTEM_ENVIRONMENT_PATH] [NO_CMAKE_SYSTEM_PATH] [CMAKE_FIND_ROOT_PATH_BOTH | ONLY_CMAKE_FIND_ROOT_PATH | NO_CMAKE_FIND_ROOT_PATH])",
+      "find_file(<VAR> NAMES name PATHS paths... NO_DEFAULT_PATH)",
+      "find_file(<VAR> NAMES name)"
+    ]
+  },
+  "find_library": {
+    "doc": "This command is used to find a library.",
+    "sig": [
+      "find_library(<VAR> name1 [path1 path2 ...])",
+      "find_library(<VAR> name | NAMES name1 [name2 ...] [NAMES_PER_DIR] [HINTS [path | ENV var]... ] [PATHS [path | ENV var]... ] [PATH_SUFFIXES suffix1 [suffix2 ...]] [DOC \"cache documentation string\"] [NO_CACHE] [REQUIRED] [NO_DEFAULT_PATH] [NO_PACKAGE_ROOT_PATH] [NO_CMAKE_PATH] [NO_CMAKE_ENVIRONMENT_PATH] [NO_SYSTEM_ENVIRONMENT_PATH] [NO_CMAKE_SYSTEM_PATH] [CMAKE_FIND_ROOT_PATH_BOTH | ONLY_CMAKE_FIND_ROOT_PATH | NO_CMAKE_FIND_ROOT_PATH])",
+      "find_library(<VAR> NAMES name PATHS paths... NO_DEFAULT_PATH)",
+      "find_library(<VAR> NAMES name)"
+    ]
+  },
+  "find_package": {
+    "doc": "Find a package (usually provided by something external to the project), and load its package-specific details.",
+    "sig": [
+      "find_package(<PackageName> [version] [EXACT] [QUIET] [MODULE] [REQUIRED] [[COMPONENTS] [components...]] [OPTIONAL_COMPONENTS components...] [NO_POLICY_SCOPE])",
+      "find_package(<PackageName> [version] [EXACT] [QUIET] [REQUIRED] [[COMPONENTS] [components...]] [OPTIONAL_COMPONENTS components...] [CONFIG|NO_MODULE] [NO_POLICY_SCOPE] [NAMES name1 [name2 ...]] [CONFIGS config1 [config2 ...]] [HINTS path1 [path2 ... ]] [PATHS path1 [path2 ... ]] [PATH_SUFFIXES suffix1 [suffix2 ...]] [NO_DEFAULT_PATH] [NO_PACKAGE_ROOT_PATH] [NO_CMAKE_PATH] [NO_CMAKE_ENVIRONMENT_PATH] [NO_SYSTEM_ENVIRONMENT_PATH] [NO_CMAKE_PACKAGE_REGISTRY] [NO_CMAKE_BUILDS_PATH] # Deprecated; does nothing. [NO_CMAKE_SYSTEM_PATH] [NO_CMAKE_SYSTEM_PACKAGE_REGISTRY] [CMAKE_FIND_ROOT_PATH_BOTH | ONLY_CMAKE_FIND_ROOT_PATH | NO_CMAKE_FIND_ROOT_PATH])",
+      "find_package(<PackageName> PATHS paths... NO_DEFAULT_PATH)",
+      "find_package(<PackageName>)"
+    ]
+  },
+  "find_path": {
+    "doc": "This command is used to find a directory containing the named file.",
+    "sig": [
+      "find_path(<VAR> name1 [path1 path2 ...])",
+      "find_path(<VAR> name | NAMES name1 [name2 ...] [HINTS [path | ENV var]... ] [PATHS [path | ENV var]... ] [PATH_SUFFIXES suffix1 [suffix2 ...]] [DOC \"cache documentation string\"] [NO_CACHE] [REQUIRED] [NO_DEFAULT_PATH] [NO_PACKAGE_ROOT_PATH] [NO_CMAKE_PATH] [NO_CMAKE_ENVIRONMENT_PATH] [NO_SYSTEM_ENVIRONMENT_PATH] [NO_CMAKE_SYSTEM_PATH] [CMAKE_FIND_ROOT_PATH_BOTH | ONLY_CMAKE_FIND_ROOT_PATH | NO_CMAKE_FIND_ROOT_PATH])",
+      "find_path(<VAR> NAMES name PATHS paths... NO_DEFAULT_PATH)",
+      "find_path(<VAR> NAMES name)"
+    ]
+  },
+  "find_program": {
+    "doc": "This command is used to find a program. ",
+    "sig": [
+      "find_program(<VAR> name1 [path1 path2 ...])",
+      "find_program(<VAR> name | NAMES name1 [name2 ...] [NAMES_PER_DIR] [HINTS [path | ENV var]... ] [PATHS [path | ENV var]... ] [PATH_SUFFIXES suffix1 [suffix2 ...]] [DOC \"cache documentation string\"] [NO_CACHE] [REQUIRED] [NO_DEFAULT_PATH] [NO_PACKAGE_ROOT_PATH] [NO_CMAKE_PATH] [NO_CMAKE_ENVIRONMENT_PATH] [NO_SYSTEM_ENVIRONMENT_PATH] [NO_CMAKE_SYSTEM_PATH] [CMAKE_FIND_ROOT_PATH_BOTH | ONLY_CMAKE_FIND_ROOT_PATH | NO_CMAKE_FIND_ROOT_PATH])",
+      "find_program(<VAR> NAMES name PATHS paths... NO_DEFAULT_PATH)",
+      "find_program(<VAR> NAMES name)"
+    ]
+  },
+  "fltk_wrap_ui": {
+    "doc": "Create FLTK user interfaces Wrappers.",
+    "sig": [
+      "fltk_wrap_ui(resultingLibraryName source1 source2 ... sourceN)"
+    ]
+  },
+  "foreach": {
+    "doc": "Evaluate a group of commands for each value in a list.",
+    "sig": [
+      "foreach(<loop_var> <items>)",
+      "foreach(<loop_var> RANGE <stop>)",
+      "foreach(<loop_var> RANGE <start> <stop> [<step>])",
+      "foreach(<loop_var> IN [LISTS [<lists>]] [ITEMS [<items>]])",
+      "foreach(<loop_var>... IN ZIP_LISTS <lists>)"
+    ]
+  },
+  "function": {
+    "doc": "Start recording a function for later invocation as a command.",
+    "sig": [
+      "function(<name> [<arg1> ...])"
+    ]
+  },
+  "get_cmake_property": {
+    "doc": "Get a global property of the CMake instance.",
+    "sig": [
+      "get_cmake_property(<var> <property>)"
+    ]
+  },
+  "get_directory_property": {
+    "doc": "Get a property of DIRECTORY scope.",
+    "sig": [
+      "get_directory_property(<variable> [DIRECTORY <dir>] <prop-name>)",
+      "get_directory_property(<variable> [DIRECTORY <dir>] DEFINITION <var-name>)"
+    ]
+  },
+  "get_filename_component": {
+    "doc": "Get a specific component of a full filename.",
+    "sig": [
+      "get_filename_component(<var> <FileName> <mode> [CACHE])",
+      "get_filename_component(<var> <FileName> <mode> [BASE_DIR <dir>] [CACHE])",
+      "get_filename_component(<var> <FileName> PROGRAM [PROGRAM_ARGS <arg_var>] [CACHE])"
+    ]
+  },
+  "get_property": {
+    "doc": "Gets one property from one object in a scope.",
+    "sig": [
+      "get_property(<variable> <GLOBAL | DIRECTORY [<dir>] | TARGET <target> | SOURCE <source> [DIRECTORY <dir> | TARGET_DIRECTORY <target>] | INSTALL <file> | TEST <test> | CACHE <entry> | VARIABLE > PROPERTY <name> [SET | DEFINED | BRIEF_DOCS | FULL_DOCS])"
+    ]
+  },
+  "get_source_file_property": {
+    "doc": "Get a property for a source file.",
+    "sig": [
+      "get_source_file_property(<variable> <file> [DIRECTORY <dir> | TARGET_DIRECTORY <target>] <property>)"
+    ]
+  },
+  "get_target_property": {
+    "doc": "Get a property from a target.",
+    "sig": [
+      "get_target_property(<VAR> target property)"
+    ]
+  },
+  "get_test_property": {
+    "doc": "Get a property of the test.",
+    "sig": [
+      "get_test_property(test property VAR)"
+    ]
+  },
+  "if": {
+    "doc": "Conditionally execute a group of commands.",
+    "sig": [
+      "if(<condition>)",
+      "if(<constant>)",
+      "if(<variable|string>)",
+      "if(NOT <condition>)",
+      "if(<cond1> AND <cond2>)",
+      "if(<cond1> OR <cond2>)",
+      "if((condition)",
+      "if(COMMAND command-name)",
+      "if(POLICY policy-id)",
+      "if(TARGET target-name)",
+      "if(TEST test-name)",
+      "if(DEFINED <name>|CACHE{<name>}|ENV{<name>})",
+      "if(<variable|string> IN_LIST <variable>)",
+      "if(EXISTS path-to-file-or-directory)",
+      "if(file1 IS_NEWER_THAN file2)",
+      "if(IS_DIRECTORY path-to-directory)",
+      "if(IS_SYMLINK file-name)",
+      "if(IS_ABSOLUTE path)",
+      "if(<variable|string> MATCHES regex)",
+      "if(<variable|string> LESS <variable|string>)",
+      "if(<variable|string> GREATER <variable|string>)",
+      "if(<variable|string> EQUAL <variable|string>)",
+      "if(<variable|string> LESS_EQUAL <variable|string>)",
+      "if(<variable|string> GREATER_EQUAL <variable|string>)",
+      "if(<variable|string> STRLESS <variable|string>)",
+      "if(<variable|string> STRGREATER <variable|string>)",
+      "if(<variable|string> STREQUAL <variable|string>)",
+      "if(<variable|string> STRLESS_EQUAL <variable|string>)",
+      "if(<variable|string> STRGREATER_EQUAL <variable|string>)",
+      "if(<variable|string> VERSION_LESS <variable|string>)",
+      "if(<variable|string> VERSION_GREATER <variable|string>)",
+      "if(<variable|string> VERSION_EQUAL <variable|string>)",
+      "if(<variable|string> VERSION_LESS_EQUAL <variable|string>)",
+      "if(<variable|string> VERSION_GREATER_EQUAL <variable|string>)",
+      "if(${var2})",
+      "if(var1)",
+      "if(var2)"
+    ]
+  },
+  "include": {
+    "doc": "Load and run CMake code from a file or module.",
+    "sig": [
+      "include(<file|module> [OPTIONAL] [RESULT_VARIABLE <var>] [NO_POLICY_SCOPE])"
+    ]
+  },
+  "include_directories": {
+    "doc": "List of preprocessor include file search directories.",
+    "sig": [
+      "include_directories([AFTER|BEFORE] [SYSTEM] dir1 [dir2 ...])"
+    ]
+  },
+  "include_external_msproject": {
+    "doc": "Include an external Microsoft project file in a workspace.",
+    "sig": [
+      "include_external_msproject(projectname location [TYPE projectTypeGUID] [GUID projectGUID] [PLATFORM platformName] dep1 dep2 ...)"
+    ]
+  },
+  "include_guard": {
+    "doc": "Provides an include guard for the file currently being processed by CMake.",
+    "sig": [
+      "include_guard([DIRECTORY|GLOBAL])"
+    ]
+  },
+  "include_regular_expression": {
+    "doc": "Include file scanning regular expression.",
+    "sig": [
+      "include_regular_expression(regex_match [regex_complain])"
+    ]
+  },
+  "install": {
+    "doc": "Specify rules to run at install time.",
+    "sig": [
+      "install(TARGETS <target>... [...])",
+      "install(IMPORTED_RUNTIME_ARTIFACTS <target>... [...])",
+      "install({FILES | PROGRAMS} <file>... [...])",
+      "install(DIRECTORY <dir>... [...])",
+      "install(SCRIPT <file> [...])",
+      "install(CODE <code> [...])",
+      "install(EXPORT <export-name> [...])",
+      "install(RUNTIME_DEPENDENCY_SET <set-name> [...])",
+      "install(TARGETS targets... [EXPORT <export-name>] [RUNTIME_DEPENDENCIES args...|RUNTIME_DEPENDENCY_SET <set-name>] [[ARCHIVE|LIBRARY|RUNTIME|OBJECTS|FRAMEWORK|BUNDLE| PRIVATE_HEADER|PUBLIC_HEADER|RESOURCE] [DESTINATION <dir>] [PERMISSIONS permissions...] [CONFIGURATIONS [Debug|Release|...]] [COMPONENT <component>] [NAMELINK_COMPONENT <component>] [OPTIONAL] [EXCLUDE_FROM_ALL] [NAMELINK_ONLY|NAMELINK_SKIP] ] [...] [INCLUDES DESTINATION [<dir> ...]])",
+      "install(RUNTIME_DEPENDENCY_SET)",
+      "install(IMPORTED_RUNTIME_ARTIFACTS targets... [RUNTIME_DEPENDENCY_SET <set-name>] [[LIBRARY|RUNTIME|FRAMEWORK|BUNDLE] [DESTINATION <dir>] [PERMISSIONS permissions...] [CONFIGURATIONS [Debug|Release|...]] [COMPONENT <component>] [OPTIONAL] [EXCLUDE_FROM_ALL] ] [...])",
+      "install(<FILES|PROGRAMS> files... TYPE <type> | DESTINATION <dir> [PERMISSIONS permissions...] [CONFIGURATIONS [Debug|Release|...]] [COMPONENT <component>] [RENAME <name>] [OPTIONAL] [EXCLUDE_FROM_ALL])",
+      "install(DIRECTORY dirs... TYPE <type> | DESTINATION <dir> [FILE_PERMISSIONS permissions...] [DIRECTORY_PERMISSIONS permissions...] [USE_SOURCE_PERMISSIONS] [OPTIONAL] [MESSAGE_NEVER] [CONFIGURATIONS [Debug|Release|...]] [COMPONENT <component>] [EXCLUDE_FROM_ALL] [FILES_MATCHING] [[PATTERN <pattern> | REGEX <regex>] [EXCLUDE] [PERMISSIONS permissions...]] [...])",
+      "install([[SCRIPT <file>] [CODE <code>]] [ALL_COMPONENTS | COMPONENT <component>] [EXCLUDE_FROM_ALL] [...])",
+      "install(EXPORT <export-name> DESTINATION <dir> [NAMESPACE <namespace>] [[FILE <name>.cmake]| [PERMISSIONS permissions...] [CONFIGURATIONS [Debug|Release|...]] [EXPORT_LINK_INTERFACE_LIBRARIES] [COMPONENT <component>] [EXCLUDE_FROM_ALL])",
+      "install(EXPORT_ANDROID_MK <export-name> DESTINATION <dir> [...])",
+      "install(RUNTIME_DEPENDENCY_SET <set-name> [[LIBRARY|RUNTIME|FRAMEWORK] [DESTINATION <dir>] [PERMISSIONS permissions...] [CONFIGURATIONS [Debug|Release|...]] [COMPONENT <component>] [NAMELINK_COMPONENT <component>] [OPTIONAL] [EXCLUDE_FROM_ALL] ] [...] [PRE_INCLUDE_REGEXES regexes...] [PRE_EXCLUDE_REGEXES regexes...] [POST_INCLUDE_REGEXES regexes...] [POST_EXCLUDE_REGEXES regexes...] [POST_INCLUDE_FILES files...] [POST_EXCLUDE_FILES files...] [DIRECTORIES directories...])"
+    ]
+  },
+  "install_files": {
+    "doc": "Deprecated since version 3.0: Use the install(FILES) command instead.",
+    "sig": [
+      "install_files(<dir> extension file file ...)",
+      "install_files(<dir> regexp)",
+      "install_files(<dir> FILES file file ...)"
+    ]
+  },
+  "install_programs": {
+    "doc": "Deprecated since version 3.0: Use the install(PROGRAMS) command instead.",
+    "sig": [
+      "install_programs(<dir> file1 file2 [file3 ...])",
+      "install_programs(<dir> FILES file1 [file2 ...])",
+      "install_programs(<dir> regexp)"
+    ]
+  },
+  "install_targets": {
+    "doc": "Deprecated since version 3.0: Use the install(TARGETS) command instead.",
+    "sig": [
+      "install_targets(<dir> [RUNTIME_DIRECTORY dir] target target)"
+    ]
+  },
+  "link_directories": {
+    "doc": "Add directories in which the linker will look for libraries.",
+    "sig": [
+      "link_directories([AFTER|BEFORE] directory1 [directory2 ...])"
+    ]
+  },
+  "link_libraries": {
+    "doc": "Link libraries to all targets added later.",
+    "sig": [
+      "link_libraries([item1 [item2 [...]]] [[debug|optimized|general] <item>] ...)"
+    ]
+  },
+  "list": {
+    "doc": "List operations.",
+    "sig": [
+      "list(LENGTH <list> <output variable>)",
+      "list(GET <list> <element index> [<element index> ...] <output variable>)",
+      "list(JOIN <list> <glue> <output variable>)",
+      "list(SUBLIST <list> <begin> <length> <output variable>)",
+      "list(FIND <list> <value> <output variable>)",
+      "list(APPEND <list> [<element> ...])",
+      "list(FILTER <list> <INCLUDE|EXCLUDE> REGEX <regular_expression>)",
+      "list(INSERT <list> <element_index> <element> [<element> ...])",
+      "list(POP_BACK <list> [<out-var>...])",
+      "list(POP_FRONT <list> [<out-var>...])",
+      "list(PREPEND <list> [<element> ...])",
+      "list(REMOVE_ITEM <list> <value> [<value> ...])",
+      "list(REMOVE_AT <list> <index> [<index> ...])",
+      "list(REMOVE_DUPLICATES <list>)",
+      "list(TRANSFORM <list> <ACTION> [<SELECTOR>] [OUTPUT_VARIABLE <output variable>])",
+      "list(REVERSE <list>)",
+      "list(SORT <list> [COMPARE <compare>] [CASE <case>] [ORDER <order>])"
+    ]
+  },
+  "load_cache": {
+    "doc": "Load in the values from another project's CMake cache.",
+    "sig": [
+      "load_cache(pathToBuildDirectory READ_WITH_PREFIX prefix entry1...)",
+      "load_cache(pathToBuildDirectory [EXCLUDE entry1...] [INCLUDE_INTERNALS entry1...])"
+    ]
+  },
+  "load_command": {
+    "doc": "Disallowed since version 3.0. See CMake Policy CMP0031. Load a command into a running CMake.",
+    "sig": [
+      "load_command(COMMAND_NAME <loc1> [loc2 ...])"
+    ]
+  },
+  "macro": {
+    "doc": "Start recording a macro for later invocation as a command.",
+    "sig": [
+      "macro(<name> [<arg1> ...])"
+    ]
+  },
+  "make_directory": {
+    "doc": "Deprecated since version 3.0: Use the file(MAKE_DIRECTORY) command instead.",
+    "sig": [
+      "make_directory(directory)"
+    ]
+  },
+  "mark_as_advanced": {
+    "doc": "Mark cmake cached variables as advanced.",
+    "sig": [
+      "mark_as_advanced([CLEAR|FORCE] <var1> ...)"
+    ]
+  },
+  "math": {
+    "doc": "Evaluate a mathematical expression.",
+    "sig": [
+      "math(EXPR <variable> \"<expression>\" [OUTPUT_FORMAT <format>])"
+    ]
+  },
+  "message": {
+    "doc": "Log a message.",
+    "sig": [
+      "message([<mode>] \"message text\" ...)",
+      "message(<checkState> \"message\" ...)"
+    ]
+  },
+  "option": {
+    "doc": "Provide a boolean option that the user can optionally select.",
+    "sig": [
+      "option(<variable> \"<help_text>\" [value])"
+    ]
+  },
+  "output_required_files": {
+    "doc": "Disallowed since version 3.0. See CMake Policy CMP0032.",
+    "sig": [
+      "output_required_files(srcfile outputfile)"
+    ]
+  },
+  "project": {
+    "doc": "Set the name of the project.",
+    "sig": [
+      "project(<project-name> [<language-name>...])",
+      "project(<project-name> [VERSION <major>[.<minor>[.<patch>[.<tweak>]]]] [DESCRIPTION <project-description-string>] [HOMEPAGE_URL <url-string>] [LANGUAGES <language-name>...])",
+      "project(Project)"
+    ]
+  },
+  "qt_wrap_cpp": {
+    "doc": "Deprecated since version 3.14: This command was originally added to support Qt 3 before the add_custom_command() command was sufficiently mature.",
+    "sig": [
+      "qt_wrap_cpp(resultingLibraryName DestName SourceLists ...)"
+    ]
+  },
+  "qt_wrap_ui": {
+    "doc": "Deprecated since version 3.14: This command was originally added to support Qt 3 before the add_custom_command() command was sufficiently mature.",
+    "sig": [
+      "qt_wrap_ui(resultingLibraryName HeadersDestName SourcesDestName SourceLists ...)"
+    ]
+  },
+  "remove": {
+    "doc": "Deprecated since version 3.0: Use the list(REMOVE_ITEM) command instead.",
+    "sig": [
+      "remove(VAR VALUE VALUE ...)"
+    ]
+  },
+  "remove_definitions": {
+    "doc": "Remove -D define flags added by add_definitions().",
+    "sig": [
+      "remove_definitions(-DFOO -DBAR ...)"
+    ]
+  },
+  "return": {
+    "doc": "Return from a file, directory or function.",
+    "sig": [
+      "return()"
+    ]
+  },
+  "separate_arguments": {
+    "doc": "Parse command-line arguments into a semicolon-separated list.",
+    "sig": [
+      "separate_arguments(<variable> <mode> [PROGRAM [SEPARATE_ARGS]] <args>)",
+      "separate_arguments(<var>)"
+    ]
+  },
+  "set": {
+    "doc": "Set a normal, cache, or environment variable to a given value.",
+    "sig": [
+      "set(<variable> <value>... [PARENT_SCOPE])",
+      "set(<variable> <value>... CACHE <type> <docstring> [FORCE])",
+      "set(ENV{<variable>} [<value>])"
+    ]
+  },
+  "set_directory_properties": {
+    "doc": "Set properties of the current directory and subdirectories.",
+    "sig": [
+      "set_directory_properties(PROPERTIES prop1 value1 [prop2 value2] ...)"
+    ]
+  },
+  "set_property": {
+    "doc": "Set a named property in a given scope.",
+    "sig": [
+      "set_property(<GLOBAL | DIRECTORY [<dir>] | TARGET [<target1> ...] | SOURCE [<src1> ...] [DIRECTORY <dirs> ...] [TARGET_DIRECTORY <targets> ...] | INSTALL [<file1> ...] | TEST [<test1> ...] | CACHE [<entry1> ...] > [APPEND] [APPEND_STRING] PROPERTY <name> [<value1> ...])"
+    ]
+  },
+  "set_source_files_properties": {
+    "doc": "Sets properties associated with source files using a key/value paired list.",
+    "sig": [
+      "set_source_files_properties(<files> ... [DIRECTORY <dirs> ...] [TARGET_DIRECTORY <targets> ...] PROPERTIES <prop1> <value1> [<prop2> <value2>] ...)"
+    ]
+  },
+  "set_target_properties": {
+    "doc": "Targets can have properties that affect how they are built.",
+    "sig": [
+      "set_target_properties(target1 target2 ... PROPERTIES prop1 value1 prop2 value2 ...)"
+    ]
+  },
+  "set_tests_properties": {
+    "doc": "Set a property of the tests.",
+    "sig": [
+      "set_tests_properties(test1 [test2...] PROPERTIES prop1 value1 prop2 value2)"
+    ]
+  },
+  "site_name": {
+    "doc": "Set the given variable to the name of the computer.",
+    "sig": [
+      "site_name(variable)"
+    ]
+  },
+  "source_group": {
+    "doc": "Define a grouping for source files in IDE project generation. ",
+    "sig": [
+      "source_group(<name> [FILES <src>...] [REGULAR_EXPRESSION <regex>])",
+      "source_group(TREE <root> [PREFIX <prefix>] [FILES <src>...])",
+      "source_group(TREE <root> PREFIX sources\\\\inc ...)",
+      "source_group(<name> <regex>)",
+      "source_group(<name> REGULAR_EXPRESSION <regex>)"
+    ]
+  },
+  "string": {
+    "doc": "String operations.",
+    "sig": [
+      "string(FIND <string> <substring> <output_variable> [REVERSE])",
+      "string(REPLACE <match_string> <replace_string> <output_variable> <input> [<input>...])",
+      "string(REGEX MATCH <regular_expression> <output_variable> <input> [<input>...])",
+      "string(REGEX MATCHALL <regular_expression> <output_variable> <input> [<input>...])",
+      "string(REGEX REPLACE <regular_expression> <replacement_expression> <output_variable> <input> [<input>...])",
+      "string(APPEND <string_variable> [<input>...])",
+      "string(PREPEND <string_variable> [<input>...])",
+      "string(CONCAT <output_variable> [<input>...])",
+      "string(JOIN <glue> <output_variable> [<input>...])",
+      "string(TOLOWER <string> <output_variable>)",
+      "string(TOUPPER <string> <output_variable>)",
+      "string(LENGTH <string> <output_variable>)",
+      "string(SUBSTRING <string> <begin> <length> <output_variable>)",
+      "string(STRIP <string> <output_variable>)",
+      "string(GENEX_STRIP <string> <output_variable>)",
+      "string(REPEAT <string> <count> <output_variable>)",
+      "string(COMPARE LESS <string1> <string2> <output_variable>)",
+      "string(COMPARE GREATER <string1> <string2> <output_variable>)",
+      "string(COMPARE EQUAL <string1> <string2> <output_variable>)",
+      "string(COMPARE NOTEQUAL <string1> <string2> <output_variable>)",
+      "string(COMPARE LESS_EQUAL <string1> <string2> <output_variable>)",
+      "string(COMPARE GREATER_EQUAL <string1> <string2> <output_variable>)",
+      "string(<HASH> <output_variable> <input>)",
+      "string(ASCII <number> [<number> ...] <output_variable>)",
+      "string(HEX <string> <output_variable>)",
+      "string(CONFIGURE <string> <output_variable> [@ONLY] [ESCAPE_QUOTES])",
+      "string(MAKE_C_IDENTIFIER <string> <output_variable>)",
+      "string(RANDOM [LENGTH <length>] [ALPHABET <alphabet>] [RANDOM_SEED <seed>] <output_variable>)",
+      "string(TIMESTAMP <output_variable> [<format_string>] [UTC])",
+      "string(UUID <output_variable> NAMESPACE <namespace> NAME <name> TYPE <MD5|SHA1> [UPPER])",
+      "string(JSON <out-var> [ERROR_VARIABLE <error-variable>] GET <json-string> <member|index> [<member|index> ...])",
+      "string(JSON <out-var> [ERROR_VARIABLE <error-variable>] TYPE <json-string> <member|index> [<member|index> ...])",
+      "string(JSON <out-var> [ERROR_VARIABLE <error-var>] MEMBER <json-string> [<member|index> ...] <index>)",
+      "string(JSON <out-var> [ERROR_VARIABLE <error-variable>] LENGTH <json-string> <member|index> [<member|index> ...])",
+      "string(JSON <out-var> [ERROR_VARIABLE <error-variable>] REMOVE <json-string> <member|index> [<member|index> ...])",
+      "string(JSON <out-var> [ERROR_VARIABLE <error-variable>] SET <json-string> <member|index> [<member|index> ...] <value>)",
+      "string(JSON <out-var> [ERROR_VARIABLE <error-var>] EQUAL <json-string1> <json-string2>)"
+    ]
+  },
+  "subdir_depends": {
+    "doc": "Disallowed since version 3.0. See CMake Policy CMP0029.",
+    "sig": [
+      "subdir_depends(subdir dep1 dep2 ...)"
+    ]
+  },
+  "subdirs": {
+    "doc": "Deprecated since version 3.0: Use the add_subdirectory() command instead.",
+    "sig": [
+      "subdirs(dir1 dir2 ...[EXCLUDE_FROM_ALL exclude_dir1 exclude_dir2 ...] [PREORDER])"
+    ]
+  },
+  "target_compile_definitions": {
+    "doc": "Add compile definitions to a target.",
+    "sig": [
+      "target_compile_definitions(<target> <INTERFACE|PUBLIC|PRIVATE> [items1...] [<INTERFACE|PUBLIC|PRIVATE> [items2...] ...])"
+    ]
+  },
+  "target_compile_features": {
+    "doc": "Add expected compiler features to a target.",
+    "sig": [
+      "target_compile_features(<target> <PRIVATE|PUBLIC|INTERFACE> <feature> [...])"
+    ]
+  },
+  "target_compile_options": {
+    "doc": "Add compile options to a target.",
+    "sig": [
+      "target_compile_options(<target> [BEFORE] <INTERFACE|PUBLIC|PRIVATE> [items1...] [<INTERFACE|PUBLIC|PRIVATE> [items2...] ...])"
+    ]
+  },
+  "target_include_directories": {
+    "doc": "Add include directories to a target.",
+    "sig": [
+      "target_include_directories(<target> [SYSTEM] [AFTER|BEFORE] <INTERFACE|PUBLIC|PRIVATE> [items1...] [<INTERFACE|PUBLIC|PRIVATE> [items2...] ...])"
+    ]
+  },
+  "target_link_directories": {
+    "doc": "Add link directories to a target.",
+    "sig": [
+      "target_link_directories(<target> [BEFORE] <INTERFACE|PUBLIC|PRIVATE> [items1...] [<INTERFACE|PUBLIC|PRIVATE> [items2...] ...])"
+    ]
+  },
+  "target_link_libraries": {
+    "doc": "",
+    "sig": [
+      "target_link_libraries(<target> ... <item>... ...)",
+      "target_link_libraries(<target> <PRIVATE|PUBLIC|INTERFACE> <item>... [<PRIVATE|PUBLIC|INTERFACE> <item>...]...)",
+      "target_link_libraries(<target> <item>...)",
+      "target_link_libraries(<target> <LINK_PRIVATE|LINK_PUBLIC> <lib>... [<LINK_PRIVATE|LINK_PUBLIC> <lib>...]...)",
+      "target_link_libraries(<target> LINK_INTERFACE_LIBRARIES <item>...)",
+      "target_link_libraries(main3 PRIVATE a3 $<TARGET_OBJECTS:obj3> b3)",
+      "target_link_libraries(iface_obj3 INTERFACE obj3 $<TARGET_OBJECTS:obj3>)"
+    ]
+  },
+  "target_link_options": {
+    "doc": "Specify libraries or flags to use when linking a given target and/or its dependents.",
+    "sig": [
+      "target_link_options(<target> [BEFORE] <INTERFACE|PUBLIC|PRIVATE> [items1...] [<INTERFACE|PUBLIC|PRIVATE> [items2...] ...])"
+    ]
+  },
+  "target_precompile_headers": {
+    "doc": "Add a list of header files to precompile.",
+    "sig": [
+      "target_precompile_headers(<target> <INTERFACE|PUBLIC|PRIVATE> [header1...] [<INTERFACE|PUBLIC|PRIVATE> [header2...] ...])",
+      "target_precompile_headers(myTarget PUBLIC project_header.h PRIVATE [[\"other_header.h\"]] <unordered_map>)",
+      "target_precompile_headers(<target> REUSE_FROM <other_target>)"
+    ]
+  },
+  "target_sources": {
+    "doc": "Add sources to a target.",
+    "sig": [
+      "target_sources(<target> <INTERFACE|PUBLIC|PRIVATE> [items1...] [<INTERFACE|PUBLIC|PRIVATE> [items2...] ...])"
+    ]
+  },
+  "try_compile": {
+    "doc": "Try building some code.",
+    "sig": [
+      "try_compile(<resultVar> <bindir> <srcdir> <projectName> [<targetName>] [CMAKE_FLAGS <flags>...] [OUTPUT_VARIABLE <var>])",
+      "try_compile(<resultVar> <bindir> <srcfile|SOURCES srcfile...> [CMAKE_FLAGS <flags>...] [COMPILE_DEFINITIONS <defs>...] [LINK_OPTIONS <options>...] [LINK_LIBRARIES <libs>...] [OUTPUT_VARIABLE <var>] [COPY_FILE <fileName> [COPY_FILE_ERROR <var>]] [<LANG>_STANDARD <std>] [<LANG>_STANDARD_REQUIRED <bool>] [<LANG>_EXTENSIONS <bool>])"
+    ]
+  },
+  "try_run": {
+    "doc": "Try compiling and then running some code.",
+    "sig": [
+      "try_run(<runResultVar> <compileResultVar> <bindir> <srcfile> [CMAKE_FLAGS <flags>...] [COMPILE_DEFINITIONS <defs>...] [LINK_OPTIONS <options>...] [LINK_LIBRARIES <libs>...] [COMPILE_OUTPUT_VARIABLE <var>] [RUN_OUTPUT_VARIABLE <var>] [OUTPUT_VARIABLE <var>] [WORKING_DIRECTORY <var>] [ARGS <args>...])"
+    ]
+  },
+  "unset": {
+    "doc": "Unset a variable, cache variable, or environment variable.",
+    "sig": [
+      "unset(<variable> [CACHE | PARENT_SCOPE])",
+      "unset(ENV{<variable>})"
+    ]
+  },
+  "use_mangled_mesa": {
+    "doc": "Disallowed since version 3.0. See CMake Policy CMP0030.",
+    "sig": [
+      "use_mangled_mesa(PATH_TO_MESA OUTPUT_DIRECTORY)"
+    ]
+  },
+  "utility_source": {
+    "doc": "Disallowed since version 3.0. See CMake Policy CMP0034.",
+    "sig": [
+      "utility_source(cache_entry executable_name path_to_source [file1 file2 ...])"
+    ]
+  },
+  "variable_requires": {
+    "doc": "Disallowed since version 3.0. See CMake Policy CMP0035.",
+    "sig": [
+      "variable_requires(TEST_VARIABLE RESULT_VARIABLE REQUIRED_VARIABLE1 REQUIRED_VARIABLE2 ...)"
+    ]
+  },
+  "variable_watch": {
+    "doc": "Watch the CMake variable for change.",
+    "sig": [
+      "variable_watch(<variable> [<command>])"
+    ]
+  },
+  "while": {
+    "doc": "Evaluate a group of commands while a condition is true.",
+    "sig": [
+      "while(<condition>)",
+      "while(<constant>)",
+      "while(<variable|string>)",
+      "while(NOT <condition>)",
+      "while(<cond1> AND <cond2>)",
+      "while(<cond1> OR <cond2>)",
+      "while(DEFINED <name>|CACHE{<name>}|ENV{<name>})",
+      "while(<variable|string> IN_LIST <variable>)",
+      "while(<variable|string> MATCHES regex)",
+      "while(<variable|string> LESS <variable|string>)",
+      "while(<variable|string> GREATER <variable|string>)",
+      "while(<variable|string> EQUAL <variable|string>)",
+      "while(<variable|string> LESS_EQUAL <variable|string>)",
+      "while(<variable|string> GREATER_EQUAL <variable|string>)",
+      "while(<variable|string> STRLESS <variable|string>)",
+      "while(<variable|string> STRGREATER <variable|string>)",
+      "while(<variable|string> STREQUAL <variable|string>)",
+      "while(<variable|string> STRLESS_EQUAL <variable|string>)",
+      "while(<variable|string> STRGREATER_EQUAL <variable|string>)",
+      "while(<variable|string> VERSION_LESS <variable|string>)",
+      "while(<variable|string> VERSION_GREATER <variable|string>)",
+      "while(<variable|string> VERSION_EQUAL <variable|string>)",
+      "while(<variable|string> VERSION_LESS_EQUAL <variable|string>)",
+      "while(<variable|string> VERSION_GREATER_EQUAL <variable|string>)",
+      "while(var1)",
+      "while(var2)"
+    ]
+  },
+  "write_file": {
+    "doc": "Deprecated since version 3.0: Use the file(WRITE) command instead.",
+    "sig": [
+      "write_file(filename \"message to write\"... [APPEND])"
+    ]
+  }
+}

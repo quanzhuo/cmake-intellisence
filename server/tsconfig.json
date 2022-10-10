@@ -1,0 +1,12 @@
+{
+    "extends": "../tsconfig.base.json",
+    "compilerOptions": {
+        "outDir": "out",
+        "rootDir": "src",
+        "resolveJsonModule": true
+    },
+    "files": [ "src/builtin-cmds.json" ],
+    "include": [
+        "src"
+    ]
+}

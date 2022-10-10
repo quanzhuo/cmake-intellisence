@@ -1,0 +1,21 @@
+{
+  "name": "cmake-intellisence-client",
+  "version": "1.0.0",
+  "description": "Language Client for CMake IntelliSence extension",
+  "author": "quanzhuo",
+  "license": "MIT",
+  "publisher": "openKylin",
+  "engines": {
+    "vscode": "^1.68.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/openkylin/cmake-intellisence"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.0.2"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.68.0"
+  }
+}
