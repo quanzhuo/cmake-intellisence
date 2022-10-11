@@ -5,3 +5,4 @@ node_modules
 *.vsix
 syntaxes/*.json
 tsconfig.tsbuildinfo
+server/src/*.d.ts
