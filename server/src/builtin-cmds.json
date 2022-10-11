@@ -98,7 +98,8 @@
     "doc": "Disallowed since version 3.0. Sets the specified variable to a string representing the platform and compiler settings",
     "sig": [
       "build_name(variable)"
-    ]
+    ],
+    "deprecated": true
   },
   "cmake_host_system_information": {
     "doc": "Query various host system information.",
@@ -371,7 +372,8 @@
     "doc": "Run an executable program during the processing of the CMakeList.txt file.",
     "sig": [
       "exec_program(Executable [directory in which to run] [ARGS <arguments to executable>] [OUTPUT_VARIABLE <var>] [RETURN_VALUE <var>])"
-    ]
+    ],
+    "deprecated": true
   },
   "execute_process": {
     "doc": "Execute one or more child processes.",
@@ -392,7 +394,8 @@
     "doc": "Disallowed since version 3.0. Create a file named <file> that can be included into a CMake listfile with the INCLUDE command.",
     "sig": [
       "export_library_dependencies(<file> [APPEND])"
-    ]
+    ],
+    "deprecated": true
   },
   "file": {
     "doc": "File manipulation command.",
@@ -644,7 +647,8 @@
       "install_files(<dir> extension file file ...)",
       "install_files(<dir> regexp)",
       "install_files(<dir> FILES file file ...)"
-    ]
+    ],
+    "deprecated": true
   },
   "install_programs": {
     "doc": "Deprecated since version 3.0: Use the install(PROGRAMS) command instead.",
@@ -652,7 +656,8 @@
       "install_programs(<dir> file1 file2 [file3 ...])",
       "install_programs(<dir> FILES file1 [file2 ...])",
       "install_programs(<dir> regexp)"
-    ]
+    ],
+    "deprecated": true
   },
   "install_targets": {
     "doc": "Deprecated since version 3.0: Use the install(TARGETS) command instead.",
@@ -705,7 +710,8 @@
     "doc": "Disallowed since version 3.0. See CMake Policy CMP0031. Load a command into a running CMake.",
     "sig": [
       "load_command(COMMAND_NAME <loc1> [loc2 ...])"
-    ]
+    ],
+    "deprecated": true
   },
   "macro": {
     "doc": "Start recording a macro for later invocation as a command.",
@@ -717,7 +723,8 @@
     "doc": "Deprecated since version 3.0: Use the file(MAKE_DIRECTORY) command instead.",
     "sig": [
       "make_directory(directory)"
-    ]
+    ],
+    "deprecated": true
   },
   "mark_as_advanced": {
     "doc": "Mark cmake cached variables as advanced.",
@@ -748,7 +755,8 @@
     "doc": "Disallowed since version 3.0. See CMake Policy CMP0032.",
     "sig": [
       "output_required_files(srcfile outputfile)"
-    ]
+    ],
+    "deprecated": true
   },
   "project": {
     "doc": "Set the name of the project.",
@@ -762,19 +770,22 @@
     "doc": "Deprecated since version 3.14: This command was originally added to support Qt 3 before the add_custom_command() command was sufficiently mature.",
     "sig": [
       "qt_wrap_cpp(resultingLibraryName DestName SourceLists ...)"
-    ]
+    ],
+    "deprecated": true
   },
   "qt_wrap_ui": {
     "doc": "Deprecated since version 3.14: This command was originally added to support Qt 3 before the add_custom_command() command was sufficiently mature.",
     "sig": [
       "qt_wrap_ui(resultingLibraryName HeadersDestName SourcesDestName SourceLists ...)"
-    ]
+    ],
+    "deprecated": true
   },
   "remove": {
     "doc": "Deprecated since version 3.0: Use the list(REMOVE_ITEM) command instead.",
     "sig": [
       "remove(VAR VALUE VALUE ...)"
-    ]
+    ],
+    "deprecated": true
   },
   "remove_definitions": {
     "doc": "Remove -D define flags added by add_definitions().",
@@ -895,13 +906,15 @@
     "doc": "Disallowed since version 3.0. See CMake Policy CMP0029.",
     "sig": [
       "subdir_depends(subdir dep1 dep2 ...)"
-    ]
+    ],
+    "deprecated": true
   },
   "subdirs": {
     "doc": "Deprecated since version 3.0: Use the add_subdirectory() command instead.",
     "sig": [
       "subdirs(dir1 dir2 ...[EXCLUDE_FROM_ALL exclude_dir1 exclude_dir2 ...] [PREORDER])"
-    ]
+    ],
+    "deprecated": true
   },
   "target_compile_definitions": {
     "doc": "Add compile definitions to a target.",
@@ -989,19 +1002,22 @@
     "doc": "Disallowed since version 3.0. See CMake Policy CMP0030.",
     "sig": [
       "use_mangled_mesa(PATH_TO_MESA OUTPUT_DIRECTORY)"
-    ]
+    ],
+    "deprecated": true
   },
   "utility_source": {
     "doc": "Disallowed since version 3.0. See CMake Policy CMP0034.",
     "sig": [
       "utility_source(cache_entry executable_name path_to_source [file1 file2 ...])"
-    ]
+    ],
+    "deprecated": true
   },
   "variable_requires": {
     "doc": "Disallowed since version 3.0. See CMake Policy CMP0035.",
     "sig": [
       "variable_requires(TEST_VARIABLE RESULT_VARIABLE REQUIRED_VARIABLE1 REQUIRED_VARIABLE2 ...)"
-    ]
+    ],
+    "deprecated": true
   },
   "variable_watch": {
     "doc": "Watch the CMake variable for change.",
@@ -1044,6 +1060,7 @@
     "doc": "Deprecated since version 3.0: Use the file(WRITE) command instead.",
     "sig": [
       "write_file(filename \"message to write\"... [APPEND])"
-    ]
+    ],
+    "deprecated": true
   }
 }

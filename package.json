@@ -107,16 +107,16 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "grammar-cmake": "npx js-yaml ./syntaxes/cmake.tmLanguage.yml > ./syntaxes/cmake.tmLanguage.json",
-    "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
-    "grammar-cmdsignature": "npx js-yaml ./syntaxes/cmdsignature.tmLanguage.yml > ./syntaxes/cmdsignature.tmLanguage.json",
-    "grammar": "node ./build/yaml-to-json.mjs",
     "compile": "npm run grammar && tsc -b . --verbose",
     "watch": "npm run grammar && tsc -watch -b . --verbose",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
-    "postinstall": "cd client && npm install && cd ../server && npm install && cd .."
+    "postinstall": "cd client && npm install && cd ../server && npm install && cd ..",
+    "grammar-cmake": "npx js-yaml ./syntaxes/cmake.tmLanguage.yml > ./syntaxes/cmake.tmLanguage.json",
+    "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
+    "grammar-cmdsignature": "npx js-yaml ./syntaxes/cmdsignature.tmLanguage.yml > ./syntaxes/cmdsignature.tmLanguage.json",
+    "grammar": "node ./build/yaml-to-json.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^9.1.1",

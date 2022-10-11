@@ -13,7 +13,7 @@ function isGrammarOutdate(fileName) {
     const yaml = json.replace('.json', '.yml');
     const jsonState = statSync(json);
     const yamlState = statSync(yaml);
-    if (yamlState.mtime.toString() > jsonState.mtime.toString()) {
+    if (yamlState.mtimeMs > jsonState.mtimeMs) {
         console.log(`${yaml} changed, Grammar is outdate, re-generate it.`);
         return true;
     }

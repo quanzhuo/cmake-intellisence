@@ -1,21 +1,15 @@
 import {
-    createConnection,
-    TextDocuments,
-    ProposedFeatures,
-    InitializeParams,
-    InitializeResult,
-    TextDocumentSyncKind,
-    HoverParams,
-    SignatureHelpParams
-
+    createConnection, HoverParams, InitializeParams, InitializeResult,
+    ProposedFeatures, SignatureHelpParams, TextDocuments, TextDocumentSyncKind
 } from 'vscode-languageserver/node';
 
-import { TextDocument, Range } from 'vscode-languageserver-textdocument';
-import { Position } from 'vscode-languageserver-types';
+import { CompletionItemKind, CompletionParams } from 'vscode-languageserver-protocol';
+import { Range, TextDocument } from 'vscode-languageserver-textdocument';
+import { CompletionItem, CompletionItemTag, Position } from 'vscode-languageserver-types';
 
-import * as builtinCmds from './builtin-cmds.json';
-import { Entries, getBuiltinEntries } from './utils';
 import { exec } from 'child_process';
+import { Entries, getBuiltinEntries } from './utils';
+import * as builtinCmds from './builtin-cmds.json';
 
 const entries: Entries = getBuiltinEntries();
 const modules = entries[0].split('\n');
@@ -38,7 +32,8 @@ connection.onInitialize((params: InitializeParams) => {
             signatureHelpProvider: {
                 triggerCharacters: ['('],
                 retriggerCharacters: [' ']
-            }
+            },
+            completionProvider: {}
         },
         serverInfo: {
             name: 'cmakels',
@@ -57,7 +52,7 @@ connection.onHover((params: HoverParams) => {
     const document: TextDocument = documents.get(params.textDocument.uri);
     const word = getWordAtPosition(document, params.position);
     if (word.length === 0) {
-        return undefined;
+        return null;
     }
 
     // check if the word is a builtin commands
@@ -110,6 +105,23 @@ connection.onHover((params: HoverParams) => {
     }
 });
 
+connection.onCompletion(async (params: CompletionParams) => {
+    const document = documents.get(params.textDocument.uri);
+    const word = getWordAtPosition(document, params.position);
+    if (word.length === 0) {
+        return null;
+    }
+
+    const results = await Promise.all([
+        getCommandProposals(word),
+        getProposals(word, CompletionItemKind.Module, modules),
+        getProposals(word, CompletionItemKind.Constant, policies),
+        getProposals(word, CompletionItemKind.Variable, variables),
+        getProposals(word, CompletionItemKind.Property, properties)
+    ]);
+    return results.flat();
+});
+
 connection.onSignatureHelp((params: SignatureHelpParams) => {
     return null;
 });
@@ -131,10 +143,48 @@ function getWordAtPosition(textDocument: TextDocument, position: Position): stri
     // TODO: the regex expression capture numbers, fix it.
     const startReg = /[a-zA-Z0-9_]*$/,
         endReg = /^[a-zA-Z0-9_]*/;
-    
+
     const startWord = start.match(startReg)[0],
         endWord = end.match(endReg)[0];
     return startWord + endWord;
+}
+
+function getCommandProposals(word: string): Thenable<CompletionItem[]> {
+    return new Promise((resolve, rejects) => {
+        const similarCmds = Object.keys(builtinCmds).filter(cmd => {
+            return cmd.includes(word);
+        });
+        const proposalCmds: CompletionItem[] = similarCmds.map((value, index, array) => {
+            let item: CompletionItem = {
+                label: value,
+                kind: CompletionItemKind.Function,
+            };
+
+            if ("deprecated" in builtinCmds[value]) {
+                item.tags = [CompletionItemTag.Deprecated];
+            }
+            return item;
+        });
+
+        resolve(proposalCmds);
+    });
+}
+
+function getProposals(word: string, kind: CompletionItemKind, dataSource: string[]): Thenable<CompletionItem[]> {
+    return new Promise((resolve, rejects) => {
+        const similar = dataSource.filter(candidate => {
+            return candidate.includes(word);
+        });
+
+        const proposals: CompletionItem[] = similar.map((value, index, array) => {
+            return {
+                label: value,
+                kind: kind
+            };
+        });
+
+        resolve(proposals);
+    });
 }
 
 // Make the text document manager listen on the connection
