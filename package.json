@@ -15,11 +15,12 @@
     "Snippets",
     "Formatters"
   ],
+  "publisher": "quanzhuo",
   "activationEvents": [
     "onLanguage:cmake",
     "workspaceContains:CMakeLists.txt"
   ],
-  "main": "./client/out/extension",
+  "main": "./dist/client",
   "contributes": {
     "grammars": [
       {
@@ -106,11 +107,10 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run grammar && npm run package",
     "compile": "npm run grammar && tsc -b . --verbose",
-    "webpack": "webpack --mode development",
-    "webpack-dev": "webpack --mode development --watch",
-    "package": "webpack --mode production --devtool hidden-source-map",
+    "webpack": "npm run grammar && npm run webpack-client && npm run webpack-server",
+    "package": "npm run package-client && npm run package-server",
     "watch": "npm run grammar && tsc -watch -b . --verbose",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
@@ -119,7 +119,11 @@
     "grammar-cmake": "npx js-yaml ./syntaxes/cmake.tmLanguage.yml > ./syntaxes/cmake.tmLanguage.json",
     "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
     "grammar-cmdsignature": "npx js-yaml ./syntaxes/cmdsignature.tmLanguage.yml > ./syntaxes/cmdsignature.tmLanguage.json",
-    "grammar": "node ./build/yaml-to-json.mjs"
+    "grammar": "node ./build/yaml-to-json.mjs",
+    "webpack-client": "webpack --mode development --config webpack.config.client.js",
+    "webpack-server": "webpack --mode development --config webpack.config.server.js",
+    "package-client": "webpack --mode production --config webpack.config.client.js --devtool hidden-source-map",
+    "package-server": "webpack --mode production --config webpack.config.server.js --devtool hidden-source-map"
   },
   "devDependencies": {
     "@types/mocha": "^9.1.1",

@@ -17,14 +17,14 @@
         },
         {
             "type": "npm",
-            "script": "compile",
+            "script": "webpack",
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
             "problemMatcher": [],
-            "label": "npm: compile",
-            "detail": "npm run grammar && tsc -p ./"
+            "label": "webpack: compile",
+            "detail": "npm run grammar && npm run webpack"
         }
     ]
 }
