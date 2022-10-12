@@ -8,3 +8,10 @@ vsc-extension-quickstart.md
 **/.eslintrc.json
 **/*.map
 **/*.ts
+build/**
+client/**
+server/**
+tsconfig*
+webpack*
+node_modules
+syntaxes/*.yml
