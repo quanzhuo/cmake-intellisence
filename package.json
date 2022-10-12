@@ -16,6 +16,7 @@
     "Formatters"
   ],
   "publisher": "quanzhuo",
+  "icon": "images/icon.png",
   "activationEvents": [
     "onLanguage:cmake",
     "workspaceContains:CMakeLists.txt"
