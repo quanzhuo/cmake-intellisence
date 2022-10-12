@@ -77,11 +77,6 @@
       {
         "title": "CMake IntelliSence",
         "properties": {
-          "cmakeIntelliSence.languageServerPath": {
-            "type": "string",
-            "default": "cmakels",
-            "description": "Path to CMake Language Server"
-          },
           "cmakeIntelliSence.loggingLevel": {
             "type": "string",
             "enum": [
