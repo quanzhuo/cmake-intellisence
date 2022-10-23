@@ -3,10 +3,13 @@
     "compilerOptions": {
         "outDir": "out",
         "rootDir": "src",
-        "resolveJsonModule": true
+        "resolveJsonModule": true,
+        "incremental": true,
+        "allowJs": true
     },
     "files": [ "src/builtin-cmds.json" ],
     "include": [
-        "src"
+        "src",
+        "./src/**/*"
     ]
 }

@@ -3,13 +3,17 @@ import {
     ProposedFeatures, SignatureHelpParams, TextDocuments, TextDocumentSyncKind
 } from 'vscode-languageserver/node';
 
-import { CompletionItemKind, CompletionParams } from 'vscode-languageserver-protocol';
+import { CompletionItemKind, CompletionParams, DocumentFormattingParams } from 'vscode-languageserver-protocol';
 import { Range, TextDocument } from 'vscode-languageserver-textdocument';
 import { CompletionItem, CompletionItemTag, Position } from 'vscode-languageserver-types';
 
 import { exec } from 'child_process';
-import { Entries, getBuiltinEntries } from './utils';
 import * as builtinCmds from './builtin-cmds.json';
+import { FormatListener } from './format';
+import antlr4 from './parser/antlr4/index.js';
+import CMakeLexer from './parser/CMakeLexer.js';
+import CMakeParser from './parser/CMakeParser.js';
+import { Entries, getBuiltinEntries } from './utils';
 
 const entries: Entries = getBuiltinEntries();
 const modules = entries[0].split('\n');
@@ -33,7 +37,8 @@ connection.onInitialize((params: InitializeParams) => {
                 triggerCharacters: ['('],
                 retriggerCharacters: [' ']
             },
-            completionProvider: {}
+            completionProvider: {},
+            documentFormattingProvider: true
         },
         serverInfo: {
             name: 'cmakels',
@@ -124,6 +129,31 @@ connection.onCompletion(async (params: CompletionParams) => {
 
 connection.onSignatureHelp((params: SignatureHelpParams) => {
     return null;
+});
+
+connection.onDocumentFormatting((params: DocumentFormattingParams) => {
+    const tabSize = params.options.tabSize;
+    const document = documents.get(params.textDocument.uri);
+    const range: Range = {
+        start: { line: 0, character: 0 },
+        end: { line: document.lineCount - 1, character: Number.MAX_VALUE }
+    };
+
+    return new Promise((resolve, rejects) => {
+        const input = antlr4.CharStreams.fromString(document.getText());
+        const lexer = new CMakeLexer(input);
+        const tokenStream = new antlr4.CommonTokenStream(lexer);
+        const parser = new CMakeParser(tokenStream);
+        const tree = parser.file();
+        const formatListener = new FormatListener(tabSize, tokenStream);
+        antlr4.tree.ParseTreeWalker.DEFAULT.walk(formatListener, tree);
+        resolve([
+            {
+                range: range,
+                newText: formatListener.getFormatedText()
+            }
+        ]);
+    });
 });
 
 // The content of a text document has changed. This event is emitted
