@@ -1,9 +1,5 @@
-import antlr4 from "./parser/antlr4";
 import CMakeListener from "./parser/CMakeListener";
-import BufferedTokenStream from "./parser/antlr4/BufferedTokenStream";
-import Lexer from "./parser/antlr4/Lexer";
 import CMakeLexer from "./parser/CMakeLexer";
-import TokenStream from "./parser/antlr4/TokenStream";
 
 export class FormatListener extends CMakeListener {
     private _indent: number;
@@ -42,9 +38,20 @@ export class FormatListener extends CMakeListener {
         }
 
         let result = "";
-        let total: number = this._tokenStream.tokens.length;
+        const tokenLine: number = this._tokenStream.get(tokenIndex).line;
+        const total: number = this._tokenStream.tokens.length;
         for (const t of hiddenTokens) {
-            result += t.text;
+            // comment is on same line as the previous token
+            if (t.line === tokenLine) {
+                result += t.text;
+            } else {
+                const tokenType: number = this._tokenStream.get(tokenIndex).type;
+                if (tokenType === CMakeLexer.NL) {
+                    result += ' '.repeat(this.getIndent()) + t.text
+                } else {
+                    result += ' '.repeat(this.getIndent() + 4) + t.text;
+                }
+            }
             const next: number = t.tokenIndex + 1;
             if (next < total && this._tokenStream.get(next).type !== CMakeLexer.NL
                 || next >= total) {
@@ -92,10 +99,23 @@ export class FormatListener extends CMakeListener {
             return;
         }
 
+        // if this is not the top level command, return
+        if (this._indentLevel > 0) {
+            return;
+        }
+
         const token = this._tokenStream.get(index - 1);
         if (!this.isComment(token)) {
             this._formatted += "\n";
         }
+    }
+
+    private addNewLineAfterBlock() {
+        if (this._indentLevel > 0) {
+            return;
+        }
+
+        this._formatted += "\n";
     }
 
     /**
@@ -214,8 +234,7 @@ export class FormatListener extends CMakeListener {
         // append a newline as command seprator
         this._formatted += "\n";
 
-        // append a newline after end block command
-        this._formatted += "\n";
+        this.addNewLineAfterBlock();
 
         // comments after the newline
         const nlIndex: number = text === ")" ? index + 1 : index + 2;
@@ -257,8 +276,7 @@ export class FormatListener extends CMakeListener {
         // append a newline as command seprator
         this._formatted += "\n";
 
-        // append a newline after end block command
-        this._formatted += "\n";
+        this.addNewLineAfterBlock();
 
         // comments after the newline
         const nlIndex: number = text === ")" ? index + 1 : index + 2;
@@ -300,8 +318,7 @@ export class FormatListener extends CMakeListener {
         // append a newline as command sperator
         this._formatted += "\n";
 
-        // append a newline after end block command
-        this._formatted += "\n";
+        this.addNewLineAfterBlock();
 
         // comments after the newline
         const nlIndex: number = text === ")" ? index + 1 : index + 2;
@@ -379,8 +396,7 @@ export class FormatListener extends CMakeListener {
         // append a newline as command seprator
         this._formatted += "\n";
 
-        // append a newline after end block command
-        this._formatted += "\n";
+        this.addNewLineAfterBlock();
 
         // comments after the newline
         const nlIndex: number = text === ")" ? index + 1 : index + 2;
@@ -422,8 +438,7 @@ export class FormatListener extends CMakeListener {
         // append a newline as command seprator
         this._formatted += "\n";
 
-        // append a newline after end block command
-        this._formatted += "\n";
+        this.addNewLineAfterBlock();
 
         // comments after the newline
         const nlIndex: number = text === ")" ? index + 1 : index + 2;
@@ -451,15 +466,11 @@ export class FormatListener extends CMakeListener {
     enterArgument(ctx: any): void {
         const count: number = ctx.getChildCount();
         if (count === 1) {
+            const lParenLine: number = ctx.parentCtx.LParen().getSymbol().line;
+            if (lParenLine !== ctx.stop.line) {
+                this._formatted += ' '.repeat(this.getIndent() + 4);
+            }
             this._formatted += this.getContextText(ctx);
-            // const index: number = ctx.stop.tokenIndex;
-            // // if this is the first argument, don't add space
-            // if (this._tokenStream.get(index + 1).type !== CMakeLexer.RParen) {
-            //     this._formatted += " ";
-            // }
-
-            // comment can be placed after argument
-            // this._formatted += this.getCommentOnRight(index);
         } else if (count > 1) {
             this._formatted += "(";
 
@@ -473,22 +484,22 @@ export class FormatListener extends CMakeListener {
     exitArgument(ctx: any): void {
         const count: number = ctx.getChildCount();
         if (count > 1) {
-            this._formatted += ")" + this.getCommentOnRight(ctx.stop.tokenIndex);
+            this._formatted += ")";
         }
 
-        let index: number;
+        let next: number;
         if (count === 1) {
-            index = ctx.stop.tokenIndex;
+            next = ctx.stop.tokenIndex + 1;
         } else {
-            index = ctx.RParen().getSymbol().tokenIndex;
+            next = ctx.RParen().getSymbol().tokenIndex + 1;
         }
 
         // If this argument is not the last argument,  append a space
-        if (this._tokenStream.get(index + 1).type !== CMakeLexer.RParen) {
+        if (this._tokenStream.get(next).type !== CMakeLexer.RParen) {
             this._formatted += " ";
         }
 
         // Comment can be placed after argument
-        this._formatted += this.getCommentOnRight(index);
+        this._formatted += this.getCommentOnRight(next - 1);
     }
 }
