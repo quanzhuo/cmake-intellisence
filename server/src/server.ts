@@ -3,7 +3,10 @@ import {
     ProposedFeatures, SignatureHelpParams, TextDocuments, TextDocumentSyncKind
 } from 'vscode-languageserver/node';
 
-import { CompletionItemKind, CompletionParams, DocumentFormattingParams } from 'vscode-languageserver-protocol';
+import {
+    CompletionItemKind, CompletionParams, DocumentFormattingParams,
+    DocumentSymbolParams
+} from 'vscode-languageserver-protocol';
 import { Range, TextDocument } from 'vscode-languageserver-textdocument';
 import { CompletionItem, CompletionItemTag, Position } from 'vscode-languageserver-types';
 
@@ -14,6 +17,7 @@ import antlr4 from './parser/antlr4/index.js';
 import CMakeLexer from './parser/CMakeLexer.js';
 import CMakeParser from './parser/CMakeParser.js';
 import { Entries, getBuiltinEntries } from './utils';
+import { SymbolListener } from './symbols';
 
 const entries: Entries = getBuiltinEntries();
 const modules = entries[0].split('\n');
@@ -38,7 +42,8 @@ connection.onInitialize((params: InitializeParams) => {
                 retriggerCharacters: [' ']
             },
             completionProvider: {},
-            documentFormattingProvider: true
+            documentFormattingProvider: true,
+            documentSymbolProvider: true
         },
         serverInfo: {
             name: 'cmakels',
@@ -153,6 +158,20 @@ connection.onDocumentFormatting((params: DocumentFormattingParams) => {
                 newText: formatListener.getFormatedText()
             }
         ]);
+    });
+});
+
+connection.onDocumentSymbol((params: DocumentSymbolParams) => {
+    const document = documents.get(params.textDocument.uri);
+    return new Promise((resolve, reject) => {
+        const input = antlr4.CharStreams.fromString(document.getText());
+        const lexer = new CMakeLexer(input);
+        const tokenStream = new antlr4.CommonTokenStream(lexer);
+        const parser = new CMakeParser(tokenStream);
+        const tree = parser.file();
+        const symbolListener = new SymbolListener();
+        antlr4.tree.ParseTreeWalker.DEFAULT.walk(symbolListener, tree);
+        resolve(symbolListener.getSymbols());
     });
 });
 

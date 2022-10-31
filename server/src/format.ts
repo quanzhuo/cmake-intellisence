@@ -463,6 +463,24 @@ export class FormatListener extends CMakeListener {
         this.addCommentsAfterSeprator(nlIndex);
     }
 
+    enterSetCmd(ctx: any): void {
+        const index: number = ctx.LParen().getSymbol().tokenIndex;
+        this._formatted += this.getTextBeforeFirstArg("set", index);
+    }
+
+    exitSetCmd(ctx: any): void {
+        const index: number = ctx.RParen().getSymbol().tokenIndex;
+        const text: string = this.getTextAfterLastArg(index);
+        this._formatted += text;
+
+        // append a newline as command seprator
+        this._formatted += "\n";
+
+        // comments after the newline
+        const nlIndex: number = text === ")" ? index + 1 : index + 2;
+        this.addCommentsAfterSeprator(nlIndex);
+    }
+
     enterArgument(ctx: any): void {
         const count: number = ctx.getChildCount();
         if (count === 1) {

@@ -6,3 +6,6 @@ node_modules
 syntaxes/*.json
 tsconfig.tsbuildinfo
 server/src/*.d.ts
+.antlr/
+*.interp
+*.tokens

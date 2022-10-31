@@ -140,6 +140,15 @@ export default class CMakeListener extends antlr4.tree.ParseTreeListener {
 	}
 
 
+	// Enter a parse tree produced by CMakeParser#SetCmd.
+	enterSetCmd(ctx) {
+	}
+
+	// Exit a parse tree produced by CMakeParser#SetCmd.
+	exitSetCmd(ctx) {
+	}
+
+
 	// Enter a parse tree produced by CMakeParser#OtherCmd.
 	enterOtherCmd(ctx) {
 	}

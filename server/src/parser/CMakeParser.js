@@ -2,7 +2,7 @@
 // jshint ignore: start
 import antlr4 from './antlr4/index.js';
 import CMakeListener from './CMakeListener.js';
-const serializedATN = [4,1,27,156,2,0,7,0,2,1,7,1,2,2,7,2,1,0,1,0,1,0,5,
+const serializedATN = [4,1,28,165,2,0,7,0,2,1,7,1,2,2,7,2,1,0,1,0,1,0,5,
 0,10,8,0,10,0,12,0,13,9,0,1,0,1,0,1,1,1,1,1,1,5,1,20,8,1,10,1,12,1,23,9,
 1,1,1,1,1,1,1,1,1,5,1,29,8,1,10,1,12,1,32,9,1,1,1,1,1,1,1,1,1,5,1,38,8,1,
 10,1,12,1,41,9,1,1,1,1,1,1,1,1,1,5,1,47,8,1,10,1,12,1,50,9,1,1,1,1,1,1,1,
@@ -11,48 +11,51 @@ const serializedATN = [4,1,27,156,2,0,7,0,2,1,7,1,2,2,7,2,1,0,1,0,1,0,5,
 1,10,1,12,1,86,9,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,1,98,8,1,11,
 1,12,1,99,1,1,1,1,1,1,1,1,1,1,5,1,107,8,1,10,1,12,1,110,9,1,1,1,1,1,1,1,
 1,1,4,1,116,8,1,11,1,12,1,117,1,1,1,1,1,1,1,1,1,1,5,1,125,8,1,10,1,12,1,
-128,9,1,1,1,1,1,1,1,1,1,5,1,134,8,1,10,1,12,1,137,9,1,1,1,3,1,140,8,1,1,
-2,1,2,1,2,1,2,1,2,1,2,5,2,148,8,2,10,2,12,2,151,9,2,1,2,3,2,154,8,2,1,2,
-0,0,3,0,2,4,0,0,185,0,11,1,0,0,0,2,139,1,0,0,0,4,153,1,0,0,0,6,7,3,2,1,0,
-7,8,5,23,0,0,8,10,1,0,0,0,9,6,1,0,0,0,10,13,1,0,0,0,11,9,1,0,0,0,11,12,1,
-0,0,0,12,14,1,0,0,0,13,11,1,0,0,0,14,15,5,0,0,1,15,1,1,0,0,0,16,17,5,1,0,
-0,17,21,5,25,0,0,18,20,3,4,2,0,19,18,1,0,0,0,20,23,1,0,0,0,21,19,1,0,0,0,
-21,22,1,0,0,0,22,24,1,0,0,0,23,21,1,0,0,0,24,140,5,26,0,0,25,26,5,2,0,0,
-26,30,5,25,0,0,27,29,3,4,2,0,28,27,1,0,0,0,29,32,1,0,0,0,30,28,1,0,0,0,30,
-31,1,0,0,0,31,33,1,0,0,0,32,30,1,0,0,0,33,140,5,26,0,0,34,35,5,3,0,0,35,
-39,5,25,0,0,36,38,3,4,2,0,37,36,1,0,0,0,38,41,1,0,0,0,39,37,1,0,0,0,39,40,
-1,0,0,0,40,42,1,0,0,0,41,39,1,0,0,0,42,140,5,26,0,0,43,44,5,4,0,0,44,48,
-5,25,0,0,45,47,3,4,2,0,46,45,1,0,0,0,47,50,1,0,0,0,48,46,1,0,0,0,48,49,1,
-0,0,0,49,51,1,0,0,0,50,48,1,0,0,0,51,140,5,26,0,0,52,53,5,5,0,0,53,55,5,
-25,0,0,54,56,3,4,2,0,55,54,1,0,0,0,56,57,1,0,0,0,57,55,1,0,0,0,57,58,1,0,
-0,0,58,59,1,0,0,0,59,60,5,26,0,0,60,140,1,0,0,0,61,62,5,6,0,0,62,66,5,25,
-0,0,63,65,3,4,2,0,64,63,1,0,0,0,65,68,1,0,0,0,66,64,1,0,0,0,66,67,1,0,0,
-0,67,69,1,0,0,0,68,66,1,0,0,0,69,140,5,26,0,0,70,71,5,7,0,0,71,73,5,25,0,
-0,72,74,3,4,2,0,73,72,1,0,0,0,74,75,1,0,0,0,75,73,1,0,0,0,75,76,1,0,0,0,
-76,77,1,0,0,0,77,78,5,26,0,0,78,140,1,0,0,0,79,80,5,8,0,0,80,84,5,25,0,0,
-81,83,3,4,2,0,82,81,1,0,0,0,83,86,1,0,0,0,84,82,1,0,0,0,84,85,1,0,0,0,85,
-87,1,0,0,0,86,84,1,0,0,0,87,140,5,26,0,0,88,89,5,9,0,0,89,90,5,25,0,0,90,
-140,5,26,0,0,91,92,5,10,0,0,92,93,5,25,0,0,93,140,5,26,0,0,94,95,5,11,0,
-0,95,97,5,25,0,0,96,98,3,4,2,0,97,96,1,0,0,0,98,99,1,0,0,0,99,97,1,0,0,0,
-99,100,1,0,0,0,100,101,1,0,0,0,101,102,5,26,0,0,102,140,1,0,0,0,103,104,
-5,12,0,0,104,108,5,25,0,0,105,107,3,4,2,0,106,105,1,0,0,0,107,110,1,0,0,
-0,108,106,1,0,0,0,108,109,1,0,0,0,109,111,1,0,0,0,110,108,1,0,0,0,111,140,
-5,26,0,0,112,113,5,13,0,0,113,115,5,25,0,0,114,116,3,4,2,0,115,114,1,0,0,
-0,116,117,1,0,0,0,117,115,1,0,0,0,117,118,1,0,0,0,118,119,1,0,0,0,119,120,
-5,26,0,0,120,140,1,0,0,0,121,122,5,14,0,0,122,126,5,25,0,0,123,125,3,4,2,
-0,124,123,1,0,0,0,125,128,1,0,0,0,126,124,1,0,0,0,126,127,1,0,0,0,127,129,
-1,0,0,0,128,126,1,0,0,0,129,140,5,26,0,0,130,131,5,15,0,0,131,135,5,25,0,
-0,132,134,3,4,2,0,133,132,1,0,0,0,134,137,1,0,0,0,135,133,1,0,0,0,135,136,
-1,0,0,0,136,138,1,0,0,0,137,135,1,0,0,0,138,140,5,26,0,0,139,16,1,0,0,0,
-139,25,1,0,0,0,139,34,1,0,0,0,139,43,1,0,0,0,139,52,1,0,0,0,139,61,1,0,0,
-0,139,70,1,0,0,0,139,79,1,0,0,0,139,88,1,0,0,0,139,91,1,0,0,0,139,94,1,0,
-0,0,139,103,1,0,0,0,139,112,1,0,0,0,139,121,1,0,0,0,139,130,1,0,0,0,140,
-3,1,0,0,0,141,154,5,17,0,0,142,154,5,16,0,0,143,154,5,18,0,0,144,154,5,15,
-0,0,145,149,5,25,0,0,146,148,3,4,2,0,147,146,1,0,0,0,148,151,1,0,0,0,149,
-147,1,0,0,0,149,150,1,0,0,0,150,152,1,0,0,0,151,149,1,0,0,0,152,154,5,26,
-0,0,153,141,1,0,0,0,153,142,1,0,0,0,153,143,1,0,0,0,153,144,1,0,0,0,153,
-145,1,0,0,0,154,5,1,0,0,0,17,11,21,30,39,48,57,66,75,84,99,108,117,126,135,
-139,149,153];
+128,9,1,1,1,1,1,1,1,1,1,4,1,134,8,1,11,1,12,1,135,1,1,1,1,1,1,1,1,1,1,5,
+1,143,8,1,10,1,12,1,146,9,1,1,1,3,1,149,8,1,1,2,1,2,1,2,1,2,1,2,1,2,5,2,
+157,8,2,10,2,12,2,160,9,2,1,2,3,2,163,8,2,1,2,0,0,3,0,2,4,0,0,196,0,11,1,
+0,0,0,2,148,1,0,0,0,4,162,1,0,0,0,6,7,3,2,1,0,7,8,5,24,0,0,8,10,1,0,0,0,
+9,6,1,0,0,0,10,13,1,0,0,0,11,9,1,0,0,0,11,12,1,0,0,0,12,14,1,0,0,0,13,11,
+1,0,0,0,14,15,5,0,0,1,15,1,1,0,0,0,16,17,5,1,0,0,17,21,5,26,0,0,18,20,3,
+4,2,0,19,18,1,0,0,0,20,23,1,0,0,0,21,19,1,0,0,0,21,22,1,0,0,0,22,24,1,0,
+0,0,23,21,1,0,0,0,24,149,5,27,0,0,25,26,5,2,0,0,26,30,5,26,0,0,27,29,3,4,
+2,0,28,27,1,0,0,0,29,32,1,0,0,0,30,28,1,0,0,0,30,31,1,0,0,0,31,33,1,0,0,
+0,32,30,1,0,0,0,33,149,5,27,0,0,34,35,5,3,0,0,35,39,5,26,0,0,36,38,3,4,2,
+0,37,36,1,0,0,0,38,41,1,0,0,0,39,37,1,0,0,0,39,40,1,0,0,0,40,42,1,0,0,0,
+41,39,1,0,0,0,42,149,5,27,0,0,43,44,5,4,0,0,44,48,5,26,0,0,45,47,3,4,2,0,
+46,45,1,0,0,0,47,50,1,0,0,0,48,46,1,0,0,0,48,49,1,0,0,0,49,51,1,0,0,0,50,
+48,1,0,0,0,51,149,5,27,0,0,52,53,5,5,0,0,53,55,5,26,0,0,54,56,3,4,2,0,55,
+54,1,0,0,0,56,57,1,0,0,0,57,55,1,0,0,0,57,58,1,0,0,0,58,59,1,0,0,0,59,60,
+5,27,0,0,60,149,1,0,0,0,61,62,5,6,0,0,62,66,5,26,0,0,63,65,3,4,2,0,64,63,
+1,0,0,0,65,68,1,0,0,0,66,64,1,0,0,0,66,67,1,0,0,0,67,69,1,0,0,0,68,66,1,
+0,0,0,69,149,5,27,0,0,70,71,5,7,0,0,71,73,5,26,0,0,72,74,3,4,2,0,73,72,1,
+0,0,0,74,75,1,0,0,0,75,73,1,0,0,0,75,76,1,0,0,0,76,77,1,0,0,0,77,78,5,27,
+0,0,78,149,1,0,0,0,79,80,5,8,0,0,80,84,5,26,0,0,81,83,3,4,2,0,82,81,1,0,
+0,0,83,86,1,0,0,0,84,82,1,0,0,0,84,85,1,0,0,0,85,87,1,0,0,0,86,84,1,0,0,
+0,87,149,5,27,0,0,88,89,5,9,0,0,89,90,5,26,0,0,90,149,5,27,0,0,91,92,5,10,
+0,0,92,93,5,26,0,0,93,149,5,27,0,0,94,95,5,11,0,0,95,97,5,26,0,0,96,98,3,
+4,2,0,97,96,1,0,0,0,98,99,1,0,0,0,99,97,1,0,0,0,99,100,1,0,0,0,100,101,1,
+0,0,0,101,102,5,27,0,0,102,149,1,0,0,0,103,104,5,12,0,0,104,108,5,26,0,0,
+105,107,3,4,2,0,106,105,1,0,0,0,107,110,1,0,0,0,108,106,1,0,0,0,108,109,
+1,0,0,0,109,111,1,0,0,0,110,108,1,0,0,0,111,149,5,27,0,0,112,113,5,13,0,
+0,113,115,5,26,0,0,114,116,3,4,2,0,115,114,1,0,0,0,116,117,1,0,0,0,117,115,
+1,0,0,0,117,118,1,0,0,0,118,119,1,0,0,0,119,120,5,27,0,0,120,149,1,0,0,0,
+121,122,5,14,0,0,122,126,5,26,0,0,123,125,3,4,2,0,124,123,1,0,0,0,125,128,
+1,0,0,0,126,124,1,0,0,0,126,127,1,0,0,0,127,129,1,0,0,0,128,126,1,0,0,0,
+129,149,5,27,0,0,130,131,5,15,0,0,131,133,5,26,0,0,132,134,3,4,2,0,133,132,
+1,0,0,0,134,135,1,0,0,0,135,133,1,0,0,0,135,136,1,0,0,0,136,137,1,0,0,0,
+137,138,5,27,0,0,138,149,1,0,0,0,139,140,5,16,0,0,140,144,5,26,0,0,141,143,
+3,4,2,0,142,141,1,0,0,0,143,146,1,0,0,0,144,142,1,0,0,0,144,145,1,0,0,0,
+145,147,1,0,0,0,146,144,1,0,0,0,147,149,5,27,0,0,148,16,1,0,0,0,148,25,1,
+0,0,0,148,34,1,0,0,0,148,43,1,0,0,0,148,52,1,0,0,0,148,61,1,0,0,0,148,70,
+1,0,0,0,148,79,1,0,0,0,148,88,1,0,0,0,148,91,1,0,0,0,148,94,1,0,0,0,148,
+103,1,0,0,0,148,112,1,0,0,0,148,121,1,0,0,0,148,130,1,0,0,0,148,139,1,0,
+0,0,149,3,1,0,0,0,150,163,5,18,0,0,151,163,5,17,0,0,152,163,5,19,0,0,153,
+163,5,16,0,0,154,158,5,26,0,0,155,157,3,4,2,0,156,155,1,0,0,0,157,160,1,
+0,0,0,158,156,1,0,0,0,158,159,1,0,0,0,159,161,1,0,0,0,160,158,1,0,0,0,161,
+163,5,27,0,0,162,150,1,0,0,0,162,151,1,0,0,0,162,152,1,0,0,0,162,153,1,0,
+0,0,162,154,1,0,0,0,163,5,1,0,0,0,18,11,21,30,39,48,57,66,75,84,99,108,117,
+126,135,144,148,158,162];
 
 
 const atn = new antlr4.atn.ATNDeserializer().deserialize(serializedATN);
@@ -67,14 +70,15 @@ export default class CMakeParser extends antlr4.Parser {
     static literalNames = [ null, "'if'", "'elseif'", "'else'", "'endif'", 
                             "'foreach'", "'endforeach'", "'while'", "'endwhile'", 
                             "'break'", "'continue'", "'function'", "'endfunction'", 
-                            "'macro'", "'endmacro'", null, null, null, null, 
-                            null, null, null, null, null, null, "'('", "')'" ];
+                            "'macro'", "'endmacro'", "'set'", null, null, 
+                            null, null, null, null, null, null, null, null, 
+                            "'('", "')'" ];
     static symbolicNames = [ null, null, null, null, null, null, null, null, 
-                             null, null, null, null, null, null, null, "ID", 
-                             "BracketArgument", "QuotedArgument", "UnquotedArgument", 
-                             "BracketComment", "LineComment", "IgnoreNLBetweenArgs", 
-                             "IgnoreExtraNLBetweenCmds", "NL", "WS", "LParen", 
-                             "RParen", "Escape" ];
+                             null, null, null, null, null, null, null, null, 
+                             "ID", "BracketArgument", "QuotedArgument", 
+                             "UnquotedArgument", "BracketComment", "LineComment", 
+                             "IgnoreNLBetweenArgs", "IgnoreExtraNLBetweenCmds", 
+                             "NL", "WS", "LParen", "RParen", "Escape" ];
     static ruleNames = [ "file", "command", "argument" ];
 
     constructor(input) {
@@ -100,7 +104,7 @@ export default class CMakeParser extends antlr4.Parser {
 	        this.state = 11;
 	        this._errHandler.sync(this);
 	        _la = this._input.LA(1);
-	        while((((_la) & ~0x1f) == 0 && ((1 << _la) & 65534) !== 0)) {
+	        while((((_la) & ~0x1f) == 0 && ((1 << _la) & 131070) !== 0)) {
 	            this.state = 6;
 	            this.command();
 	            this.state = 7;
@@ -132,7 +136,7 @@ export default class CMakeParser extends antlr4.Parser {
 	    this.enterRule(localctx, 2, CMakeParser.RULE_command);
 	    var _la = 0; // Token type
 	    try {
-	        this.state = 139;
+	        this.state = 148;
 	        this._errHandler.sync(this);
 	        switch(this._input.LA(1)) {
 	        case 1:
@@ -145,7 +149,7 @@ export default class CMakeParser extends antlr4.Parser {
 	            this.state = 21;
 	            this._errHandler.sync(this);
 	            _la = this._input.LA(1);
-	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0)) {
+	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0)) {
 	                this.state = 18;
 	                this.argument();
 	                this.state = 23;
@@ -165,7 +169,7 @@ export default class CMakeParser extends antlr4.Parser {
 	            this.state = 30;
 	            this._errHandler.sync(this);
 	            _la = this._input.LA(1);
-	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0)) {
+	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0)) {
 	                this.state = 27;
 	                this.argument();
 	                this.state = 32;
@@ -185,7 +189,7 @@ export default class CMakeParser extends antlr4.Parser {
 	            this.state = 39;
 	            this._errHandler.sync(this);
 	            _la = this._input.LA(1);
-	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0)) {
+	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0)) {
 	                this.state = 36;
 	                this.argument();
 	                this.state = 41;
@@ -205,7 +209,7 @@ export default class CMakeParser extends antlr4.Parser {
 	            this.state = 48;
 	            this._errHandler.sync(this);
 	            _la = this._input.LA(1);
-	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0)) {
+	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0)) {
 	                this.state = 45;
 	                this.argument();
 	                this.state = 50;
@@ -231,7 +235,7 @@ export default class CMakeParser extends antlr4.Parser {
 	                this.state = 57; 
 	                this._errHandler.sync(this);
 	                _la = this._input.LA(1);
-	            } while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0));
+	            } while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0));
 	            this.state = 59;
 	            this.match(CMakeParser.RParen);
 	            break;
@@ -245,7 +249,7 @@ export default class CMakeParser extends antlr4.Parser {
 	            this.state = 66;
 	            this._errHandler.sync(this);
 	            _la = this._input.LA(1);
-	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0)) {
+	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0)) {
 	                this.state = 63;
 	                this.argument();
 	                this.state = 68;
@@ -271,7 +275,7 @@ export default class CMakeParser extends antlr4.Parser {
 	                this.state = 75; 
 	                this._errHandler.sync(this);
 	                _la = this._input.LA(1);
-	            } while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0));
+	            } while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0));
 	            this.state = 77;
 	            this.match(CMakeParser.RParen);
 	            break;
@@ -285,7 +289,7 @@ export default class CMakeParser extends antlr4.Parser {
 	            this.state = 84;
 	            this._errHandler.sync(this);
 	            _la = this._input.LA(1);
-	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0)) {
+	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0)) {
 	                this.state = 81;
 	                this.argument();
 	                this.state = 86;
@@ -331,7 +335,7 @@ export default class CMakeParser extends antlr4.Parser {
 	                this.state = 99; 
 	                this._errHandler.sync(this);
 	                _la = this._input.LA(1);
-	            } while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0));
+	            } while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0));
 	            this.state = 101;
 	            this.match(CMakeParser.RParen);
 	            break;
@@ -345,7 +349,7 @@ export default class CMakeParser extends antlr4.Parser {
 	            this.state = 108;
 	            this._errHandler.sync(this);
 	            _la = this._input.LA(1);
-	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0)) {
+	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0)) {
 	                this.state = 105;
 	                this.argument();
 	                this.state = 110;
@@ -371,7 +375,7 @@ export default class CMakeParser extends antlr4.Parser {
 	                this.state = 117; 
 	                this._errHandler.sync(this);
 	                _la = this._input.LA(1);
-	            } while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0));
+	            } while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0));
 	            this.state = 119;
 	            this.match(CMakeParser.RParen);
 	            break;
@@ -385,7 +389,7 @@ export default class CMakeParser extends antlr4.Parser {
 	            this.state = 126;
 	            this._errHandler.sync(this);
 	            _la = this._input.LA(1);
-	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0)) {
+	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0)) {
 	                this.state = 123;
 	                this.argument();
 	                this.state = 128;
@@ -396,23 +400,43 @@ export default class CMakeParser extends antlr4.Parser {
 	            this.match(CMakeParser.RParen);
 	            break;
 	        case 15:
-	            localctx = new OtherCmdContext(this, localctx);
+	            localctx = new SetCmdContext(this, localctx);
 	            this.enterOuterAlt(localctx, 15);
 	            this.state = 130;
-	            this.match(CMakeParser.ID);
+	            this.match(CMakeParser.T__14);
 	            this.state = 131;
 	            this.match(CMakeParser.LParen);
-	            this.state = 135;
+	            this.state = 133; 
 	            this._errHandler.sync(this);
 	            _la = this._input.LA(1);
-	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0)) {
+	            do {
 	                this.state = 132;
 	                this.argument();
-	                this.state = 137;
+	                this.state = 135; 
+	                this._errHandler.sync(this);
+	                _la = this._input.LA(1);
+	            } while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0));
+	            this.state = 137;
+	            this.match(CMakeParser.RParen);
+	            break;
+	        case 16:
+	            localctx = new OtherCmdContext(this, localctx);
+	            this.enterOuterAlt(localctx, 16);
+	            this.state = 139;
+	            this.match(CMakeParser.ID);
+	            this.state = 140;
+	            this.match(CMakeParser.LParen);
+	            this.state = 144;
+	            this._errHandler.sync(this);
+	            _la = this._input.LA(1);
+	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0)) {
+	                this.state = 141;
+	                this.argument();
+	                this.state = 146;
 	                this._errHandler.sync(this);
 	                _la = this._input.LA(1);
 	            }
-	            this.state = 138;
+	            this.state = 147;
 	            this.match(CMakeParser.RParen);
 	            break;
 	        default:
@@ -439,44 +463,44 @@ export default class CMakeParser extends antlr4.Parser {
 	    this.enterRule(localctx, 4, CMakeParser.RULE_argument);
 	    var _la = 0; // Token type
 	    try {
-	        this.state = 153;
+	        this.state = 162;
 	        this._errHandler.sync(this);
 	        switch(this._input.LA(1)) {
-	        case 17:
+	        case 18:
 	            this.enterOuterAlt(localctx, 1);
-	            this.state = 141;
+	            this.state = 150;
 	            this.match(CMakeParser.QuotedArgument);
 	            break;
-	        case 16:
+	        case 17:
 	            this.enterOuterAlt(localctx, 2);
-	            this.state = 142;
+	            this.state = 151;
 	            this.match(CMakeParser.BracketArgument);
 	            break;
-	        case 18:
+	        case 19:
 	            this.enterOuterAlt(localctx, 3);
-	            this.state = 143;
+	            this.state = 152;
 	            this.match(CMakeParser.UnquotedArgument);
 	            break;
-	        case 15:
+	        case 16:
 	            this.enterOuterAlt(localctx, 4);
-	            this.state = 144;
+	            this.state = 153;
 	            this.match(CMakeParser.ID);
 	            break;
-	        case 25:
+	        case 26:
 	            this.enterOuterAlt(localctx, 5);
-	            this.state = 145;
+	            this.state = 154;
 	            this.match(CMakeParser.LParen);
-	            this.state = 149;
+	            this.state = 158;
 	            this._errHandler.sync(this);
 	            _la = this._input.LA(1);
-	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 34045952) !== 0)) {
-	                this.state = 146;
+	            while((((_la) & ~0x1f) == 0 && ((1 << _la) & 68091904) !== 0)) {
+	                this.state = 155;
 	                this.argument();
-	                this.state = 151;
+	                this.state = 160;
 	                this._errHandler.sync(this);
 	                _la = this._input.LA(1);
 	            }
-	            this.state = 152;
+	            this.state = 161;
 	            this.match(CMakeParser.RParen);
 	            break;
 	        default:
@@ -514,19 +538,20 @@ CMakeParser.T__10 = 11;
 CMakeParser.T__11 = 12;
 CMakeParser.T__12 = 13;
 CMakeParser.T__13 = 14;
-CMakeParser.ID = 15;
-CMakeParser.BracketArgument = 16;
-CMakeParser.QuotedArgument = 17;
-CMakeParser.UnquotedArgument = 18;
-CMakeParser.BracketComment = 19;
-CMakeParser.LineComment = 20;
-CMakeParser.IgnoreNLBetweenArgs = 21;
-CMakeParser.IgnoreExtraNLBetweenCmds = 22;
-CMakeParser.NL = 23;
-CMakeParser.WS = 24;
-CMakeParser.LParen = 25;
-CMakeParser.RParen = 26;
-CMakeParser.Escape = 27;
+CMakeParser.T__14 = 15;
+CMakeParser.ID = 16;
+CMakeParser.BracketArgument = 17;
+CMakeParser.QuotedArgument = 18;
+CMakeParser.UnquotedArgument = 19;
+CMakeParser.BracketComment = 20;
+CMakeParser.LineComment = 21;
+CMakeParser.IgnoreNLBetweenArgs = 22;
+CMakeParser.IgnoreExtraNLBetweenCmds = 23;
+CMakeParser.NL = 24;
+CMakeParser.WS = 25;
+CMakeParser.LParen = 26;
+CMakeParser.RParen = 27;
+CMakeParser.Escape = 28;
 
 CMakeParser.RULE_file = 0;
 CMakeParser.RULE_command = 1;
@@ -1239,6 +1264,49 @@ class ElseCmdContext extends CommandContext {
 }
 
 CMakeParser.ElseCmdContext = ElseCmdContext;
+
+class SetCmdContext extends CommandContext {
+
+    constructor(parser, ctx) {
+        super(parser);
+        super.copyFrom(ctx);
+    }
+
+	LParen() {
+	    return this.getToken(CMakeParser.LParen, 0);
+	};
+
+	RParen() {
+	    return this.getToken(CMakeParser.RParen, 0);
+	};
+
+	argument = function(i) {
+	    if(i===undefined) {
+	        i = null;
+	    }
+	    if(i===null) {
+	        return this.getTypedRuleContexts(ArgumentContext);
+	    } else {
+	        return this.getTypedRuleContext(ArgumentContext,i);
+	    }
+	};
+
+	enterRule(listener) {
+	    if(listener instanceof CMakeListener ) {
+	        listener.enterSetCmd(this);
+		}
+	}
+
+	exitRule(listener) {
+	    if(listener instanceof CMakeListener ) {
+	        listener.exitSetCmd(this);
+		}
+	}
+
+
+}
+
+CMakeParser.SetCmdContext = SetCmdContext;
 
 class ArgumentContext extends antlr4.ParserRuleContext {
 
