@@ -341,6 +341,22 @@ export class FormatListener extends CMakeListener {
         this.exitOtherCmd(ctx);
     }
 
+    enterIncludeCmd(ctx: any): void {
+        this._formatted += this.getTextBeforeFirstArg("include", ctx.LParen().getSymbol().tokenIndex);
+    }
+
+    exitIncludeCmd(ctx: any): void {
+        this.exitOtherCmd(ctx);
+    }
+
+    enterAddSubDirCmd(ctx: any): void {
+        this._formatted += this.getTextBeforeFirstArg("add_subdirectory", ctx.LParen().getSymbol().tokenIndex);
+    }
+
+    exitAddSubDirCmd(ctx: any): void {
+        this.exitOtherCmd(ctx);
+    }
+
     enterArgument(ctx: any): void {
         const count: number = ctx.getChildCount();
         if (count === 1) {

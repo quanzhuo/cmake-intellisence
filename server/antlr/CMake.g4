@@ -10,22 +10,24 @@ file
     ;
 
 command
-    : 'if' '(' argument* ')'			# IfCmd
-	| 'elseif' '(' argument* ')'		# ElseIfCmd
-	| 'else' '(' argument* ')'			# ElseCmd
-	| 'endif' '(' argument* ')'			# EndIfCmd
-	| 'foreach' '(' argument+ ')'		# ForeachCmd
-	| 'endforeach' '(' argument* ')'	# EndForeachCmd
-	| 'while' '(' argument+ ')'			# WhileCmd
-	| 'endwhile' '(' argument* ')'		# EndWhileCmd
-	| 'break' '(' ')'					# BreakCmd
-	| 'continue' '(' ')'				# ContinueCmd
-	| 'function' '(' argument+ ')'		# FunctionCmd
-	| 'endfunction' '(' argument* ')'	# EndFunctionCmd
-	| 'macro' '(' argument+ ')'			# MacroCmd
-	| 'endmacro' '(' argument* ')'		# EndMacroCmd
-    | 'set' '(' argument+ ')'           # SetCmd
-    |   ID '(' argument * ')'           # OtherCmd
+    : 'if' '(' argument* ')'			   # IfCmd
+	| 'elseif' '(' argument* ')'		   # ElseIfCmd
+	| 'else' '(' argument* ')'			   # ElseCmd
+	| 'endif' '(' argument* ')'			   # EndIfCmd
+	| 'foreach' '(' argument+ ')'		   # ForeachCmd
+	| 'endforeach' '(' argument* ')'	   # EndForeachCmd
+	| 'while' '(' argument+ ')'			   # WhileCmd
+	| 'endwhile' '(' argument* ')'		   # EndWhileCmd
+	| 'break' '(' ')'					   # BreakCmd
+	| 'continue' '(' ')'				   # ContinueCmd
+	| 'function' '(' argument+ ')'		   # FunctionCmd
+	| 'endfunction' '(' argument* ')'	   # EndFunctionCmd
+	| 'macro' '(' argument+ ')'			   # MacroCmd
+	| 'endmacro' '(' argument* ')'		   # EndMacroCmd
+    | 'set' '(' argument+ ')'              # SetCmd
+    | 'include' '(' argument+ ')'          # IncludeCmd
+    | 'add_subdirectory' '(' argument+ ')' # AddSubDirCmd
+    |   ID '(' argument * ')'              # OtherCmd
     ;
 
 argument

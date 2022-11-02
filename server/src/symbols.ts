@@ -4,7 +4,7 @@ import { DocumentSymbol, SymbolKind } from "vscode-languageserver-protocol";
 export class SymbolListener extends CMakeListener {
     private _symbols: DocumentSymbol[] = [];
     private _inFunction: boolean = false;
-    private _functionSymbol: DocumentSymbol;
+    private _symbolsInFunction: DocumentSymbol;
 
     private makeSymbol(token: any, kind: SymbolKind): DocumentSymbol {
         return {
@@ -36,7 +36,7 @@ export class SymbolListener extends CMakeListener {
     enterSetCmd(ctx: any): void {
         const argumentCtx = ctx.argument(0);
         if (this._inFunction) {
-            this._functionSymbol.children.push(this.makeSymbol(argumentCtx.start, SymbolKind.Variable));
+            this._symbolsInFunction.children.push(this.makeSymbol(argumentCtx.start, SymbolKind.Variable));
         } else {
             this._symbols.push(this.makeSymbol(argumentCtx.start, SymbolKind.Variable));
         }
@@ -45,13 +45,13 @@ export class SymbolListener extends CMakeListener {
     enterFunctionCmd(ctx: any): void {
         this._inFunction = true;
         const argumentCtx = ctx.argument(0);
-        this._functionSymbol = this.makeSymbol(argumentCtx.start, SymbolKind.Function);
-        this._functionSymbol.children = [];
+        this._symbolsInFunction = this.makeSymbol(argumentCtx.start, SymbolKind.Function);
+        this._symbolsInFunction.children = [];
     }
 
     enterEndFunctionCmd(ctx: any): void {
         this._inFunction = false;
-        this._symbols.push(this._functionSymbol);
+        this._symbols.push(this._symbolsInFunction);
     }
 
     enterMacroCmd(ctx: any): void {
