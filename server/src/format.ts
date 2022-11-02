@@ -141,6 +141,36 @@ export class FormatListener extends CMakeListener {
         return result;
     }
 
+    private exitBeginBlockCmd(ctx: any): void {
+        const index: number = ctx.RParen().getSymbol().tokenIndex;
+        const text: string = this.getTextAfterLastArg(index);
+        this._formatted += text;
+
+        // append a newline as command seprator
+        this._formatted += "\n";
+
+        ++this._indentLevel;
+
+        // comments after the newline
+        const nlIndex: number = text === ")" ? index + 1 : index + 2;
+        this.addCommentsAfterSeprator(nlIndex);
+    }
+
+    private exitEndBlockCmd(ctx: any): void {
+        const index: number = ctx.RParen().getSymbol().tokenIndex;
+        const text: string = this.getTextAfterLastArg(index);
+        this._formatted += text;
+
+        // append a newline as command seprator
+        this._formatted += "\n";
+
+        this.addNewLineAfterBlock();
+
+        // comments after the newline
+        const nlIndex: number = text === ")" ? index + 1 : index + 2;
+        this.addCommentsAfterSeprator(nlIndex);
+    }
+
     enterFile(ctx: any): void {
         let hasComment = false;
         for (const token of this._tokenStream.tokens) {
@@ -164,81 +194,34 @@ export class FormatListener extends CMakeListener {
     }
 
     exitIfCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        ++this._indentLevel;
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitBeginBlockCmd(ctx);
     }
 
     enterElseIfCmd(ctx: any): void {
         --this._indentLevel;
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this._formatted += this.getTextBeforeFirstArg("elseif", index);
+        this._formatted += this.getTextBeforeFirstArg("elseif", ctx.LParen().getSymbol().tokenIndex);
     }
 
     exitElseIfCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        ++this._indentLevel;
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitBeginBlockCmd(ctx);
     }
 
     enterElseCmd(ctx: any): void {
         --this._indentLevel;
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this._formatted += this.getTextBeforeFirstArg("else", index);
+        this._formatted += this.getTextBeforeFirstArg("else", ctx.LParen().getSymbol().tokenIndex);
     }
 
     exitElseCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        ++this._indentLevel;
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitBeginBlockCmd(ctx);
     }
 
     enterEndIfCmd(ctx: any): void {
         --this._indentLevel;
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this._formatted += this.getTextBeforeFirstArg("endif", index);
+        this._formatted += this.getTextBeforeFirstArg("endif", ctx.LParen().getSymbol().tokenIndex);
     }
 
     exitEndIfCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        this.addNewLineAfterBlock();
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitEndBlockCmd(ctx);
     }
 
     enterWhileCmd(ctx: any): void {
@@ -248,39 +231,16 @@ export class FormatListener extends CMakeListener {
     }
 
     exitWhileCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        ++this._indentLevel;
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitBeginBlockCmd(ctx);
     }
 
     enterEndWhileCmd(ctx: any): void {
         --this._indentLevel;
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this._formatted += this.getTextBeforeFirstArg("endwhile", index);
+        this._formatted += this.getTextBeforeFirstArg("endwhile", ctx.LParen().getSymbol().tokenIndex);
     }
 
     exitEndWhileCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        this.addNewLineAfterBlock();
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitEndBlockCmd(ctx);
     }
 
     enterForeachCmd(ctx: any): void {
@@ -290,75 +250,32 @@ export class FormatListener extends CMakeListener {
     }
 
     exitForeachCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        ++this._indentLevel;
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitBeginBlockCmd(ctx);
     }
 
     enterEndForeachCmd(ctx: any): void {
         --this._indentLevel;
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this._formatted += this.getTextBeforeFirstArg("endforeach", index);
+        this._formatted += this.getTextBeforeFirstArg("endforeach", ctx.LParen().getSymbol().tokenIndex);
     }
 
     exitEndForeachCmd(ctx: any): void {
-        const index = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command sperator
-        this._formatted += "\n";
-
-        this.addNewLineAfterBlock();
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitEndBlockCmd(ctx);
     }
 
     enterBreakCmd(ctx: any): void {
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this._formatted += this.getTextBeforeFirstArg("break", index);
+        this._formatted += this.getTextBeforeFirstArg("break", ctx.LParen().getSymbol().tokenIndex);
     }
 
     exitBreakCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitOtherCmd(ctx);
     }
 
     enterContinueCmd(ctx: any): void {
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this._formatted += this.getTextBeforeFirstArg("continue", index);
+        this._formatted += this.getTextBeforeFirstArg("continue", ctx.LParen().getSymbol().tokenIndex);
     }
 
     exitContinueCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitOtherCmd(ctx);
     }
 
     enterFunctionCmd(ctx: any): void {
@@ -368,39 +285,16 @@ export class FormatListener extends CMakeListener {
     }
 
     exitFunctionCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        ++this._indentLevel;
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitBeginBlockCmd(ctx);
     }
 
     enterEndFunctionCmd(ctx: any): void {
         --this._indentLevel;
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this._formatted += this.getTextBeforeFirstArg("endfunction", index);
+        this._formatted += this.getTextBeforeFirstArg("endfunction", ctx.LParen().getSymbol().tokenIndex);
     }
 
     exitEndFunctionCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        this.addNewLineAfterBlock();
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitEndBlockCmd(ctx);
     }
 
     enterMacroCmd(ctx: any): void {
@@ -410,44 +304,20 @@ export class FormatListener extends CMakeListener {
     }
 
     exitMacroCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        ++this._indentLevel;
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitBeginBlockCmd(ctx);
     }
 
     enterEndMacroCmd(ctx: any): void {
         --this._indentLevel;
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this._formatted += this.getTextBeforeFirstArg("endmacro", index);
+        this._formatted += this.getTextBeforeFirstArg("endmacro", ctx.LParen().getSymbol().tokenIndex);
     }
 
     exitEndMacroCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        this.addNewLineAfterBlock();
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitEndBlockCmd(ctx);
     }
 
     enterOtherCmd(ctx: any): void {
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this._formatted += this.getTextBeforeFirstArg(ctx.ID().getText(), index);
+        this._formatted += this.getTextBeforeFirstArg(ctx.ID().getText(), ctx.LParen().getSymbol().tokenIndex);
     }
 
     exitOtherCmd(ctx: any): void {
@@ -464,21 +334,11 @@ export class FormatListener extends CMakeListener {
     }
 
     enterSetCmd(ctx: any): void {
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this._formatted += this.getTextBeforeFirstArg("set", index);
+        this._formatted += this.getTextBeforeFirstArg("set", ctx.LParen().getSymbol().tokenIndex);
     }
 
     exitSetCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
+        this.exitOtherCmd(ctx);
     }
 
     enterArgument(ctx: any): void {
