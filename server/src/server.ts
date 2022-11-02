@@ -5,10 +5,12 @@ import {
 
 import {
     CompletionItemKind, CompletionParams, DocumentFormattingParams,
-    DocumentSymbolParams
+    DocumentSymbolParams, SignatureHelpTriggerKind
 } from 'vscode-languageserver-protocol';
 import { Range, TextDocument } from 'vscode-languageserver-textdocument';
-import { CompletionItem, CompletionItemTag, Position } from 'vscode-languageserver-types';
+import {
+    CompletionItem, CompletionItemTag, Position, SignatureInformation
+} from 'vscode-languageserver-types';
 
 import { exec } from 'child_process';
 import * as builtinCmds from './builtin-cmds.json';
@@ -16,8 +18,8 @@ import { FormatListener } from './format';
 import antlr4 from './parser/antlr4/index.js';
 import CMakeLexer from './parser/CMakeLexer.js';
 import CMakeParser from './parser/CMakeParser.js';
-import { Entries, getBuiltinEntries } from './utils';
 import { SymbolListener } from './symbols';
+import { Entries, getBuiltinEntries } from './utils';
 
 const entries: Entries = getBuiltinEntries();
 const modules = entries[0].split('\n');
@@ -38,8 +40,7 @@ connection.onInitialize((params: InitializeParams) => {
             textDocumentSync: TextDocumentSyncKind.Incremental,
             hoverProvider: true,
             signatureHelpProvider: {
-                triggerCharacters: ['('],
-                retriggerCharacters: [' ']
+                triggerCharacters: ['(']
             },
             completionProvider: {},
             documentFormattingProvider: true,
@@ -133,7 +134,69 @@ connection.onCompletion(async (params: CompletionParams) => {
 });
 
 connection.onSignatureHelp((params: SignatureHelpParams) => {
-    return null;
+    return new Promise((resolve, reject) => {
+        const document = documents.get(params.textDocument.uri);
+        if (params.context.triggerKind === SignatureHelpTriggerKind.TriggerCharacter) {
+            if (params.context.triggerCharacter === "(") {
+                const posBeforeLParen: Position = {
+                    line: params.position.line,
+                    character: params.position.character - 1
+                };
+
+                const word: string = getWordAtPosition(document, posBeforeLParen);
+                if (word.length === 0 || !(word in builtinCmds)) {
+                    return null;
+                }
+
+                const sigsStrArr: string[] = builtinCmds[word]['sig'];
+                const signatures = sigsStrArr.map((value, index, arr) => {
+                    return {
+                        label: value
+                    };
+                });
+
+                resolve({
+                    signatures: signatures,
+                    activeSignature: 0,
+                    activeParameter: 0
+                });
+            }
+        } else if (params.context.triggerKind === SignatureHelpTriggerKind.ContentChange) {
+            const word: string = getWordAtPosition(document, params.position);
+            if (word.length === 0) {
+                return null;
+            }
+            const firstSig: string = params.context.activeSignatureHelp?.signatures[0].label;
+            const leftParenIndex = firstSig.indexOf('(');
+            const command = firstSig.slice(0, leftParenIndex);
+            if (! command) {
+                return null;
+            }
+            const sigsStrArr: string[] = builtinCmds[command]['sig'];
+            const signatures = sigsStrArr.map((value, index, arr) => {
+                return {
+                    label: value
+                };
+            });
+
+            const activeSignature: number = (() => {
+                let i = 0;
+                for (let j = 0; j < signatures.length; ++j) {
+                    if (signatures[j].label.includes(word)) {
+                        i = j;
+                        break;
+                    }
+                }
+                return i;
+            })();
+
+            resolve({
+                signatures: signatures,
+                activeSignature: activeSignature,
+               activeParameter: 0
+            });
+        }
+    });
 });
 
 connection.onDocumentFormatting((params: DocumentFormattingParams) => {
