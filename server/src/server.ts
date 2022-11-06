@@ -1,15 +1,17 @@
 import {
     createConnection, HoverParams, InitializeParams, InitializeResult,
-    ProposedFeatures, SignatureHelpParams, TextDocuments, TextDocumentSyncKind
+    ProposedFeatures, SignatureHelpParams, TextDocuments, TextDocumentSyncKind,
+    _RemoteWindow
 } from 'vscode-languageserver/node';
 
 import {
     CompletionItemKind, CompletionParams, DocumentFormattingParams,
-    DocumentSymbolParams, SignatureHelpTriggerKind
+    DocumentSymbolParams, SignatureHelpTriggerKind, DefinitionParams,
+    WorkspaceFolder
 } from 'vscode-languageserver-protocol';
 import { Range, TextDocument } from 'vscode-languageserver-textdocument';
 import {
-    CompletionItem, CompletionItemTag, Position, SignatureInformation
+    CompletionItem, CompletionItemTag, Position
 } from 'vscode-languageserver-types';
 
 import { exec } from 'child_process';
@@ -25,7 +27,9 @@ const entries: Entries = getBuiltinEntries();
 const modules = entries[0].split('\n');
 const policies = entries[1].split('\n');
 const variables = entries[2].split('\n');
-const properties = entries[3].split('\n');;
+const properties = entries[3].split('\n');
+
+let workspaceFolders: WorkspaceFolder[] | null;
 
 // Craete a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -35,6 +39,7 @@ const connection = createConnection(ProposedFeatures.all);
 const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
 connection.onInitialize((params: InitializeParams) => {
+    workspaceFolders = params.workspaceFolders;
     const result: InitializeResult = {
         capabilities: {
             textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -44,7 +49,8 @@ connection.onInitialize((params: InitializeParams) => {
             },
             completionProvider: {},
             documentFormattingProvider: true,
-            documentSymbolProvider: true
+            documentSymbolProvider: true,
+            definitionProvider: true
         },
         serverInfo: {
             name: 'cmakels',
@@ -169,7 +175,7 @@ connection.onSignatureHelp((params: SignatureHelpParams) => {
             const firstSig: string = params.context.activeSignatureHelp?.signatures[0].label;
             const leftParenIndex = firstSig.indexOf('(');
             const command = firstSig.slice(0, leftParenIndex);
-            if (! command) {
+            if (!command) {
                 return null;
             }
             const sigsStrArr: string[] = builtinCmds[command]['sig'];
@@ -193,7 +199,7 @@ connection.onSignatureHelp((params: SignatureHelpParams) => {
             resolve({
                 signatures: signatures,
                 activeSignature: activeSignature,
-               activeParameter: 0
+                activeParameter: 0
             });
         }
     });
@@ -235,6 +241,37 @@ connection.onDocumentSymbol((params: DocumentSymbolParams) => {
         const symbolListener = new SymbolListener();
         antlr4.tree.ParseTreeWalker.DEFAULT.walk(symbolListener, tree);
         resolve(symbolListener.getSymbols());
+    });
+});
+
+connection.onDefinition((params: DefinitionParams) => {
+    connection.window.showInformationMessage("demo message");
+    if (workspaceFolders === null || workspaceFolders.length === 0 ) {
+        return null;
+    }
+    if (workspaceFolders.length > 1) {
+        connection.window.showInformationMessage("demo message");
+    }
+    const uri: string = params.textDocument.uri;
+    const document = documents.get(uri);
+    const word: string = getWordAtPosition(document, params.position);
+    const dir = uri.slice(0, uri.lastIndexOf('/'));
+    const subdir = dir + '/' + word;
+    const cmakeLists = subdir + uri.slice(uri.lastIndexOf('/'));
+    return new Promise((resolve, reject) => {
+        resolve({
+            uri: cmakeLists,
+            range: {
+                start: {
+                    line: 0,
+                    character: 0
+                },
+                end: { 
+                    line: Number.MAX_VALUE,
+                    character: Number.MAX_VALUE
+                }
+            }
+        });
     });
 });
 
