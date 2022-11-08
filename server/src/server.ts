@@ -20,8 +20,9 @@ import { FormatListener } from './format';
 import antlr4 from './parser/antlr4/index.js';
 import CMakeLexer from './parser/CMakeLexer.js';
 import CMakeParser from './parser/CMakeParser.js';
-import { SymbolListener } from './symbols';
+import { SymbolListener } from './docSymbols';
 import { Entries, getBuiltinEntries } from './utils';
+import { DefinationListener } from './symbolTable/goToDefination';
 
 const entries: Entries = getBuiltinEntries();
 const modules = entries[0].split('\n');
@@ -36,7 +37,7 @@ let workspaceFolders: WorkspaceFolder[] | null;
 const connection = createConnection(ProposedFeatures.all);
 
 // Create a simple text document manager.
-const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
+export const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
 connection.onInitialize((params: InitializeParams) => {
     workspaceFolders = params.workspaceFolders;
@@ -245,12 +246,12 @@ connection.onDocumentSymbol((params: DocumentSymbolParams) => {
 });
 
 connection.onDefinition((params: DefinitionParams) => {
-    connection.window.showInformationMessage("demo message");
     if (workspaceFolders === null || workspaceFolders.length === 0 ) {
         return null;
     }
     if (workspaceFolders.length > 1) {
-        connection.window.showInformationMessage("demo message");
+        connection.window.showInformationMessage("CMake IntelliSence doesn't support multi-root workspace now");
+        return null;
     }
     const uri: string = params.textDocument.uri;
     const document = documents.get(uri);
@@ -258,6 +259,15 @@ connection.onDefinition((params: DefinitionParams) => {
     const dir = uri.slice(0, uri.lastIndexOf('/'));
     const subdir = dir + '/' + word;
     const cmakeLists = subdir + uri.slice(uri.lastIndexOf('/'));
+    const input = antlr4.CharStreams.fromString(document.getText());
+    const lexer = new CMakeLexer(input);
+    const tokenStream = new antlr4.CommonTokenStream(lexer);
+    const parser = new CMakeParser(tokenStream);
+    const tree = parser.file();
+    const fileScope: FileScope = new FileScope(null);
+    // let currentScope: Scope = null;
+    const definationListener = new DefinationListener(fileScope);
+    antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
     return new Promise((resolve, reject) => {
         resolve({
             uri: cmakeLists,
