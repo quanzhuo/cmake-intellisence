@@ -3,7 +3,7 @@ import { Location } from "vscode-languageserver-types";
 import antlr4 from '../parser/antlr4/index.js';
 import Token from "../parser/antlr4/Token";
 import CMakeListener from "../parser/CMakeListener";
-import { getFileContext, getIncludeFileUri } from "../utils";
+import { getFileContext, getIncludeFileUri, getSubCMakeListsUri } from "../utils";
 import { FileScope, FunctionScope, Scope } from "./scope";
 import { Sym, Type } from "./symbol";
 
@@ -105,9 +105,31 @@ export class DefinationListener extends CMakeListener {
 
     enterAddSubDirCmd(ctx: any): void {
         const dirToken: Token = ctx.argument(0).start;
-        const fileUri: string = this.uri + path.sep + dirToken.text;
+        const fileUri: string = getSubCMakeListsUri(this.uri, dirToken.text);
+        if (!fileUri) {
+            return;
+        }
+
+        // add subdir CMakeLists.txt to refDef
+        const refPos: string = this.uri + '_' + (dirToken.line - 1) + '_' +
+            dirToken.column + '_' + dirToken.text;
+        refToDef.set(refPos, {
+            uri: fileUri,
+            range: {
+                start: {
+                    line: 0,
+                    character: 0
+                },
+                end: {
+                    line: Number.MAX_VALUE,
+                    character: Number.MAX_VALUE
+                }
+            }
+        });
+
         const tree = getFileContext(fileUri);
         const subDirScope: Scope = new FileScope(this.currentScope);
+        this.currentScope = subDirScope;
         const definationListener = new DefinationListener(fileUri, subDirScope);
         antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
     }

@@ -58,6 +58,16 @@ export function getFileContext(uri: string) {
     return parser.file();
 }
 
+export function getSubCMakeListsUri(currentFileUri: string, subDir: string): string {
+    const currentFilePath: string = fileURLToPath(currentFileUri);
+    const subCMakeListsPath = path.join(currentFilePath, '..', subDir, 'CMakeLists.txt');
+    if (existsSync(subCMakeListsPath)) {
+        return pathToFileURL(subCMakeListsPath).toString();
+    }
+
+    return null;
+}
+
 export function getIncludeFileUri(currentFileUri: string, includeFileName: string): string {
     const currentFilePath: string = fileURLToPath(currentFileUri);
     const includeFilePath: string = path.dirname(currentFilePath) + path.sep + includeFileName;
