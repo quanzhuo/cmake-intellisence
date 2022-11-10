@@ -6,7 +6,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Run Extension",
+            "name": "Launch Client",
             "type": "extensionHost",
             "request": "launch",
             "args": [
@@ -18,9 +18,9 @@
             "preLaunchTask": "${defaultBuildTask}"
         },
         {
+            "name": "Attach to Server",
             "type": "node",
             "request": "attach",
-            "name": "Attach to Server",
             "port": 6009,
             "restart": true,
             "outFiles": [
@@ -39,6 +39,12 @@
                 "${workspaceFolder}/out/test/**/*.js"
             ],
             "preLaunchTask": "${defaultBuildTask}"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Client + Server",
+            "configurations": ["Launch Client", "Attach to Server"]
         }
     ]
 }

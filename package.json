@@ -103,10 +103,10 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run grammar && npm run package",
+    "vscode:prepublish": "npm run product",
     "compile": "npm run grammar && tsc -b . --verbose",
-    "webpack": "npm run grammar && npm run webpack-client && npm run webpack-server",
-    "package": "npm run package-client && npm run package-server",
+    "develop": "concurrently \"npm run grammar\" \"npm run dev-client\" \"npm run dev-server\"",
+    "product": "concurrently \"npm run grammar\" \"npm run prod-client\" \"npm run prod-server\"",
     "watch": "npm run grammar && tsc -watch -b . --verbose",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
@@ -116,16 +116,17 @@
     "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
     "grammar-cmdsignature": "npx js-yaml ./syntaxes/cmdsignature.tmLanguage.yml > ./syntaxes/cmdsignature.tmLanguage.json",
     "grammar": "node ./build/yaml-to-json.mjs",
-    "webpack-client": "webpack --mode development --config webpack.config.client.js",
-    "webpack-server": "webpack --mode development --config webpack.config.server.js",
-    "package-client": "webpack --mode production --config webpack.config.client.js --devtool hidden-source-map",
-    "package-server": "webpack --mode production --config webpack.config.server.js --devtool hidden-source-map"
+    "dev-client": "webpack --mode development --config webpack.config.client.js",
+    "dev-server": "webpack --mode development --config webpack.config.server.js",
+    "prod-client": "webpack --mode production --config webpack.config.client.js --devtool hidden-source-map",
+    "prod-server": "webpack --mode production --config webpack.config.server.js --devtool hidden-source-map"
   },
   "devDependencies": {
     "@types/mocha": "^9.1.1",
     "@types/node": "16.x",
     "@typescript-eslint/eslint-plugin": "^5.31.0",
     "@typescript-eslint/parser": "^5.31.0",
+    "concurrently": "^7.5.0",
     "eslint": "^8.20.0",
     "js-yaml": "^4.1.0",
     "mocha": "^10.0.0",
