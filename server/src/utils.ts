@@ -68,6 +68,10 @@ export function getIncludeFileUri(currentFileUri: string, includeFileName: strin
         return includeFileUri;
     }
 
+    // TODO: if includeFileName contains variable reference 
+    // ex: include(${CMAKE_CURRENT_LIST_DIR}/xxx.cmake) 
+    // Module: AndroidTestUtilities
+
     // name is a cmake module
     const cmakePath: string = which('cmake');
     if (cmakePath === null) {
@@ -75,20 +79,27 @@ export function getIncludeFileUri(currentFileUri: string, includeFileName: strin
     }
 
     const moduleDir = 'cmake-' + cmakeVersion.major + '.' + cmakeVersion.minor;
-    const resPath = path.join(cmakePath, '..', 'share', moduleDir, 'Modules', includeFileName) + '.cmake';
+    const resPath = path.join(cmakePath, '../..', 'share', moduleDir, 'Modules', includeFileName) + '.cmake';
 
-    return pathToFileURL(resPath).toString();
+    if (existsSync(resPath)) {
+        return pathToFileURL(resPath).toString();   
+    }
+
+    return null;
 }
 
 function which(cmd: string): string {
     let command: string;
+    let pathEnvSep: string;
     if (os.type() === 'Windows_NT') {
         command = cmd + ".exe";
+        pathEnvSep = ';';
     } else {
         command = cmd;
+        pathEnvSep = ':';
     }
 
-    for (const dir of process.env.PATH.split(path.sep)) {
+    for (const dir of process.env.PATH.split(pathEnvSep)) {
         const absPath: string = dir + path.sep + command;
         if (existsSync(absPath)) {
             return absPath;

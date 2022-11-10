@@ -80,6 +80,24 @@ export class DefinationListener extends CMakeListener {
         if (!fileUri) {
             return;
         }
+
+        // add included module to refDef
+        const refPos: string = this.uri + '_' + (nameToken.line - 1) + '_' +
+            nameToken.column + '_' + nameToken.text;
+        refToDef.set(refPos, {
+            uri: fileUri,
+            range: {
+                start: {
+                    line: 0,
+                    character: 0
+                },
+                end: {
+                    line: Number.MAX_VALUE,
+                    character: Number.MAX_VALUE
+                }
+            }
+        });
+
         const tree = getFileContext(fileUri);
         const definationListener = new DefinationListener(fileUri, this.currentScope);
         antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);

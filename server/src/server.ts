@@ -294,8 +294,8 @@ function getWordAtPosition(textDocument: TextDocument, position: Position): Word
         start = line.substring(0, position.character),
         end = line.substring(position.character);
     // TODO: the regex expression capture numbers, fix it.
-    const startReg = /[a-zA-Z0-9_]*$/,
-        endReg = /^[a-zA-Z0-9_]*/;
+    const startReg = /[a-zA-Z0-9_\.\/]*$/,
+        endReg = /^[a-zA-Z0-9_\.\/]*/;
 
     const startWord = start.match(startReg)[0],
         endWord = end.match(endReg)[0];
