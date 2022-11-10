@@ -21,8 +21,14 @@ import antlr4 from './parser/antlr4/index.js';
 import CMakeLexer from './parser/CMakeLexer.js';
 import CMakeParser from './parser/CMakeParser.js';
 import { SymbolListener } from './docSymbols';
-import { Entries, getBuiltinEntries } from './utils';
-import { DefinationListener } from './symbolTable/goToDefination';
+import { Entries, getBuiltinEntries, getCMakeVersion, getFileContext } from './utils';
+import { DefinationListener, refToDef, topScope } from './symbolTable/goToDefination';
+
+type Word = {
+    text: string,
+    line: number,
+    col: number
+};
 
 const entries: Entries = getBuiltinEntries();
 const modules = entries[0].split('\n');
@@ -68,7 +74,7 @@ connection.onInitialized(() => {
 
 connection.onHover((params: HoverParams) => {
     const document: TextDocument = documents.get(params.textDocument.uri);
-    const word = getWordAtPosition(document, params.position);
+    const word = getWordAtPosition(document, params.position).text;
     if (word.length === 0) {
         return null;
     }
@@ -125,7 +131,7 @@ connection.onHover((params: HoverParams) => {
 
 connection.onCompletion(async (params: CompletionParams) => {
     const document = documents.get(params.textDocument.uri);
-    const word = getWordAtPosition(document, params.position);
+    const word = getWordAtPosition(document, params.position).text;
     if (word.length === 0) {
         return null;
     }
@@ -150,7 +156,7 @@ connection.onSignatureHelp((params: SignatureHelpParams) => {
                     character: params.position.character - 1
                 };
 
-                const word: string = getWordAtPosition(document, posBeforeLParen);
+                const word: string = getWordAtPosition(document, posBeforeLParen).text;
                 if (word.length === 0 || !(word in builtinCmds)) {
                     return null;
                 }
@@ -169,7 +175,7 @@ connection.onSignatureHelp((params: SignatureHelpParams) => {
                 });
             }
         } else if (params.context.triggerKind === SignatureHelpTriggerKind.ContentChange) {
-            const word: string = getWordAtPosition(document, params.position);
+            const word: string = getWordAtPosition(document, params.position).text;
             if (word.length === 0) {
                 return null;
             }
@@ -246,42 +252,30 @@ connection.onDocumentSymbol((params: DocumentSymbolParams) => {
 });
 
 connection.onDefinition((params: DefinitionParams) => {
-    if (workspaceFolders === null || workspaceFolders.length === 0 ) {
+    if (workspaceFolders === null || workspaceFolders.length === 0) {
         return null;
     }
     if (workspaceFolders.length > 1) {
         connection.window.showInformationMessage("CMake IntelliSence doesn't support multi-root workspace now");
         return null;
     }
-    const uri: string = params.textDocument.uri;
-    const document = documents.get(uri);
-    const word: string = getWordAtPosition(document, params.position);
-    const dir = uri.slice(0, uri.lastIndexOf('/'));
-    const subdir = dir + '/' + word;
-    const cmakeLists = subdir + uri.slice(uri.lastIndexOf('/'));
-    const input = antlr4.CharStreams.fromString(document.getText());
-    const lexer = new CMakeLexer(input);
-    const tokenStream = new antlr4.CommonTokenStream(lexer);
-    const parser = new CMakeParser(tokenStream);
-    const tree = parser.file();
-    const fileScope: FileScope = new FileScope(null);
-    // let currentScope: Scope = null;
-    const definationListener = new DefinationListener(fileScope);
-    antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
+
     return new Promise((resolve, reject) => {
-        resolve({
-            uri: cmakeLists,
-            range: {
-                start: {
-                    line: 0,
-                    character: 0
-                },
-                end: { 
-                    line: Number.MAX_VALUE,
-                    character: Number.MAX_VALUE
-                }
-            }
-        });
+        const uri: string = params.textDocument.uri;
+        const tree = getFileContext(uri);
+        const definationListener = new DefinationListener(uri, topScope);
+        antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
+
+        const document = documents.get(uri);
+        const word: Word = getWordAtPosition(document, params.position);
+        const wordPos: string = uri + '_' + params.position.line + '_' +
+            word.col + '_' + word.text;
+
+        if (refToDef.has(wordPos)) {
+            resolve(refToDef.get(wordPos));
+        } else {
+            return null;
+        }
     });
 });
 
@@ -291,7 +285,7 @@ documents.onDidChangeContent(change => {
     console.log('content changed');
 });
 
-function getWordAtPosition(textDocument: TextDocument, position: Position): string {
+function getWordAtPosition(textDocument: TextDocument, position: Position): Word {
     const lineRange: Range = {
         start: { line: position.line, character: 0 },
         end: { line: position.line, character: Number.MAX_VALUE }
@@ -305,7 +299,11 @@ function getWordAtPosition(textDocument: TextDocument, position: Position): stri
 
     const startWord = start.match(startReg)[0],
         endWord = end.match(endReg)[0];
-    return startWord + endWord;
+    return {
+        text: startWord + endWord,
+        line: position.line,
+        col: position.character - startWord.length
+    };
 }
 
 function getCommandProposals(word: string): Thenable<CompletionItem[]> {

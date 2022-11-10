@@ -1,47 +1,51 @@
-
-class Scope {
+import { Sym, Type } from './symbol';
+export class Scope {
     private enclosingScope: Scope;
-    private symbols: Map<string, Sym>;
+    private variables: Map<string, Sym>;
+    private commands: Map<string, Sym>;
 
     constructor(enclosingScope: Scope) {
         this.enclosingScope = enclosingScope;
-        this.symbols = new Map<string, Sym>();
+        this.variables = new Map<string, Sym>();
+        this.commands = new Map<string, Sym>();
     }
 
-    resolve(name: string): Sym {
-        const s = this.symbols.get(name);
+    resolve(name: string, type: Type): Sym {
+        const symbols = type === Type.Variable ? this.variables : this.commands;
+        const s = symbols.get(name);
         if (s !== undefined) {
             return s;
         }
 
         if (this.enclosingScope) {
-            return this.enclosingScope.resolve(name);
+            return this.enclosingScope.resolve(name, type);
         }
 
         return null;
     }
 
     define(symbol: Sym): void {
-        this.symbols.set(symbol.getName(), symbol);
+        if (symbol.getType() === Type.Variable) {
+            this.variables.set(symbol.getName(), symbol);
+        } else {
+            this.commands.set(symbol.getName(), symbol);
+        }
+
         symbol.setScope(this);
     }
 
     getEnclosingScope(): Scope {
         return this.enclosingScope;
     }
-
-    // toString(): string {
-    //     return getScope
-    // }
 }
  
-class FileScope extends Scope {
+export class FileScope extends Scope {
     constructor(encolsingScope: Scope) {
         super(encolsingScope);
     }
 }
 
-class FunctionScope extends Scope {
+export class FunctionScope extends Scope {
     constructor(enclosingScope: Scope) {
         super(enclosingScope);
     }
