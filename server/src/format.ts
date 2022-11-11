@@ -341,6 +341,14 @@ export class FormatListener extends CMakeListener {
         this.exitOtherCmd(ctx);
     }
 
+    enterOptionCmd(ctx: any): void {
+        this._formatted += this.getTextBeforeFirstArg("option", ctx.LParen().getSymbol().tokenIndex);
+    }
+
+    exitOptionCmd(ctx: any): void {
+        this.exitOtherCmd(ctx);
+    }
+
     enterIncludeCmd(ctx: any): void {
         this._formatted += this.getTextBeforeFirstArg("include", ctx.LParen().getSymbol().tokenIndex);
     }

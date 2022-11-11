@@ -42,6 +42,10 @@ export class SymbolListener extends CMakeListener {
         }
     }
 
+    enterOptionCmd(ctx: any): void {
+        this.enterSetCmd(ctx);
+    }
+
     enterFunctionCmd(ctx: any): void {
         this._inFunction = true;
         const argumentCtx = ctx.argument(0);

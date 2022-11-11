@@ -25,6 +25,7 @@ command
 	| 'macro' '(' argument+ ')'			   # MacroCmd
 	| 'endmacro' '(' argument* ')'		   # EndMacroCmd
     | 'set' '(' argument+ ')'              # SetCmd
+    | 'option' '(' argument+ ')'           # OptionCmd
     | 'include' '(' argument+ ')'          # IncludeCmd
     | 'add_subdirectory' '(' argument+ ')' # AddSubDirCmd
     |   ID '(' argument * ')'              # OtherCmd

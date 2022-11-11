@@ -112,6 +112,7 @@
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
     "postinstall": "cd client && npm install && cd ../server && npm install && cd ..",
+    "antlr4": "cd server/antlr && antlr4 -o ../src/parser/ -Dlanguage=JavaScript CMake.g4",
     "grammar-cmake": "npx js-yaml ./syntaxes/cmake.tmLanguage.yml > ./syntaxes/cmake.tmLanguage.json",
     "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
     "grammar-cmdsignature": "npx js-yaml ./syntaxes/cmdsignature.tmLanguage.yml > ./syntaxes/cmdsignature.tmLanguage.json",

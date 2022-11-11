@@ -74,6 +74,10 @@ export class DefinationListener extends CMakeListener {
         this.currentScope.define(varSymbol);
     }
 
+    enterOptionCmd(ctx: any): void {
+        this.enterSetCmd(ctx);
+    }
+
     enterIncludeCmd(ctx: any): void {
         const nameToken = ctx.argument(0).start;
         const fileUri: string = getIncludeFileUri(this.uri, nameToken.text);
