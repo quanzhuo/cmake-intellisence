@@ -40,6 +40,7 @@ const variables = entries[2].split('\n');
 const properties = entries[3].split('\n');
 
 let workspaceFolders: WorkspaceFolder[] | null;
+let contentChanged = true;
 
 // Craete a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -264,27 +265,31 @@ connection.onDefinition((params: DefinitionParams) => {
     }
 
     return new Promise((resolve, reject) => {
-        let rootFile = workspaceFolders[0].uri + '/CMakeLists.txt';
-        let rootFileURI: URI = URI.parse(rootFile);
-        if (!existsSync(rootFileURI.fsPath)) {
-            rootFile = params.textDocument.uri;
-            rootFileURI = URI.parse(rootFile);
-        }
-
-        const baseDir: URI = Utils.dirname(rootFileURI);
-        const tree = getFileContext(rootFileURI);
-        const definationListener = new DefinationListener(baseDir, rootFileURI, topScope);
-        // clear refToDef and topScope first
-        refToDef.clear();
-        topScope.clear();
-        incToBaseDir.clear();
-
-        antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
-
         const document = documents.get(params.textDocument.uri);
         const word: Word = getWordAtPosition(document, params.position);
         const wordPos: string = params.textDocument.uri + '_' + params.position.line + '_' +
             word.col + '_' + word.text;
+            
+        if (contentChanged) {
+            // clear refToDef and topScope first
+            refToDef.clear();
+            topScope.clear();
+            incToBaseDir.clear();
+
+            let rootFile = workspaceFolders[0].uri + '/CMakeLists.txt';
+            let rootFileURI: URI = URI.parse(rootFile);
+            if (!existsSync(rootFileURI.fsPath)) {
+                rootFile = params.textDocument.uri;
+                rootFileURI = URI.parse(rootFile);
+            }
+
+            const baseDir: URI = Utils.dirname(rootFileURI);
+            const tree = getFileContext(rootFileURI);
+            const definationListener = new DefinationListener(baseDir, rootFileURI, topScope);
+            antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
+
+            contentChanged = false;
+        }
 
         if (refToDef.has(wordPos)) {
             resolve(refToDef.get(wordPos));
@@ -297,7 +302,7 @@ connection.onDefinition((params: DefinitionParams) => {
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent(change => {
-    console.log('content changed');
+    contentChanged = true;
 });
 
 function getWordAtPosition(textDocument: TextDocument, position: Position): Word {

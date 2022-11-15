@@ -18,6 +18,7 @@ export class Sym {
     private uri: URI;
     private line: number;
     private column: number;
+    private _funcMacroParsed: boolean = false;
 
     constructor(name: string, type: Type, uri: URI, line: number, column: number) {
         this.name = name;
@@ -25,6 +26,13 @@ export class Sym {
         this.uri = uri;
         this.line = line;
         this.column = column;
+    }
+
+    public get funcMacroParsed(): boolean {
+        return this._funcMacroParsed;
+    }
+    public set funcMacroParsed(value: boolean) {
+        this._funcMacroParsed = value;
     }
 
     getName() {

@@ -183,14 +183,20 @@ export class FuncMacroListener extends CMakeListener {
             return;
         }
 
-        if (ctx.parent instanceof CMakeParser.FunctionCmdContext ||
-            ctx.parent instanceof CMakeParser.MacroCmdContext) {
+        if (ctx.parentCtx instanceof CMakeParser.FunctionCmdContext ||
+            ctx.parentCtx instanceof CMakeParser.MacroCmdContext) {
             if (ctx.getChildCount() !== 1) {
                 return;
             }
 
-            // add function/macro argument to current scope
             const token = ctx.start;
+            // skip function/macro name
+            // FIXME: if argument's name is same as function name
+            if (token.text === this.funcMacroSym.getName()) {
+                return;
+            }
+
+            // add function/macro argument to current scope
             const varSymbol: Sym = new Sym(token.text, Type.Variable,
                 this.funcMacroSym.getUri(), token.line - 1, token.column);
             this.currentScope.define(varSymbol);

@@ -191,10 +191,13 @@ export class DefinationListener extends CMakeListener {
         // add to refToDef
         refToDef.set(refPos, symbol.getLocation());
 
-        // parse the function body
-        const tree = getFileContext(symbol.getUri());
-        const functionListener = new FuncMacroListener(this.currentScope, symbol);
-        antlr4.tree.ParseTreeWalker.DEFAULT.walk(functionListener, tree);
+        // parse the function body, only parse the function once
+        if (!symbol.funcMacroParsed) {
+            const tree = getFileContext(symbol.getUri());
+            const functionListener = new FuncMacroListener(this.currentScope, symbol);
+            antlr4.tree.ParseTreeWalker.DEFAULT.walk(functionListener, tree);
+            symbol.funcMacroParsed = true;   
+        }
     }
 
     enterArgument(ctx: any): void {
