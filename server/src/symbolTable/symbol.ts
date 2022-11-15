@@ -53,4 +53,16 @@ export class Sym {
             }
         };
     }
+
+    getUri(): string {
+        return this.uri;
+    }
+
+    getLine(): number {
+        return this.line;
+    }
+
+    getColumn(): number {
+        return this.column;
+    }
 }

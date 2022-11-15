@@ -28,6 +28,7 @@ export class Scope {
         if (symbol.getType() === Type.Variable) {
             this.variables.set(symbol.getName(), symbol);
         } else {
+            // Functions and Macros all saved into 'commands'
             this.commands.set(symbol.getName(), symbol);
         }
 
@@ -36,6 +37,11 @@ export class Scope {
 
     getEnclosingScope(): Scope {
         return this.enclosingScope;
+    }
+
+    clear(): void {
+        this.variables.clear();
+        this.commands.clear();
     }
 }
  
@@ -46,6 +52,12 @@ export class FileScope extends Scope {
 }
 
 export class FunctionScope extends Scope {
+    constructor(enclosingScope: Scope) {
+        super(enclosingScope);
+    }
+}
+
+export class MacroScope extends Scope {
     constructor(enclosingScope: Scope) {
         super(enclosingScope);
     }

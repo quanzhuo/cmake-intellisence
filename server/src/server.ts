@@ -264,6 +264,10 @@ connection.onDefinition((params: DefinitionParams) => {
         const uri: string = params.textDocument.uri;
         const tree = getFileContext(uri);
         const definationListener = new DefinationListener(uri, topScope);
+        // clear refToDef and topScope first
+        refToDef.clear();
+        topScope.clear();
+        
         antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
 
         const document = documents.get(uri);
