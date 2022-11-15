@@ -1,4 +1,5 @@
 import { Location } from 'vscode-languageserver-types';
+import { URI } from 'vscode-uri';
 import { Scope } from './scope';
 
 export enum Type {
@@ -14,11 +15,11 @@ export class Sym {
     private type: Type;
     private scope: Scope; // all symbols know what scope contains them
     private name: string;
-    private uri: string;
+    private uri: URI;
     private line: number;
     private column: number;
 
-    constructor(name: string, type: Type, uri: string, line: number, column: number) {
+    constructor(name: string, type: Type, uri: URI, line: number, column: number) {
         this.name = name;
         this.type = type;
         this.uri = uri;
@@ -40,7 +41,7 @@ export class Sym {
 
     getLocation(): Location {
         return {
-            uri: this.uri,
+            uri: this.uri.toString(),
             range: {
                 start: {
                     line: this.line,
@@ -54,7 +55,7 @@ export class Sym {
         };
     }
 
-    getUri(): string {
+    getUri(): URI {
         return this.uri;
     }
 

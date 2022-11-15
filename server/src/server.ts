@@ -22,7 +22,10 @@ import CMakeLexer from './parser/CMakeLexer.js';
 import CMakeParser from './parser/CMakeParser.js';
 import { SymbolListener } from './docSymbols';
 import { Entries, getBuiltinEntries, getCMakeVersion, getFileContext } from './utils';
-import { DefinationListener, refToDef, topScope } from './symbolTable/goToDefination';
+import { DefinationListener, incToBaseDir, refToDef, topScope } from './symbolTable/goToDefination';
+import { existsSync } from 'fs';
+import { URI, Utils } from 'vscode-uri';
+import path = require('path');
 
 type Word = {
     text: string,
@@ -261,18 +264,26 @@ connection.onDefinition((params: DefinitionParams) => {
     }
 
     return new Promise((resolve, reject) => {
-        const uri: string = params.textDocument.uri;
-        const tree = getFileContext(uri);
-        const definationListener = new DefinationListener(uri, topScope);
+        let rootFile = workspaceFolders[0].uri + '/CMakeLists.txt';
+        let rootFileURI: URI = URI.parse(rootFile);
+        if (!existsSync(rootFileURI.fsPath)) {
+            rootFile = params.textDocument.uri;
+            rootFileURI = URI.parse(rootFile);
+        }
+
+        const baseDir: URI = Utils.dirname(rootFileURI);
+        const tree = getFileContext(rootFileURI);
+        const definationListener = new DefinationListener(baseDir, rootFileURI, topScope);
         // clear refToDef and topScope first
         refToDef.clear();
         topScope.clear();
-        
+        incToBaseDir.clear();
+
         antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
 
-        const document = documents.get(uri);
+        const document = documents.get(params.textDocument.uri);
         const word: Word = getWordAtPosition(document, params.position);
-        const wordPos: string = uri + '_' + params.position.line + '_' +
+        const wordPos: string = params.textDocument.uri + '_' + params.position.line + '_' +
             word.col + '_' + word.text;
 
         if (refToDef.has(wordPos)) {

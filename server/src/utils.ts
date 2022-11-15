@@ -1,15 +1,15 @@
 import * as cp from 'child_process';
 import { documents } from './server';
 
-import { existsSync, fstat } from 'fs';
+import { existsSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-import { fileURLToPath, pathToFileURL } from 'url';
 import antlr4 from './parser/antlr4/index.js';
 import CMakeLexer from "./parser/CMakeLexer";
 import CMakeParser from "./parser/CMakeParser";
 import InputStream from './parser/antlr4/InputStream';
+import { URI, Utils } from 'vscode-uri';
 
 export type Entries = [string, string, string, string];
 
@@ -44,13 +44,13 @@ export function getCMakeVersion(): CMakeVersion {
     };
 }
 
-export function getFileContext(uri: string) {
-    const document = documents.get(uri);
+export function getFileContext(uri: URI) {
+    const document = documents.get(uri.toString());
     let text: string;
     if (document) {
         text = document.getText();
     } else {
-        text = fs.readFileSync(fileURLToPath(uri), { encoding: 'utf-8' });
+        text = fs.readFileSync(uri.fsPath, { encoding: 'utf-8' });
     }
     const input: InputStream = antlr4.CharStreams.fromString(text);
     const lexer = new CMakeLexer(input);
@@ -59,31 +59,21 @@ export function getFileContext(uri: string) {
     return parser.file();
 }
 
-export function getSubCMakeListsUri(currentFileUri: string, subDir: string): string {
-    const currentFilePath: string = fileURLToPath(currentFileUri);
-    const subCMakeListsPath = path.join(currentFilePath, '..', subDir, 'CMakeLists.txt');
-    if (existsSync(subCMakeListsPath)) {
-        return pathToFileURL(subCMakeListsPath).toString();
+export function getSubCMakeListsUri(baseDir: URI, subDir: string): URI {
+    const subCMakeListsUri: URI = Utils.joinPath(baseDir, subDir, 'CMakeLists.txt');
+    if (existsSync(subCMakeListsUri.fsPath)) {
+        return subCMakeListsUri;
     }
 
     return null;
 }
 
-export function getIncludeFileUri(currentFileUri: string, includeFileName: string): string {
-    const currentFilePath: string = fileURLToPath(currentFileUri);
-    const includeFilePath: string = path.dirname(currentFilePath) + path.sep + includeFileName;
-    // const includeFileUri: string = filePathToURL;
-    if (existsSync(includeFilePath)) {
-        const index = currentFileUri.lastIndexOf('/');
-        const includeFileUri = currentFileUri.slice(0, index) + path.sep + includeFileName;
-        return includeFileUri;
+export function getIncludeFileUri(baseDir: URI, includeFileName: string): URI {
+    const incFileUri: URI = Utils.joinPath(baseDir, includeFileName);
+    if (existsSync(incFileUri.fsPath)) {
+        return incFileUri;
     }
 
-    // TODO: if includeFileName contains variable reference 
-    // ex: include(${CMAKE_CURRENT_LIST_DIR}/xxx.cmake) 
-    // Module: AndroidTestUtilities
-
-    // name is a cmake module
     const cmakePath: string = which('cmake');
     if (cmakePath === null) {
         return null;
@@ -93,7 +83,8 @@ export function getIncludeFileUri(currentFileUri: string, includeFileName: strin
     const resPath = path.join(cmakePath, '../..', 'share', moduleDir, 'Modules', includeFileName) + '.cmake';
 
     if (existsSync(resPath)) {
-        return pathToFileURL(resPath).toString();   
+        // return pathToFileURL(resPath).toString();
+        return URI.file(resPath);
     }
 
     return null;

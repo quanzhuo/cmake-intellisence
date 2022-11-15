@@ -1,12 +1,13 @@
 import Token from "../parser/antlr4/Token";
 import CMakeListener from "../parser/CMakeListener";
 import CMakeParser from "../parser/CMakeParser";
-import { DefinationListener, refToDef } from "./goToDefination";
+import { DefinationListener, incToBaseDir, refToDef } from "./goToDefination";
 import { FileScope, FunctionScope, MacroScope, Scope } from "./scope";
 import { Sym, Type } from "./symbol";
 import { getFileContext, getIncludeFileUri, getSubCMakeListsUri } from "../utils";
 import antlr4 from "../parser/antlr4";
 import ParseTree from "../parser/antlr4/tree/ParseTree";
+import { URI } from "vscode-uri";
 
 export class FuncMacroListener extends CMakeListener {
     private currentScope: Scope;
@@ -78,8 +79,11 @@ export class FuncMacroListener extends CMakeListener {
         }
 
         const nameToken = ctx.argument(0).start;
-        const fileUri: string = getIncludeFileUri(this.funcMacroSym.getUri(), nameToken.text);
-        if (!fileUri) {
+
+        // 获取包含该函数定义的文件的基路径
+        const baseDir: URI = incToBaseDir.get(this.funcMacroSym.getUri().fsPath);
+        const incUri: URI = getIncludeFileUri(baseDir, nameToken.text);
+        if (!incUri) {
             return;
         }
 
@@ -87,7 +91,7 @@ export class FuncMacroListener extends CMakeListener {
         const refPos: string = this.funcMacroSym.getUri() + '_' + (nameToken.line - 1) + '_' +
             nameToken.column + '_' + nameToken.text;
         refToDef.set(refPos, {
-            uri: fileUri,
+            uri: incUri.toString(),
             range: {
                 start: {
                     line: 0,
@@ -100,8 +104,8 @@ export class FuncMacroListener extends CMakeListener {
             }
         });
 
-        const tree = getFileContext(fileUri);
-        const definationListener = new DefinationListener(fileUri, this.currentScope);
+        const tree = getFileContext(incUri);
+        const definationListener = new DefinationListener(baseDir, incUri, this.currentScope);
         antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
     }
 
@@ -112,8 +116,9 @@ export class FuncMacroListener extends CMakeListener {
         }
 
         const dirToken: Token = ctx.argument(0).start;
-        const fileUri: string = getSubCMakeListsUri(this.funcMacroSym.getUri(), dirToken.text);
-        if (!fileUri) {
+        const baseDir: URI = incToBaseDir.get(this.funcMacroSym.getUri().fsPath);
+        const subCMakeListsUri: URI = getSubCMakeListsUri(baseDir, dirToken.text);
+        if (!subCMakeListsUri) {
             return;
         }
 
@@ -123,7 +128,7 @@ export class FuncMacroListener extends CMakeListener {
         const refPos: string = this.funcMacroSym.getUri() + '_' + (dirToken.line - 1) + '_' +
             dirToken.column + '_' + dirToken.text;
         refToDef.set(refPos, {
-            uri: fileUri,
+            uri: subCMakeListsUri.toString(),
             range: {
                 start: {
                     line: 0,
@@ -136,10 +141,10 @@ export class FuncMacroListener extends CMakeListener {
             }
         });
 
-        const tree = getFileContext(fileUri);
+        const tree = getFileContext(subCMakeListsUri);
         const subDirScope: Scope = new FileScope(this.currentScope);
         this.currentScope = subDirScope;
-        const definationListener = new DefinationListener(fileUri, subDirScope);
+        const definationListener = new DefinationListener(baseDir, subCMakeListsUri, subDirScope);
         antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
     }
 
