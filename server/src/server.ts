@@ -1,6 +1,6 @@
 import {
     createConnection, HoverParams, InitializeParams, InitializeResult,
-    ProposedFeatures, SignatureHelpParams, TextDocuments, TextDocumentSyncKind,
+    ProposedFeatures, SemanticTokensParams, SemanticTokensRequest, SignatureHelpParams, TextDocuments, TextDocumentSyncKind,
     _RemoteWindow
 } from 'vscode-languageserver/node';
 
@@ -26,6 +26,7 @@ import { DefinationListener, incToBaseDir, refToDef, topScope } from './symbolTa
 import { existsSync } from 'fs';
 import { URI, Utils } from 'vscode-uri';
 import path = require('path');
+import { getTokenModifiers, getTokenTypes, SemanticListener, tokenBuilders } from './semanticTokens';
 
 type Word = {
     text: string,
@@ -34,13 +35,15 @@ type Word = {
 };
 
 const entries: Entries = getBuiltinEntries();
-const modules = entries[0].split('\n');
-const policies = entries[1].split('\n');
-const variables = entries[2].split('\n');
-const properties = entries[3].split('\n');
+export const modules = entries[0].split('\n');
+export const policies = entries[1].split('\n');
+export const variables = entries[2].split('\n');
+export const properties = entries[3].split('\n');
 
-let workspaceFolders: WorkspaceFolder[] | null;
+
 let contentChanged = true;
+
+export let initParams: InitializeParams;
 
 // Craete a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -50,7 +53,7 @@ const connection = createConnection(ProposedFeatures.all);
 export const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
 connection.onInitialize((params: InitializeParams) => {
-    workspaceFolders = params.workspaceFolders;
+    initParams = params;
     const result: InitializeResult = {
         capabilities: {
             textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -61,7 +64,15 @@ connection.onInitialize((params: InitializeParams) => {
             completionProvider: {},
             documentFormattingProvider: true,
             documentSymbolProvider: true,
-            definitionProvider: true
+            definitionProvider: true,
+            semanticTokensProvider: {
+                legend: {
+                    tokenTypes: getTokenTypes(),
+                    tokenModifiers: getTokenModifiers()
+                },
+                range: false,
+                full: true
+            }
         },
         serverInfo: {
             name: 'cmakels',
@@ -256,6 +267,7 @@ connection.onDocumentSymbol((params: DocumentSymbolParams) => {
 });
 
 connection.onDefinition((params: DefinitionParams) => {
+    const workspaceFolders = initParams.workspaceFolders;
     if (workspaceFolders === null || workspaceFolders.length === 0) {
         return null;
     }
@@ -269,7 +281,7 @@ connection.onDefinition((params: DefinitionParams) => {
         const word: Word = getWordAtPosition(document, params.position);
         const wordPos: string = params.textDocument.uri + '_' + params.position.line + '_' +
             word.col + '_' + word.text;
-            
+
         if (contentChanged) {
             // clear refToDef and topScope first
             refToDef.clear();
@@ -299,10 +311,30 @@ connection.onDefinition((params: DefinitionParams) => {
     });
 });
 
+connection.languages.semanticTokens.on(async (params: SemanticTokensParams) => {
+    const document = documents.get(params.textDocument.uri);
+    if (document === undefined) {
+        return { data: [] };
+    }
+
+    // const builder = getTokenBuilder(document);
+    const docUri: URI = URI.parse(params.textDocument.uri);
+    const tree = getFileContext(docUri);
+    const semanticListener = new SemanticListener(docUri);
+    antlr4.tree.ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
+
+    // return builder.build();
+    return semanticListener.getSemanticTokens();
+});
+
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent(change => {
     contentChanged = true;
+});
+
+documents.onDidClose(event => {
+    tokenBuilders.delete(event.document.uri);
 });
 
 function getWordAtPosition(textDocument: TextDocument, position: Position): Word {
