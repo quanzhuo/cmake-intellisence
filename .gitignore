@@ -9,3 +9,4 @@ server/src/*.d.ts
 .antlr/
 *.interp
 *.tokens
+npmlist.json
