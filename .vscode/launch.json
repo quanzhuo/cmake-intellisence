@@ -25,7 +25,8 @@
             "restart": true,
             "outFiles": [
                 "${workspaceRoot}/dist/**/*.js"
-            ]
+            ],
+            "preLaunchTask": "${defaultBuildTask}"
         },
         {
             "name": "Extension Tests",
