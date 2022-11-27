@@ -77,6 +77,11 @@
       {
         "title": "CMake IntelliSence",
         "properties": {
+          "cmakeIntelliSence.cmakePath": {
+            "type": "string",
+            "default": "cmake",
+            "description": "Set path to CMake executable"
+          },
           "cmakeIntelliSence.loggingLevel": {
             "type": "string",
             "enum": [

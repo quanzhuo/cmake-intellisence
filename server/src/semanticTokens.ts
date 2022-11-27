@@ -2,8 +2,9 @@ import { SemanticTokens, SemanticTokensBuilder } from "vscode-languageserver";
 import { URI } from "vscode-uri";
 import Token from "./parser/antlr4/Token";
 import CMakeListener from "./parser/CMakeListener";
-import { initParams, variables } from "./server";
+import { initParams } from "./server";
 import * as builtinCmds from './builtin-cmds.json';
+import { cmakeInfo } from "./cmakeInfo";
 
 export let tokenTypes = [
     'type',
@@ -105,7 +106,7 @@ export class SemanticListener extends CMakeListener {
     }
 
     private isVariable(token: string): boolean {
-        return variables.includes(token);
+        return cmakeInfo.variables.includes(token);
     }
 
     private getModifiers(modifiers: TokenModifiers[]): number {

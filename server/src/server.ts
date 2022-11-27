@@ -1,13 +1,12 @@
 import {
-    createConnection, HoverParams, InitializeParams, InitializeResult,
-    ProposedFeatures, SemanticTokensParams, SemanticTokensRequest, SignatureHelpParams, TextDocuments, TextDocumentSyncKind,
-    _RemoteWindow
+    createConnection, DidChangeConfigurationNotification, HoverParams, InitializeParams, InitializeResult,
+    LSPAny,
+    ProposedFeatures, SemanticTokensParams, SignatureHelpParams, TextDocuments, TextDocumentSyncKind
 } from 'vscode-languageserver/node';
 
 import {
-    CompletionItemKind, CompletionParams, DocumentFormattingParams,
-    DocumentSymbolParams, SignatureHelpTriggerKind, DefinitionParams,
-    WorkspaceFolder
+    CompletionItemKind, CompletionParams, DefinitionParams, DocumentFormattingParams,
+    DocumentSymbolParams, SignatureHelpTriggerKind
 } from 'vscode-languageserver-protocol';
 import { Range, TextDocument } from 'vscode-languageserver-textdocument';
 import {
@@ -15,18 +14,19 @@ import {
 } from 'vscode-languageserver-types';
 
 import { exec } from 'child_process';
+import { existsSync } from 'fs';
+import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
+import { SymbolListener } from './docSymbols';
 import { FormatListener } from './format';
 import antlr4 from './parser/antlr4/index.js';
 import CMakeLexer from './parser/CMakeLexer.js';
 import CMakeParser from './parser/CMakeParser.js';
-import { SymbolListener } from './docSymbols';
-import { Entries, getBuiltinEntries, getCMakeVersion, getFileContext } from './utils';
-import { DefinationListener, incToBaseDir, refToDef, topScope } from './symbolTable/goToDefination';
-import { existsSync } from 'fs';
-import { URI, Utils } from 'vscode-uri';
-import path = require('path');
 import { getTokenModifiers, getTokenTypes, SemanticListener, tokenBuilders } from './semanticTokens';
+import { DefinationListener, incToBaseDir, refToDef, topScope } from './symbolTable/goToDefination';
+import { getFileContext } from './utils';
+import ExtensionSettings, { extSettings } from './settings';
+import { cmakeInfo } from './cmakeInfo';
 
 type Word = {
     text: string,
@@ -34,26 +34,21 @@ type Word = {
     col: number
 };
 
-const entries: Entries = getBuiltinEntries();
-export const modules = entries[0].split('\n');
-export const policies = entries[1].split('\n');
-export const variables = entries[2].split('\n');
-export const properties = entries[3].split('\n');
-
-
 let contentChanged = true;
 
 export let initParams: InitializeParams;
 
-// Craete a connection for the server, using Node's IPC as a transport.
+// Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
-const connection = createConnection(ProposedFeatures.all);
+export const connection = createConnection(ProposedFeatures.all);
 
 // Create a simple text document manager.
 export const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
-connection.onInitialize((params: InitializeParams) => {
+
+connection.onInitialize(async (params: InitializeParams) => {
     initParams = params;
+
     const result: InitializeResult = {
         capabilities: {
             textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -83,11 +78,15 @@ connection.onInitialize((params: InitializeParams) => {
     return result;
 });
 
-connection.onInitialized(() => {
+connection.onInitialized(async () => {
     console.log("Initialized");
+    connection.client.register(DidChangeConfigurationNotification.type, undefined);
+    await extSettings.getSettings();
+    await cmakeInfo.init();
 });
 
-connection.onHover((params: HoverParams) => {
+
+connection.onHover(async (params: HoverParams) => {
     const document: TextDocument = documents.get(params.textDocument.uri);
     const word = getWordAtPosition(document, params.position).text;
     if (word.length === 0) {
@@ -110,7 +109,7 @@ connection.onHover((params: HoverParams) => {
 
     let moduleArg = '';
 
-    if (modules.includes(word)) {
+    if (cmakeInfo.modules.includes(word)) {
         const line = document.getText({
             start: { line: params.position.line, character: 0 },
             end: { line: params.position.line, character: Number.MAX_VALUE }
@@ -118,11 +117,11 @@ connection.onHover((params: HoverParams) => {
         if (line.trim().startsWith('include')) {
             moduleArg = '--help-module ';
         }
-    } else if (policies.includes(word)) {
+    } else if (cmakeInfo.policies.includes(word)) {
         moduleArg = '--help-policy ';
-    } else if (variables.includes(word)) {
+    } else if (cmakeInfo.variables.includes(word)) {
         moduleArg = '--help-variable ';
-    } else if (properties.includes(word)) {
+    } else if (cmakeInfo.properties.includes(word)) {
         moduleArg = '--help-property ';
     }
 
@@ -153,10 +152,10 @@ connection.onCompletion(async (params: CompletionParams) => {
 
     const results = await Promise.all([
         getCommandProposals(word),
-        getProposals(word, CompletionItemKind.Module, modules),
-        getProposals(word, CompletionItemKind.Constant, policies),
-        getProposals(word, CompletionItemKind.Variable, variables),
-        getProposals(word, CompletionItemKind.Property, properties)
+        getProposals(word, CompletionItemKind.Module, cmakeInfo.modules),
+        getProposals(word, CompletionItemKind.Constant, cmakeInfo.policies),
+        getProposals(word, CompletionItemKind.Variable, cmakeInfo.variables),
+        getProposals(word, CompletionItemKind.Property, cmakeInfo.properties)
     ]);
     return results.flat();
 });
@@ -325,6 +324,26 @@ connection.languages.semanticTokens.on(async (params: SemanticTokensParams) => {
 
     // return builder.build();
     return semanticListener.getSemanticTokens();
+});
+
+/**
+ * @param params This argument is null when configuration changed
+ * 
+ * there are two different configuration models. A push model (the old) where
+ * the client pushed settings to the server. In this model the client takes a
+ * settings configuration which settings to push if they change. The new model
+ * is the pull model where the server pulls for settings. This model has the
+ * advantage that the pull can contain a scope (e.g. a resource). In this model
+ * the clients simply sends an empty change event to signal that the settings
+ * have changed and must be reread. The client can't send the changes in the event
+ * since the settings might be different for different resources.
+ * 
+ * see the following two issues for detail
+ * https://github.com/microsoft/vscode/issues/54821
+ * https://github.com/microsoft/vscode-languageserver-node/issues/380
+ */
+connection.onDidChangeConfiguration(params => {
+    extSettings.getSettings();
 });
 
 // The content of a text document has changed. This event is emitted
