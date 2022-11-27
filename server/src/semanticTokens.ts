@@ -70,17 +70,6 @@ export function getTokenModifiers(): string[] {
     return tokenModifiers;
 }
 
-// export function getTokenBuilder(document: TextDocument): SemanticTokensBuilder {
-//     let result = tokenBuilders.get(document.uri);
-//     if (result !== undefined) {
-//         return result;
-//     }
-
-//     result = new SemanticTokensBuilder();
-//     tokenBuilders.set(document.uri, result);
-//     return result;
-// }
-
 export class SemanticListener extends CMakeListener {
     private _data: number[] = [];
     private _builder: SemanticTokensBuilder;

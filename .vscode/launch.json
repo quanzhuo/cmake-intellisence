@@ -14,8 +14,7 @@
             ],
             "outFiles": [
                 "${workspaceFolder}/dist/**/*.js"
-            ],
-            "preLaunchTask": "${defaultBuildTask}"
+            ]
         },
         {
             "name": "Attach to Server",
@@ -25,8 +24,7 @@
             "restart": true,
             "outFiles": [
                 "${workspaceRoot}/dist/**/*.js"
-            ],
-            "preLaunchTask": "${defaultBuildTask}"
+            ]
         },
         {
             "name": "Extension Tests",

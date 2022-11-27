@@ -122,8 +122,8 @@
     "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
     "grammar-cmdsignature": "npx js-yaml ./syntaxes/cmdsignature.tmLanguage.yml > ./syntaxes/cmdsignature.tmLanguage.json",
     "grammar": "node ./build/yaml-to-json.mjs",
-    "dev-client": "webpack --mode development --config webpack.config.client.js",
-    "dev-server": "webpack --mode development --config webpack.config.server.js",
+    "dev-client": "webpack --mode development --watch --config webpack.config.client.js",
+    "dev-server": "webpack --mode development --watch --config webpack.config.server.js",
     "prod-client": "webpack --mode production --config webpack.config.client.js --devtool hidden-source-map",
     "prod-server": "webpack --mode production --config webpack.config.server.js --devtool hidden-source-map"
   },
