@@ -94,11 +94,13 @@ export function getIncludeFileUri(baseDir: URI, includeFileName: string): URI {
     return null;
 }
 
-function which(cmd: string): string {
+export function which(cmd: string): string {
     let command: string;
     let pathEnvSep: string;
     if (os.type() === 'Windows_NT') {
-        command = cmd + ".exe";
+        if (!cmd.endsWith('.exe')) {
+            command = cmd + ".exe";
+        }
         pathEnvSep = ';';
     } else {
         command = cmd;
