@@ -172,7 +172,7 @@ connection.onSignatureHelp((params: SignatureHelpParams) => {
 
                 const word: string = getWordAtPosition(document, posBeforeLParen).text;
                 if (word.length === 0 || !(word in builtinCmds)) {
-                    return null;
+                    resolve(null);
                 }
 
                 const sigsStrArr: string[] = builtinCmds[word]['sig'];
@@ -189,15 +189,18 @@ connection.onSignatureHelp((params: SignatureHelpParams) => {
                 });
             }
         } else if (params.context.triggerKind === SignatureHelpTriggerKind.ContentChange) {
+            const line: string = getLineAtPosition(document, params.position);
             const word: string = getWordAtPosition(document, params.position).text;
             if (word.length === 0) {
-                return null;
+                if (line[params.position.character - 1] === ')') {
+                    resolve(null);   
+                }
             }
             const firstSig: string = params.context.activeSignatureHelp?.signatures[0].label;
             const leftParenIndex = firstSig.indexOf('(');
             const command = firstSig.slice(0, leftParenIndex);
             if (!command) {
-                return null;
+                resolve(null);
             }
             const sigsStrArr: string[] = builtinCmds[command]['sig'];
             const signatures = sigsStrArr.map((value, index, arr) => {
@@ -375,6 +378,21 @@ function getWordAtPosition(textDocument: TextDocument, position: Position): Word
         line: position.line,
         col: position.character - startWord.length
     };
+}
+
+function getLineAtPosition(textDocument: TextDocument, position: Position): string {
+    const lineRange: Range = {
+        start: {
+            line: position.line,
+            character: 0
+        },
+        end: {
+            line: position.line,
+            character: Number.MAX_VALUE
+        }
+    };
+
+    return textDocument.getText(lineRange);
 }
 
 function getCommandProposals(word: string): Thenable<CompletionItem[]> {
