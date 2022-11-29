@@ -27,6 +27,7 @@ import { DefinationListener, incToBaseDir, refToDef, topScope } from './symbolTa
 import { getFileContext } from './utils';
 import ExtensionSettings, { extSettings } from './settings';
 import { cmakeInfo } from './cmakeInfo';
+import CMakeErrorListener from './diagnostics';
 
 type Word = {
     text: string,
@@ -353,6 +354,22 @@ connection.onDidChangeConfiguration(params => {
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent(change => {
     contentChanged = true;
+
+    // const document = documents.get(change.document.uri);
+    const input = antlr4.CharStreams.fromString(change.document.getText());
+    const lexer = new CMakeLexer(input);
+    const tokenStream = new antlr4.CommonTokenStream(lexer);
+    const parser = new CMakeParser(tokenStream);
+    parser.removeErrorListeners();
+    const errorListener = new CMakeErrorListener();
+    parser.addErrorListener(errorListener);
+    const tree = parser.file();
+    const symbolListener = new SymbolListener();
+    antlr4.tree.ParseTreeWalker.DEFAULT.walk(symbolListener, tree);
+    connection.sendDiagnostics({
+        uri: change.document.uri,
+        diagnostics: errorListener.getDiagnostics()
+    });
 });
 
 documents.onDidClose(event => {

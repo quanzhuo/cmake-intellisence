@@ -1,52 +1,13 @@
-import * as cp from 'child_process';
-import { documents} from './server';
-
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import * as fs from 'fs';
-import antlr4 from './parser/antlr4/index.js';
-import CMakeLexer from "./parser/CMakeLexer";
-import CMakeParser from "./parser/CMakeParser";
-import InputStream from './parser/antlr4/InputStream';
 import { URI, Utils } from 'vscode-uri';
 import { cmakeInfo } from './cmakeInfo';
-
-// export type Entries = [string, string, string, string];
-
-// export type CMakeVersion = {
-//     version: string,
-//     major: number,
-//     minor: number,
-//     patch: number
-// };
-
-// export let cmakeVersion: CMakeVersion = getCMakeVersion();
-
-// export function getBuiltinEntries(): Entries {
-//     if (extSettings === undefined) {
-//         getConfiguration();
-//     }
-//     const args = [extSettings[ExtSettings.cmakePath], '--help-module-list', '--help-policy-list',
-//         '--help-variable-list', '--help-property-list'];
-//     const cmd: string = args.join(' ');
-//     // TODO: execute command async
-//     const output = cp.execSync(cmd, { encoding: 'utf-8' });
-//     return output.trim().split('\n\n\n') as Entries;
-// }
-
-// export function getCMakeVersion(): CMakeVersion {
-//     const args = [extSettings[ExtSettings.cmakePath], '--version'];
-//     const output: string = cp.execSync(args.join(' '), { encoding: 'utf-8' });
-//     const regexp: RegExp = /(\d+)\.(\d+)\.(\d+)/;
-//     const res = output.match(regexp);
-//     return {
-//         version: res[0],
-//         major: parseInt(res[1]),
-//         minor: parseInt(res[2]),
-//         patch: parseInt(res[3])
-//     };
-// }
+import antlr4 from './parser/antlr4/index.js';
+import InputStream from './parser/antlr4/InputStream';
+import CMakeLexer from "./parser/CMakeLexer";
+import CMakeParser from "./parser/CMakeParser";
+import { documents } from './server';
 
 export function getFileContext(uri: URI) {
     const document = documents.get(uri.toString());
@@ -54,7 +15,7 @@ export function getFileContext(uri: URI) {
     if (document) {
         text = document.getText();
     } else {
-        text = fs.readFileSync(uri.fsPath, { encoding: 'utf-8' });
+        text = readFileSync(uri.fsPath, { encoding: 'utf-8' });
     }
     const input: InputStream = antlr4.CharStreams.fromString(text);
     const lexer = new CMakeLexer(input);

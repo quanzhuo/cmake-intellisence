@@ -35,10 +35,12 @@ export class SymbolListener extends CMakeListener {
 
     enterSetCmd(ctx: any): void {
         const argumentCtx = ctx.argument(0);
-        if (this._inFunction) {
-            this._symbolsInFunction.children.push(this.makeSymbol(argumentCtx.start, SymbolKind.Variable));
-        } else {
-            this._symbols.push(this.makeSymbol(argumentCtx.start, SymbolKind.Variable));
+        if (argumentCtx !== null) {
+            if (this._inFunction) {
+                this._symbolsInFunction.children.push(this.makeSymbol(argumentCtx.start, SymbolKind.Variable));
+            } else {
+                this._symbols.push(this.makeSymbol(argumentCtx.start, SymbolKind.Variable));
+            }
         }
     }
 
@@ -49,8 +51,10 @@ export class SymbolListener extends CMakeListener {
     enterFunctionCmd(ctx: any): void {
         this._inFunction = true;
         const argumentCtx = ctx.argument(0);
-        this._symbolsInFunction = this.makeSymbol(argumentCtx.start, SymbolKind.Function);
-        this._symbolsInFunction.children = [];
+        if (argumentCtx !== null) {
+            this._symbolsInFunction = this.makeSymbol(argumentCtx.start, SymbolKind.Function);
+            this._symbolsInFunction.children = [];
+        }
     }
 
     enterEndFunctionCmd(ctx: any): void {
