@@ -415,7 +415,7 @@ function getLineAtPosition(textDocument: TextDocument, position: Position): stri
 function getCommandProposals(word: string): Thenable<CompletionItem[]> {
     return new Promise((resolve, rejects) => {
         const similarCmds = Object.keys(builtinCmds).filter(cmd => {
-            return cmd.includes(word);
+            return cmd.includes(word.toLowerCase());
         });
         const proposalCmds: CompletionItem[] = similarCmds.map((value, index, array) => {
             let item: CompletionItem = {
