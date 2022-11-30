@@ -40,12 +40,14 @@ export class DefinationListener extends CMakeListener {
         this.inBody = true;
 
         // create a function symbol
-        const funcToken: Token = ctx.argument(0).start;
-        const funcSymbol: Sym = new Sym(funcToken.text, Type.Function,
-            this.curFile, funcToken.line - 1, funcToken.column);
+        const funcToken: Token = ctx.argument(0)?.start;
+        if (funcToken !== undefined) {
+            const funcSymbol: Sym = new Sym(funcToken.text, Type.Function,
+                this.curFile, funcToken.line - 1, funcToken.column);
 
-        // add to current scope
-        this.currentScope.define(funcSymbol);
+            // add to current scope
+            this.currentScope.define(funcSymbol);
+        }
     }
 
     exitEndFunctionCmd(ctx: any): void {
@@ -56,12 +58,14 @@ export class DefinationListener extends CMakeListener {
         this.inBody = true;
 
         // create a macro symbol
-        const macroToken: Token = ctx.argument(0).start;
-        const macroSymbol: Sym = new Sym(macroToken.text, Type.Macro,
-            this.curFile, macroToken.line - 1, macroToken.column);
+        const macroToken: Token = ctx.argument(0)?.start;
+        if (macroToken !== undefined) {
+            const macroSymbol: Sym = new Sym(macroToken.text, Type.Macro,
+                this.curFile, macroToken.line - 1, macroToken.column);
 
-        // add macro to this scope
-        this.currentScope.define(macroSymbol);
+            // add macro to this scope
+            this.currentScope.define(macroSymbol);
+        }
     }
 
     exitEndMacroCmd(ctx: any): void {
@@ -74,12 +78,14 @@ export class DefinationListener extends CMakeListener {
         }
     
         // create a variable symbol
-        const varToken: Token = ctx.argument(0).start;
-        const varSymbol: Sym = new Sym(varToken.text, Type.Variable,
-            this.curFile, varToken.line - 1, varToken.column);
-        
-        // add variable to current scope
-        this.currentScope.define(varSymbol);
+        const varToken: Token = ctx.argument(0)?.start;
+        if (varToken !== undefined) {
+            const varSymbol: Sym = new Sym(varToken.text, Type.Variable,
+                this.curFile, varToken.line - 1, varToken.column);
+
+            // add variable to current scope
+            this.currentScope.define(varSymbol);
+        }
     }
 
     enterOptionCmd(ctx: any): void {
@@ -91,7 +97,11 @@ export class DefinationListener extends CMakeListener {
             return;
         }
 
-        const nameToken = ctx.argument(0).start;
+        const nameToken = ctx.argument(0)?.start;
+        if (nameToken === undefined) {
+            return;
+        }
+
         const incUri: URI = getIncludeFileUri(this.baseDir, nameToken.text);
         if (!incUri) {
             return;
@@ -128,7 +138,10 @@ export class DefinationListener extends CMakeListener {
             return;
         }
 
-        const dirToken: Token = ctx.argument(0).start;
+        const dirToken: Token = ctx.argument(0)?.start;
+        if (dirToken === undefined) {
+            return;
+        }
         const subCMakeListsUri: URI = getSubCMakeListsUri(this.baseDir, dirToken.text);
         if (!subCMakeListsUri) {
             return;
