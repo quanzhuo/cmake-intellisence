@@ -29,6 +29,7 @@ import { getTokenBuilder, getTokenModifiers, getTokenTypes, SemanticListener, to
 import { extSettings } from './settings';
 import { DefinationListener, incToBaseDir, refToDef, topScope } from './symbolTable/goToDefination';
 import { getFileContext } from './utils';
+import { createLogger } from './logging';
 
 type Word = {
     text: string,
@@ -47,6 +48,7 @@ export const connection = createConnection(ProposedFeatures.all);
 // Create a simple text document manager.
 export const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
+export const logger = createLogger('server');
 
 connection.onInitialize(async (params: InitializeParams) => {
     initParams = params;
@@ -312,6 +314,7 @@ connection.onDefinition((params: DefinitionParams) => {
         if (refToDef.has(wordPos)) {
             resolve(refToDef.get(wordPos));
         } else {
+            logger.warning(`can't find defination, word: ${word.text}, wordPos: ${wordPos}`);
             return null;
         }
     });
@@ -481,6 +484,7 @@ function getProposals(word: string, kind: CompletionItemKind, dataSource: string
 // Make the text document manager listen on the connection
 // for open, change and close text document events
 documents.listen(connection);
+logger.info('listen on connection');
 
 // Listen on the connection
 connection.listen();

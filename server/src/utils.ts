@@ -7,7 +7,7 @@ import antlr4 from './parser/antlr4/index.js';
 import InputStream from './parser/antlr4/InputStream';
 import CMakeLexer from "./parser/CMakeLexer";
 import CMakeParser from "./parser/CMakeParser";
-import { documents } from './server';
+import { documents, logger } from './server';
 
 export function getFileContext(uri: URI) {
     const document = documents.get(uri.toString());
@@ -28,6 +28,8 @@ export function getSubCMakeListsUri(baseDir: URI, subDir: string): URI {
     const subCMakeListsUri: URI = Utils.joinPath(baseDir, subDir, 'CMakeLists.txt');
     if (existsSync(subCMakeListsUri.fsPath)) {
         return subCMakeListsUri;
+    } else {
+        logger.error('getSubCMakeListsUri:', subCMakeListsUri.fsPath, 'not exist');
     }
 
     return null;
@@ -37,6 +39,8 @@ export function getIncludeFileUri(baseDir: URI, includeFileName: string): URI {
     const incFileUri: URI = Utils.joinPath(baseDir, includeFileName);
     if (existsSync(incFileUri.fsPath)) {
         return incFileUri;
+    } else {
+        logger.error('getIncludeFileUri:', incFileUri.fsPath, 'not exist');
     }
 
     const cmakePath: string = which('cmake');
@@ -50,6 +54,8 @@ export function getIncludeFileUri(baseDir: URI, includeFileName: string): URI {
     if (existsSync(resPath)) {
         // return pathToFileURL(resPath).toString();
         return URI.file(resPath);
+    } else {
+        logger.error('getIncludeFileUri:', resPath, 'not exist');
     }
 
     return null;
