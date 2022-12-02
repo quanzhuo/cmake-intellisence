@@ -56,6 +56,16 @@ enum TokenTypes {
 
 export const tokenBuilders: Map<string, SemanticTokensBuilder> = new Map();
 
+export function getTokenBuilder(uri: string): SemanticTokensBuilder {
+    let builder = tokenBuilders.get(uri);
+    if (builder !== undefined) {
+        return builder;
+    }
+    builder = new SemanticTokensBuilder();
+    tokenBuilders.set(uri, builder);
+    return builder;
+}
+
 export function getTokenTypes(): string[] {
     tokenTypes = tokenTypes.filter((value, index, arr) => {
         return initParams.capabilities.textDocument.semanticTokens.tokenTypes.includes(value);
@@ -71,7 +81,7 @@ export function getTokenModifiers(): string[] {
 }
 
 export class SemanticListener extends CMakeListener {
-    private _data: number[] = [];
+    // private _data: number[] = [];
     private _builder: SemanticTokensBuilder;
     private _uri: URI;
 
@@ -87,7 +97,7 @@ export class SemanticListener extends CMakeListener {
     constructor(uri: URI) {
         super();
         this._uri = uri;
-        this._builder = this.getTokenBuilder(uri.toString());
+        this._builder = getTokenBuilder(uri.toString());
     }
 
     private isOperator(token: string): boolean {
@@ -107,16 +117,20 @@ export class SemanticListener extends CMakeListener {
         return result;
     }
 
-    private getTokenBuilder(uri: string): SemanticTokensBuilder {
-        let result = tokenBuilders.get(uri);
-        if (result !== undefined) {
-            return result;
-        }
-
-        result = new SemanticTokensBuilder();
-        tokenBuilders.set(uri, result);
-        return result;
+    public buildEdits() {
+        return this._builder.buildEdits();
     }
+
+    // private getTokenBuilder(uri: string): SemanticTokensBuilder {
+    //     let result = tokenBuilders.get(uri);
+    //     if (result !== undefined) {
+    //         return result;
+    //     }
+
+    //     result = new SemanticTokensBuilder();
+    //     tokenBuilders.set(uri, result);
+    //     return result;
+    // }
 
     private getCmdKeyWords(sigs: string[]): string[] {
         let result: string[] = [];

@@ -1,7 +1,8 @@
 import {
-    createConnection, DidChangeConfigurationNotification, HoverParams, InitializeParams, InitializeResult,
-    LSPAny,
-    ProposedFeatures, SemanticTokensParams, SignatureHelpParams, TextDocuments, TextDocumentSyncKind
+    createConnection, DidChangeConfigurationNotification, DidChangeConfigurationParams,
+    HoverParams, InitializedParams, InitializeParams, InitializeResult, ProposedFeatures,
+    SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams,
+    SignatureHelpParams, TextDocumentChangeEvent, TextDocuments, TextDocumentSyncKind
 } from 'vscode-languageserver/node';
 
 import {
@@ -17,17 +18,17 @@ import { exec } from 'child_process';
 import { existsSync } from 'fs';
 import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
+import { cmakeInfo } from './cmakeInfo';
+import CMakeErrorListener from './diagnostics';
 import { SymbolListener } from './docSymbols';
 import { FormatListener } from './format';
 import antlr4 from './parser/antlr4/index.js';
 import CMakeLexer from './parser/CMakeLexer.js';
 import CMakeParser from './parser/CMakeParser.js';
-import { getTokenModifiers, getTokenTypes, SemanticListener, tokenBuilders } from './semanticTokens';
+import { getTokenBuilder, getTokenModifiers, getTokenTypes, SemanticListener, tokenBuilders } from './semanticTokens';
+import { extSettings } from './settings';
 import { DefinationListener, incToBaseDir, refToDef, topScope } from './symbolTable/goToDefination';
 import { getFileContext } from './utils';
-import ExtensionSettings, { extSettings } from './settings';
-import { cmakeInfo } from './cmakeInfo';
-import CMakeErrorListener from './diagnostics';
 
 type Word = {
     text: string,
@@ -67,7 +68,9 @@ connection.onInitialize(async (params: InitializeParams) => {
                     tokenModifiers: getTokenModifiers()
                 },
                 range: false,
-                full: true
+                full: {
+                    delta: true
+                }
             }
         },
         serverInfo: {
@@ -79,7 +82,7 @@ connection.onInitialize(async (params: InitializeParams) => {
     return result;
 });
 
-connection.onInitialized(async () => {
+connection.onInitialized(async (params: InitializedParams) => {
     console.log("Initialized");
     connection.client.register(DidChangeConfigurationNotification.type, undefined);
     await extSettings.getSettings();
@@ -194,7 +197,7 @@ connection.onSignatureHelp((params: SignatureHelpParams) => {
             const word: string = getWordAtPosition(document, params.position).text;
             if (word.length === 0) {
                 if (line[params.position.character - 1] === ')') {
-                    resolve(null);   
+                    resolve(null);
                 }
             }
             const firstSig: string = params.context.activeSignatureHelp?.signatures[0].label;
@@ -330,6 +333,31 @@ connection.languages.semanticTokens.on(async (params: SemanticTokensParams) => {
     return semanticListener.getSemanticTokens();
 });
 
+connection.languages.semanticTokens.onDelta((params: SemanticTokensDeltaParams) => {
+    const document = documents.get(params.textDocument.uri);
+    if (document === undefined) {
+        return {
+            edits: []
+        };
+    }
+
+    const builder = getTokenBuilder(document.uri);
+    builder.previousResult(params.previousResultId);
+
+    const docuUri: URI = URI.parse(document.uri);
+    const tree = getFileContext(docuUri);
+    const semanticListener = new SemanticListener(docuUri);
+    antlr4.tree.ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
+
+    return semanticListener.buildEdits();
+});
+
+connection.languages.semanticTokens.onRange((params: SemanticTokensRangeParams) => {
+    return {
+        data: []
+    };
+});
+
 /**
  * @param params This argument is null when configuration changed
  * 
@@ -346,13 +374,13 @@ connection.languages.semanticTokens.on(async (params: SemanticTokensParams) => {
  * https://github.com/microsoft/vscode/issues/54821
  * https://github.com/microsoft/vscode-languageserver-node/issues/380
  */
-connection.onDidChangeConfiguration(params => {
+connection.onDidChangeConfiguration((params: DidChangeConfigurationParams) => {
     extSettings.getSettings();
 });
 
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
-documents.onDidChangeContent(change => {
+documents.onDidChangeContent((change: TextDocumentChangeEvent<TextDocument>) => {
     contentChanged = true;
 
     // const document = documents.get(change.document.uri);
@@ -372,7 +400,7 @@ documents.onDidChangeContent(change => {
     });
 });
 
-documents.onDidClose(event => {
+documents.onDidClose((event: TextDocumentChangeEvent<TextDocument>) => {
     tokenBuilders.delete(event.document.uri);
 });
 
