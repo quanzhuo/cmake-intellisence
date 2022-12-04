@@ -2,7 +2,7 @@ import { SemanticTokens, SemanticTokensBuilder } from "vscode-languageserver";
 import { URI } from "vscode-uri";
 import Token from "./parser/antlr4/Token";
 import CMakeListener from "./parser/CMakeListener";
-import { initParams } from "./server";
+import { initParams, logger } from "./server";
 import * as builtinCmds from './builtin-cmds.json';
 import { cmakeInfo } from "./cmakeInfo";
 
@@ -135,7 +135,7 @@ export class SemanticListener extends CMakeListener {
     private getCmdKeyWords(sigs: string[]): string[] {
         let result: string[] = [];
         sigs.forEach(sig => {
-            const keys = sig.match(/[A-Z_]+/g);
+            const keys = sig.match(/\b[A-Z_]+\b/g);
             if (keys !== null) {
                 keys.forEach(key => {
                     result.push(key);
@@ -151,9 +151,9 @@ export class SemanticListener extends CMakeListener {
             if (argCtx.getChildCount() === 1) {
                 const argToken: Token = argCtx.start;
                 if (this.isOperator(argToken.text)) {
-                    this._builder.push(argToken.line - 1, argToken.column,
-                        argToken.text.length, tokenTypes.indexOf(TokenTypes.operator),
-                        this.getModifiers([]));
+                    // this._builder.push(argToken.line - 1, argToken.column,
+                    //     argToken.text.length, tokenTypes.indexOf(TokenTypes.keyword),
+                    //     this.getModifiers([]));
                 } else if (this.isVariable(argToken.text)) {
                     this._builder.push(argToken.line - 1, argToken.column,
                         argToken.text.length, tokenTypes.indexOf(TokenTypes.variable),
@@ -218,22 +218,24 @@ export class SemanticListener extends CMakeListener {
 
     enterOtherCmd(ctx: any): void {
         const cmdName: Token = ctx.ID().symbol;
-        if (cmdName.text in builtinCmds) {
-            if ('deprecated' in builtinCmds[cmdName.text]) {
+        const cmdNameLower: string = cmdName.text.toLowerCase();
+        if (cmdNameLower in builtinCmds) {
+            if ('deprecated' in builtinCmds[cmdNameLower]) {
                 this._builder.push(cmdName.line - 1, cmdName.column,
                     cmdName.text.length, tokenTypes.indexOf(TokenTypes.function),
                     this.getModifiers([TokenModifiers.deprecated]));
             }
 
-            const sigs: string[] = builtinCmds[cmdName.text]['sig'];
+            const sigs: string[] = builtinCmds[cmdNameLower]['sig'];
             const keywords = this.getCmdKeyWords(sigs);
             if (ctx.argument().length > 0) {
                 ctx.argument().forEach(argCtx => {
                     if (argCtx.getChildCount() === 1) {
                         const argToken: Token = argCtx.start;
+                        logger.debug("cmd:", cmdName.text, "keywords:", keywords);
                         if (keywords.includes(argToken.text)) {
                             this._builder.push(argToken.line - 1, argToken.column,
-                                argToken.text.length, tokenTypes.indexOf(TokenTypes.keyword),
+                                argToken.text.length, tokenTypes.indexOf(TokenTypes.property),
                                 this.getModifiers([]));    
                         }
                    }
