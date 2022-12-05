@@ -19,7 +19,7 @@ import { existsSync } from 'fs';
 import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
 import { cmakeInfo } from './cmakeInfo';
-import CMakeErrorListener from './diagnostics';
+import SyntaxErrorListener from './syntaxDiagnostics';
 import { SymbolListener } from './docSymbols';
 import { FormatListener } from './format';
 import antlr4 from './parser/antlr4/index.js';
@@ -30,6 +30,7 @@ import { extSettings } from './settings';
 import { DefinationListener, incToBaseDir, refToDef, topScope } from './symbolTable/goToDefination';
 import { getFileContext } from './utils';
 import { createLogger } from './logging';
+import SemanticDiagnosticsListener from './semanticDiagnostics';
 
 type Word = {
     text: string,
@@ -392,14 +393,17 @@ documents.onDidChangeContent((change: TextDocumentChangeEvent<TextDocument>) => 
     const tokenStream = new antlr4.CommonTokenStream(lexer);
     const parser = new CMakeParser(tokenStream);
     parser.removeErrorListeners();
-    const errorListener = new CMakeErrorListener();
-    parser.addErrorListener(errorListener);
+    const syntaxErrorListener = new SyntaxErrorListener();
+    parser.addErrorListener(syntaxErrorListener);
     const tree = parser.file();
-    const symbolListener = new SymbolListener();
-    antlr4.tree.ParseTreeWalker.DEFAULT.walk(symbolListener, tree);
+    const semanticListener = new SemanticDiagnosticsListener();
+    antlr4.tree.ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
     connection.sendDiagnostics({
         uri: change.document.uri,
-        diagnostics: errorListener.getDiagnostics()
+        diagnostics: [
+            ...syntaxErrorListener.getSyntaxErrors(),
+            ...semanticListener.getSemanticDiagnostics()
+        ]
     });
 });
 

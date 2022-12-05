@@ -1,7 +1,7 @@
-import { Diagnostic } from 'vscode-languageserver';
+import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
 import ErrorListener from './parser/antlr4/error/ErrorListener';
 
-export default class CMakeErrorListener extends ErrorListener {
+export default class SyntaxErrorListener extends ErrorListener {
     private diagnostics: Diagnostic[] = [];
 
     /**
@@ -25,15 +25,17 @@ export default class CMakeErrorListener extends ErrorListener {
                     character: column + offendingSymbol.text.length
                 }
             },
+            severity: DiagnosticSeverity.Error,
+            source: 'cmake-intellisence',
             message: msg
         });
     }
 
-    public getDiagnostics(): Diagnostic[] {
+    public getSyntaxErrors(): Diagnostic[] {
         return this.diagnostics;
     }
 
-    public clearDiagnostics() {
+    public clearSyntaxErrors() {
         this.diagnostics = [];
     }
 }
