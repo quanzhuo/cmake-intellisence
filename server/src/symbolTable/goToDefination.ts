@@ -147,6 +147,8 @@ export class DefinationListener extends CMakeListener {
             return;
         }
 
+        incToBaseDir.set(subCMakeListsUri.toString(), this.baseDir);
+
         this.parseTreeProperty.set(ctx, true);
 
         // add subdir CMakeLists.txt to refDef

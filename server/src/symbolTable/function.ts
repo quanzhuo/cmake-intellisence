@@ -81,7 +81,7 @@ export class FuncMacroListener extends CMakeListener {
         const nameToken = ctx.argument(0).start;
 
         // 获取包含该函数定义的文件的基路径
-        const baseDir: URI = incToBaseDir.get(this.funcMacroSym.getUri().fsPath);
+        const baseDir: URI = incToBaseDir.get(this.funcMacroSym.getUri().toString());
         const incUri: URI = getIncludeFileUri(baseDir, nameToken.text);
         if (!incUri) {
             return;
@@ -116,7 +116,7 @@ export class FuncMacroListener extends CMakeListener {
         }
 
         const dirToken: Token = ctx.argument(0).start;
-        const baseDir: URI = incToBaseDir.get(this.funcMacroSym.getUri().fsPath);
+        const baseDir: URI = incToBaseDir.get(this.funcMacroSym.getUri().toString());
         const subCMakeListsUri: URI = getSubCMakeListsUri(baseDir, dirToken.text);
         if (!subCMakeListsUri) {
             return;
