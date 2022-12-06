@@ -1,4 +1,6 @@
 import {
+    CodeActionKind,
+    CodeActionParams,
     createConnection, DidChangeConfigurationNotification, DidChangeConfigurationParams,
     HoverParams, InitializedParams, InitializeParams, InitializeResult, ProposedFeatures,
     SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams,
@@ -30,7 +32,7 @@ import { extSettings } from './settings';
 import { DefinationListener, incToBaseDir, refToDef, topScope } from './symbolTable/goToDefination';
 import { getFileContext } from './utils';
 import { createLogger } from './logging';
-import SemanticDiagnosticsListener from './semanticDiagnostics';
+import SemanticDiagnosticsListener, { cmdNameCase } from './semanticDiagnostics';
 
 type Word = {
     text: string,
@@ -74,6 +76,11 @@ connection.onInitialize(async (params: InitializeParams) => {
                 full: {
                     delta: true
                 }
+            },
+            codeActionProvider: {
+                codeActionKinds: [
+                    CodeActionKind.QuickFix
+                ]
             }
         },
         serverInfo: {
@@ -360,6 +367,36 @@ connection.languages.semanticTokens.onRange((params: SemanticTokensRangeParams) 
     return {
         data: []
     };
+});
+
+connection.onCodeAction((params: CodeActionParams) => {
+    const isCmdCaseProblem = params.context.diagnostics.some(value => {
+        return value.message === cmdNameCase;
+    });
+
+    if (isCmdCaseProblem) {
+        const cmdName: string = documents.get(params.textDocument.uri).getText(params.range);
+        return [
+            {
+                title: `convert '${cmdName}' to lower case`,
+                kind: CodeActionKind.QuickFix,
+                diagnostics: params.context.diagnostics,
+                isPreferred: true,
+                edit: {
+                    changes: {
+                        [params.textDocument.uri]: [
+                            {
+                                range: params.range,
+                                newText: cmdName.toLowerCase()
+                            }
+                        ]
+                    }
+                }
+            }
+        ];
+    }
+
+    return [];
 });
 
 /**

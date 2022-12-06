@@ -107,7 +107,7 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
                 },
                 severity: DiagnosticSeverity.Information,
                 source: 'cmake-intellisence',
-                message: "cmake encourage lower case command name"
+                message: cmdNameCase
             });
         }
     }
@@ -116,3 +116,5 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
         return this.diagnostics;
     }
 }
+
+export const cmdNameCase = 'cmake encourage lower case command name';
