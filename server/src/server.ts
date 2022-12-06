@@ -108,11 +108,12 @@ connection.onHover(async (params: HoverParams) => {
     }
 
     // check if the word is a builtin commands
-    if (word in builtinCmds) {
+    const wordLower = word.toLowerCase();
+    if (wordLower in builtinCmds) {
         const sigs = '```cmdsignature\n'
-            + builtinCmds[word]['sig'].join('\n')
+            + builtinCmds[wordLower]['sig'].join('\n')
             + '\n```';
-        const cmdHelp: string = builtinCmds[word]['doc'] + '\n' + sigs;
+        const cmdHelp: string = builtinCmds[wordLower]['doc'] + '\n' + sigs;
         return {
             contents: {
                 kind: 'markdown',
