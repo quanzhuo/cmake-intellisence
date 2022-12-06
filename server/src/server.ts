@@ -29,7 +29,7 @@ import CMakeLexer from './parser/CMakeLexer.js';
 import CMakeParser from './parser/CMakeParser.js';
 import { getTokenBuilder, getTokenModifiers, getTokenTypes, SemanticListener, tokenBuilders } from './semanticTokens';
 import { extSettings } from './settings';
-import { DefinationListener, incToBaseDir, refToDef, topScope } from './symbolTable/goToDefination';
+import { DefinationListener, incToBaseDir, parsedFiles, refToDef, topScope } from './symbolTable/goToDefination';
 import { getFileContext } from './utils';
 import { createLogger } from './logging';
 import SemanticDiagnosticsListener, { cmdNameCase } from './semanticDiagnostics';
@@ -323,6 +323,29 @@ connection.onDefinition((params: DefinitionParams) => {
         if (refToDef.has(wordPos)) {
             resolve(refToDef.get(wordPos));
         } else {
+            // may be current file is not included from the toplevel CMakeLists.txt
+            if (!parsedFiles.has(params.textDocument.uri)) {
+                // clear refToDef and topScope first
+                refToDef.clear();
+                topScope.clear();
+                incToBaseDir.clear();
+
+                const curFile: URI = URI.parse(params.textDocument.uri);
+                const tree = getFileContext(curFile);
+                const baseDir: URI = Utils.dirname(curFile);
+                const definationListener = new DefinationListener(baseDir, curFile, topScope);
+                antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
+
+                // current file is not included from toplevel file. we must clear it here.
+                // otherwise if we open another file and then switch back to this file,
+                // this file will not be parsed.
+                parsedFiles.delete(params.textDocument.uri);
+
+                if (refToDef.has(wordPos)) {
+                    resolve(refToDef.get(wordPos));
+                }
+            }
+
             logger.warning(`can't find defination, word: ${word.text}, wordPos: ${wordPos}`);
             return null;
         }

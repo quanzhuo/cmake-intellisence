@@ -20,6 +20,8 @@ export const incToBaseDir: Map<string, URI> = new Map<string, URI>();
  */
 export const refToDef: Map<string, Location> = new Map();
 
+export const parsedFiles: Set<string> = new Set; // record all the parsed files
+
 export class DefinationListener extends CMakeListener {
     private currentScope: Scope;
     private inBody = false;
@@ -34,6 +36,10 @@ export class DefinationListener extends CMakeListener {
         this.currentScope = scope;
         this.baseDir = baseDir;
         // Utils.dirname(URI.parse(uri)).fsPath
+    }
+
+    enterFile(ctx: any): void {
+        parsedFiles.add(this.curFile.toString());
     }
 
     enterFunctionCmd(ctx: any): void {
