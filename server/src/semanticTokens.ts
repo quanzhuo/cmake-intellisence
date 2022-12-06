@@ -67,15 +67,15 @@ export function getTokenBuilder(uri: string): SemanticTokensBuilder {
 }
 
 export function getTokenTypes(): string[] {
-    tokenTypes = tokenTypes.filter((value, index, arr) => {
-        return initParams.capabilities.textDocument.semanticTokens.tokenTypes.includes(value);
+    tokenTypes = tokenTypes.filter(value => {
+        return initParams.capabilities.textDocument?.semanticTokens?.tokenTypes.includes(value);
     });
     return tokenTypes;
 }
 
 export function getTokenModifiers(): string[] {
-    tokenModifiers = tokenModifiers.filter((value, index, arr) => {
-        return initParams.capabilities.textDocument.semanticTokens.tokenModifiers.includes(value);
+    tokenModifiers = tokenModifiers.filter(value => {
+        return initParams.capabilities.textDocument?.semanticTokens?.tokenModifiers.includes(value);
     });
     return tokenModifiers;
 }

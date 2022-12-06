@@ -14,10 +14,10 @@ class CMakeInfo {
     public major: number;
     public minor: number;
     public patch: number;
-    public modules: string[];
-    public policies: string[];
-    public variables: string[];
-    public properties: string[];
+    public modules: string[] = [];
+    public policies: string[] = [];
+    public variables: string[] = [];
+    public properties: string[] = [];
 
     public async init() {
         [
