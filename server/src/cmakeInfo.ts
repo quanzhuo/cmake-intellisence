@@ -1,8 +1,6 @@
-import { LSPAny } from "vscode-languageserver";
-import { connection } from "./server";
-import ExtensionSettings, { extSettings } from "./settings";
 import * as cp from 'child_process';
 import { promisify } from 'util';
+import { extSettings } from "./settings";
 
 type Modules = string[];
 type Policies = string[];
