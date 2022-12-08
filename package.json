@@ -91,7 +91,7 @@
               "Info",
               "Debug"
             ],
-            "default": "Info",
+            "default": "Off",
             "markdownDescription": "Control the logging level"
           },
           "cmakeIntelliSence.trace.server": {
@@ -101,7 +101,7 @@
               "message",
               "off"
             ],
-            "default": "verbose"
+            "default": "off"
           }
         }
       }
