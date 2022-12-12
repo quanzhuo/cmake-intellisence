@@ -1,6 +1,8 @@
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver";
 import Token from "./parser/antlr4/Token";
 import CMakeListener from "./parser/CMakeListener";
+import { CmdCaseDiagnostics, extSettings } from "./settings";
+import * as builtinCmds from './builtin-cmds.json';
 
 export default class SemanticDiagnosticsListener extends CMakeListener {
     private diagnostics: Diagnostic[] = [];
@@ -83,6 +85,20 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
 
     checkCmdCase(token: Token) {
         const text: string = token.text;
+
+        switch (extSettings.cmdCaseDiagnostics) {
+            case CmdCaseDiagnostics.None: return;
+            case CmdCaseDiagnostics.Builtin:
+                if (!(text.toLowerCase() in builtinCmds)) {
+                    return;
+                }
+                break;
+            case CmdCaseDiagnostics.All:
+                break;
+            default:
+                throw new Error("undefined cmdCaseDiagnostics settings");
+        }
+
         const line: number = token.line, column: number = token.column;
         const isLowerCase = ((cmdText: string) => {
             for (const ch of cmdText) {
@@ -92,6 +108,8 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
             }
             return true;
         })(text);
+
+
 
         if (!isLowerCase) {
             this.diagnostics.push({

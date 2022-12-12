@@ -82,6 +82,21 @@
             "default": "cmake",
             "description": "Set path to CMake executable"
           },
+          "cmakeIntelliSence.cmdCaseDiagnostics": {
+            "type": "string",
+            "description": "Whether generate diagnostic if command is in upper case",
+            "enum": [
+              "none",
+              "builtin",
+              "all"
+            ],
+            "enumDescriptions": [
+              "Don't generate diagnostics",
+              "Only generate diagnostics for builtin commands",
+              "Generate diagnostic for all commands"
+            ],
+            "default": "builtin"
+          },
           "cmakeIntelliSence.loggingLevel": {
             "type": "string",
             "enum": [

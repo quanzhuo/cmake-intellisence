@@ -228,11 +228,12 @@ export class SemanticListener extends CMakeListener {
 
             const sigs: string[] = builtinCmds[cmdNameLower]['sig'];
             const keywords = this.getCmdKeyWords(sigs);
+            logger.debug("cmd:", cmdName.text, "keywords:", keywords);
+
             if (ctx.argument().length > 0) {
                 ctx.argument().forEach(argCtx => {
                     if (argCtx.getChildCount() === 1) {
                         const argToken: Token = argCtx.start;
-                        logger.debug("cmd:", cmdName.text, "keywords:", keywords);
                         if (keywords.includes(argToken.text)) {
                             this._builder.push(argToken.line - 1, argToken.column,
                                 argToken.text.length, tokenTypes.indexOf(TokenTypes.property),
