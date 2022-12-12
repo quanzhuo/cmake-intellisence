@@ -61,7 +61,7 @@ patterns:
     match: ^\s*\b(?i:build_name|exec_program|export_library_dependencies|install_files|install_programs|install_targets|load_command|make_directory|output_required_files|qt_wrap_cpp|qt_wrap_ui|remove|subdir_depends|subdirs|use_mangled_mesa|utility_source|variable_requires|write_file)\b
   # flow control commands in cmake
   - name: keyword.control.cmake
-    match: ^\s*\b(?i:if|elif|else|endif|while|endwhile|break|continue|foreach|endforeach|return|function|endfunction|macro|endmacro)\b
+    match: ^\s*\b(?i:if|elseif|else|endif|while|endwhile|break|continue|foreach|endforeach|return|function|endfunction|macro|endmacro)\b
   # unary tests operators
   - name: keyword.other.unary.cmake
     match: \b(EXISTS|COMMAND|DEFINED)\b
