@@ -220,11 +220,11 @@ export class SemanticListener extends CMakeListener {
         const cmdName: Token = ctx.ID().symbol;
         const cmdNameLower: string = cmdName.text.toLowerCase();
         if (cmdNameLower in builtinCmds) {
-            if ('deprecated' in builtinCmds[cmdNameLower]) {
-                this._builder.push(cmdName.line - 1, cmdName.column,
-                    cmdName.text.length, tokenTypes.indexOf(TokenTypes.function),
-                    this.getModifiers([TokenModifiers.deprecated]));
-            }
+            // if ('deprecated' in builtinCmds[cmdNameLower]) {
+            //     this._builder.push(cmdName.line - 1, cmdName.column,
+            //         cmdName.text.length, tokenTypes.indexOf(TokenTypes.function),
+            //         this.getModifiers([TokenModifiers.deprecated]));
+            // }
 
             const sigs: string[] = builtinCmds[cmdNameLower]['sig'];
             const keywords = this.getCmdKeyWords(sigs);
