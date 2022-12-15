@@ -29,7 +29,11 @@ export class FuncMacroListener extends CMakeListener {
     }
 
     enterFunctionCmd(ctx: any): void {
-        const funcToken: Token = ctx.argument(0).start;
+        const funcToken: Token = ctx.argument(0)?.start;
+        if (funcToken === undefined) {
+            return;
+        }
+
         // token.line start from 1
         if (funcToken.line - 1 === this.funcMacroSym.getLine() &&
             funcToken.column === this.funcMacroSym.getColumn()) {
@@ -56,7 +60,11 @@ export class FuncMacroListener extends CMakeListener {
         }
 
         // create a variable symbol
-        const varToken: Token = ctx.argument(0).start;
+        const varToken: Token = ctx.argument(0)?.start;
+        if (varToken === undefined) {
+            return;
+        }
+
         const varSymbol: Sym = new Sym(varToken.text, Type.Variable,
             this.funcMacroSym.getUri(), varToken.line - 1, varToken.column);
 
@@ -78,7 +86,10 @@ export class FuncMacroListener extends CMakeListener {
             return;
         }
 
-        const nameToken = ctx.argument(0).start;
+        const nameToken = ctx.argument(0)?.start;
+        if (nameToken === undefined) {
+            return;
+        }
 
         // 获取包含该函数定义的文件的基路径
         const baseDir: URI = incToBaseDir.get(this.funcMacroSym.getUri().toString());
@@ -115,7 +126,11 @@ export class FuncMacroListener extends CMakeListener {
             return;
         }
 
-        const dirToken: Token = ctx.argument(0).start;
+        const dirToken: Token = ctx.argument(0)?.start;
+        if (dirToken === undefined) {
+            return;
+        }
+
         const baseDir: URI = incToBaseDir.get(this.funcMacroSym.getUri().toString());
         const subCMakeListsUri: URI = getSubCMakeListsUri(baseDir, dirToken.text);
         if (!subCMakeListsUri) {
