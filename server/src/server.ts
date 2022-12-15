@@ -446,7 +446,10 @@ connection.onDidChangeConfiguration((params: DidChangeConfigurationParams) => {
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent((change: TextDocumentChangeEvent<TextDocument>) => {
-    contentChanged = true;
+    // if the document is opened for the first time, version is 1
+    if (change.document.version !== 1) {
+        contentChanged = true;
+    }
 
     // const document = documents.get(change.document.uri);
     const input = antlr4.CharStreams.fromString(change.document.getText());
