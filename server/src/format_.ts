@@ -204,10 +204,15 @@ export class Formatter extends CMakeListener {
         }
 
         // ')'
+        const rParenToken = ctx.RParen().symbol;
+        const rParenIndex = rParenToken.tokenIndex;
+        const prevToken = this._tokenStream.get(rParenIndex - 1);
+        if (rParenToken.line !== prevToken.line) {
+            this._formatted += ' '.repeat(this.getIndent());    
+        }
         this._formatted += ')';
 
         // get comment on right of command
-        const rParenIndex: number = ctx.RParen().symbol.tokenIndex;
         this._formatted += this.getHiddenTextOnRight(rParenIndex, this.getIndent());
 
         // command terminator
