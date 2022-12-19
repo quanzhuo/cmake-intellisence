@@ -1,6 +1,5 @@
 import CMakeLexer from "./parser/CMakeLexer";
 import CMakeListener from "./parser/CMakeListener";
-import { incToBaseDir } from "./symbolTable/goToDefination";
 
 export class Formatter extends CMakeListener {
     private _indent: number;
@@ -144,15 +143,29 @@ export class Formatter extends CMakeListener {
             const lParenIndex: number = argCtx.LParen().symbol.tokenIndex;
             result += this.getHiddenTextOnRight(lParenIndex, indent);
             const innerCnt = argCtx.argument().length;
+            const innerIndent = indent + this._indent;
+            let prevLineNo: number = argCtx.LParen().symbol.line;
             argCtx.argument().forEach((innerCtx, index) => {
+                const curLineNo: number = innerCtx.stop.line;
+                if (curLineNo !== prevLineNo) {
+                    result += ' '.repeat(innerIndent);
+                }
                 result += this.getArgumentText(innerCtx, indent);
                 if (index < innerCnt - 1) {
                     result += ' ';
                 }
+
+                prevLineNo = curLineNo;
             });
+
+            const rParenToken = argCtx.RParen().symbol;
+            if ((innerCnt > 0) &&
+                (argCtx.argument()[innerCnt-1].stop.line !== rParenToken.line)){
+                result += ' '.repeat(indent);    
+            }
+            
             result += ')';
-            const rParenIndex: number = argCtx.RParen().symbol.tokenIndex;
-            result += this.getHiddenTextOnRight(rParenIndex, indent);
+            result += this.getHiddenTextOnRight(rParenToken.tokenIndex, indent);
         }
 
         return result;
@@ -194,12 +207,12 @@ export class Formatter extends CMakeListener {
 
                 const next = index + 1;
                 if (next < cnt) {
-                    if (array[next].start.line === curLineNo) {
+                    if (array[next].start.line === argCtx.stop.line) {
                         this._formatted += ' ';
                     }
                 }
 
-                prevLineNo = curLineNo;
+                prevLineNo = argCtx.stop.line;
             });
         }
 
