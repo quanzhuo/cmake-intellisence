@@ -67,11 +67,11 @@ LineComment
 // 1. NL between '(' and ')'
 // 2. NL between command invocations
 IgnoreNLBetweenArgs
-    :   '\r'? '\n' { this.nesting > 0 }? -> skip
+    :   '\r'? '\n' { this.nesting > 0 }? -> channel(HIDDEN)
     ;
 
 IgnoreExtraNLBetweenCmds
-    :   '\r'? '\n' { this.newLineCount > 0 }? -> skip
+    :   '\r'? '\n' { this.newLineCount > 0 }? -> channel(HIDDEN)
     ;
 
 NL  :   {this.newLineCount++;} '\r'? '\n'

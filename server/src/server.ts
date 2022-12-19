@@ -33,6 +33,7 @@ import { DefinationListener, incToBaseDir, parsedFiles, refToDef, topScope } fro
 import { getFileContext } from './utils';
 import { createLogger } from './logging';
 import SemanticDiagnosticsListener, { cmdNameCase } from './semanticDiagnostics';
+import { Formatter } from './format_';
 
 type Word = {
     text: string,
@@ -258,7 +259,7 @@ connection.onDocumentFormatting((params: DocumentFormattingParams) => {
         const tokenStream = new antlr4.CommonTokenStream(lexer);
         const parser = new CMakeParser(tokenStream);
         const tree = parser.file();
-        const formatListener = new FormatListener(tabSize, tokenStream);
+        const formatListener = new Formatter(tabSize, tokenStream);
         antlr4.tree.ParseTreeWalker.DEFAULT.walk(formatListener, tree);
         resolve([
             {

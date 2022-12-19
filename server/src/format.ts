@@ -47,7 +47,7 @@ export class FormatListener extends CMakeListener {
             } else {
                 const tokenType: number = this._tokenStream.get(tokenIndex).type;
                 if (tokenType === CMakeLexer.NL) {
-                    result += ' '.repeat(this.getIndent()) + t.text
+                    result += ' '.repeat(this.getIndent()) + t.text;
                 } else {
                     result += ' '.repeat(this.getIndent() + 4) + t.text;
                 }
