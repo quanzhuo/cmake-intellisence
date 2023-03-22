@@ -33,6 +33,10 @@ patterns:
   # line comment
   - name: comment.line.number-sign.cmake
     match: "#(.*$)"
+  # escaped string
+  - name: string.escaped.quoted.double.cmake
+    begin: '\\"'
+    end: '\\"'
   # string
   - name: string.quoted.double.cmake
     begin: '"'
