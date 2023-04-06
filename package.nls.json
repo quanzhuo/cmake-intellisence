@@ -1,0 +1,8 @@
+{
+    "cmakeIntelliSence.cmakePath": "Set path to CMake executable",
+    "cmakeIntelliSence.cmdCaseDiagnostics": "Whether generate diagnostic if command is in upper case",
+    "cmakeIntelliSence.cmdCaseDiagnostics.none": "Don't generate diagnostics",
+    "cmakeIntelliSence.cmdCaseDiagnostics.builtin": "Only generate diagnostics for builtin commands",
+    "cmakeIntelliSence.cmdCaseDiagnostics.all": "Generate diagnostic for all commands",
+    "cmakeIntelliSence.loggingLevel": "Control the logging level"
+}

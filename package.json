@@ -80,20 +80,20 @@
           "cmakeIntelliSence.cmakePath": {
             "type": "string",
             "default": "cmake",
-            "description": "Set path to CMake executable"
+            "description": "%cmakeIntelliSence.cmakePath%"
           },
           "cmakeIntelliSence.cmdCaseDiagnostics": {
             "type": "string",
-            "description": "Whether generate diagnostic if command is in upper case",
+            "description": "%cmakeIntelliSence.cmdCaseDiagnostics%",
             "enum": [
               "none",
               "builtin",
               "all"
             ],
             "enumDescriptions": [
-              "Don't generate diagnostics",
-              "Only generate diagnostics for builtin commands",
-              "Generate diagnostic for all commands"
+              "%cmakeIntelliSence.cmdCaseDiagnostics.none%",
+              "%cmakeIntelliSence.cmdCaseDiagnostics.builtin%",
+              "%cmakeIntelliSence.cmdCaseDiagnostics.all%"
             ],
             "default": "builtin"
           },
@@ -107,7 +107,7 @@
               "Debug"
             ],
             "default": "Off",
-            "markdownDescription": "Control the logging level"
+            "markdownDescription": "%cmakeIntelliSence.loggingLevel%"
           },
           "cmakeIntelliSence.trace.server": {
             "type": "string",
