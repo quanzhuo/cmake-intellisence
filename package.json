@@ -2,7 +2,7 @@
   "name": "cmake-intellisence",
   "displayName": "CMake IntelliSence",
   "description": "CMake IntelliSence for Visual Studio Code",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "engines": {
     "vscode": "^1.68.0"
   },
@@ -15,7 +15,12 @@
     "Snippets",
     "Formatters"
   ],
-  "publisher": "quanzhuo",
+  "keywords": [
+    "KylinIdeDev",
+    "KylinIdeDevOtherLanguages"
+  ],
+  "publisher": "KylinIDETeam",
+  "downloadUrl": "https://gitee.com/openKylin/extensions-repo/KylinIDETeam/cmake-intellisence/cmake-intellisence-0.1.0.vsix",
   "icon": "images/icon.png",
   "activationEvents": [
     "onLanguage:cmake",
