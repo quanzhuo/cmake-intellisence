@@ -1,7 +1,8 @@
 {
   "name": "cmake-intellisence",
   "displayName": "CMake IntelliSence",
-  "description": "CMake IntelliSence for Visual Studio Code",
+  "description": "CMake IntelliSence for Kylin-IDE",
+  "author": "quanzhuo",
   "version": "0.1.0",
   "engines": {
     "vscode": "^1.68.0"
@@ -17,10 +18,13 @@
   ],
   "keywords": [
     "KylinIdeDev",
+    "KylinIdeDevEdit",
+    "KylinIdeDevC",
+    "KylinIdeDevCPlusPlus",
     "KylinIdeDevOtherLanguages"
   ],
   "publisher": "KylinIDETeam",
-  "downloadUrl": "https://gitee.com/openKylin/extensions-repo/KylinIDETeam/cmake-intellisence/cmake-intellisence-0.1.0.vsix",
+  "downloadUrl": "https://gitee.com/openKylin/extensions-repo/tree/master/KylinIDETeam/cmake-intellisence",
   "icon": "images/icon.png",
   "activationEvents": [
     "onLanguage:cmake",
