@@ -1,5 +1,9 @@
 # Change Log
 
+## v0.1.1 (2023-04-28)
+
+* 更新package.json中的keywords
+
 ## v0.1.0 (2023-04-13)
 
 * 用于 Kylin-IDE 的第一个版本

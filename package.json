@@ -3,7 +3,7 @@
   "displayName": "CMake IntelliSence",
   "description": "CMake IntelliSence for Kylin-IDE",
   "author": "quanzhuo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "engines": {
     "vscode": "^1.68.0"
   },
