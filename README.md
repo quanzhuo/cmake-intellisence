@@ -1,6 +1,6 @@
 # Description
 
-This extension add CMake language feature support to Visual Studio Code.
+This extension add CMake language feature support to Kylin-IDE.
 
 ## Features
 

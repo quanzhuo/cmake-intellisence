@@ -1,0 +1,8 @@
+{
+    "cmakeIntelliSence.cmakePath": "设置CMake命令的路径",
+    "cmakeIntelliSence.cmdCaseDiagnostics": "是否针对大写命令生成诊断信息",
+    "cmakeIntelliSence.cmdCaseDiagnostics.none": "不生成针对信息",
+    "cmakeIntelliSence.cmdCaseDiagnostics.builtin": "只针对内置命令生成诊断信息",
+    "cmakeIntelliSence.cmdCaseDiagnostics.all": "为所有命令生成诊断信息",
+    "cmakeIntelliSence.loggingLevel": "控制日志级别"
+}
