@@ -1,5 +1,9 @@
 # Change Log
 
+## v0.1.2 (2023-10-12)
+
+* readme中增加中文描述
+
 ## v0.1.1 (2023-04-28)
 
 * 更新package.json中的keywords
