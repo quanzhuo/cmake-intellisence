@@ -12,7 +12,7 @@ export default class ExtensionSettings {
 
     public async getSettings() {
         let oldCmdCaseSetting = this.cmdCaseDiagnostics;
-
+        console.log('getSettings');
         [
             this.cmakePath,
             this.loggingLevel,
@@ -23,28 +23,27 @@ export default class ExtensionSettings {
             { section: 'cmakeIntelliSence.cmdCaseDiagnostics' }
         ]);
 
-        if (oldCmdCaseSetting !== this.cmdCaseDiagnostics) {
-            documents.all().forEach(element => {
-                const input = antlr4.CharStreams.fromString(element.getText());
-                const lexer = new CMakeLexer(input);
-                const tokenStream = new antlr4.CommonTokenStream(lexer);
-                const parser = new CMakeParser(tokenStream);
-                parser.removeErrorListeners();
-                const syntaxErrorListener = new SyntaxErrorListener();
-                parser.addErrorListener(syntaxErrorListener);
-                const tree = parser.file();
-                const semanticListener = new SemanticDiagnosticsListener();
-                antlr4.ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
-                connection.sendDiagnostics({
-                    uri: element.uri,
-                    diagnostics: [
-                        ...syntaxErrorListener.getSyntaxErrors(),
-                        // FIXME: 暂时注释掉
-                        // ...semanticListener.getSemanticDiagnostics()
-                    ]
-                });
-            });
-        }
+        // if (oldCmdCaseSetting !== this.cmdCaseDiagnostics) {
+        //     documents.all().forEach(element => {
+        //         const input = antlr4.CharStreams.fromString(element.getText());
+        //         const lexer = new CMakeLexer(input);
+        //         const tokenStream = new antlr4.CommonTokenStream(lexer);
+        //         const parser = new CMakeParser(tokenStream);
+        //         parser.removeErrorListeners();
+        //         const syntaxErrorListener = new SyntaxErrorListener();
+        //         parser.addErrorListener(syntaxErrorListener);
+        //         const tree = parser.file();
+        //         const semanticListener = new SemanticDiagnosticsListener();
+        //         antlr4.ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
+        //         connection.sendDiagnostics({
+        //             uri: element.uri,
+        //             diagnostics: [
+        //                 ...syntaxErrorListener.getSyntaxErrors(),
+        //                 ...semanticListener.getSemanticDiagnostics()
+        //             ]
+        //         });
+        //     });
+        // }
     }
 }
 

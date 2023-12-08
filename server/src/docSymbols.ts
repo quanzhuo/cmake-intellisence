@@ -65,12 +65,6 @@ export class SymbolListener extends CMakeListener {
         this.enterSetCmd(ctx);
     };
 
-    // enterFunctionDefinition?: (ctx: FunctionDefinitionContext) => void = (ctx: FunctionDefinitionContext) => {
-    //     if (!this._inFunction) {
-    //         this._symbols.push(this.makeSymbol(ctx.start, SymbolKind.Function));
-    //     }
-    // };
-
     enterFunctionCmd = (ctx: FunctionCmdContext): void => {
         this.enterFuncOrMacroCmd(ctx);
     };
@@ -93,10 +87,6 @@ export class SymbolListener extends CMakeListener {
 
     private enterFuncOrMacroCmd(ctx: FunctionCmdContext | MacroCmdContext) {
         this._inFunction = true;
-        if (!(ctx.parentCtx.parentCtx.parentCtx instanceof FileContext)) {
-            // Function defination can not be nested
-            return;
-        }
         const argCtx = ctx.argument(0);
         if (argCtx) {
             this._symbolsInFunction = this.makeSymbol(argCtx.start, SymbolKind.Function);
