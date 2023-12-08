@@ -1,6 +1,6 @@
-import antlr4 from "./parser/antlr4";
-import CMakeLexer from "./parser/CMakeLexer";
-import CMakeParser from "./parser/CMakeParser";
+import * as antlr4 from 'antlr4';
+import CMakeLexer from './generated/CMakeLexer';
+import CMakeParser from "./generated/CMakeParser";
 import SemanticDiagnosticsListener from "./semanticDiagnostics";
 import { connection, documents } from "./server";
 import SyntaxErrorListener from "./syntaxDiagnostics";
@@ -34,12 +34,13 @@ export default class ExtensionSettings {
                 parser.addErrorListener(syntaxErrorListener);
                 const tree = parser.file();
                 const semanticListener = new SemanticDiagnosticsListener();
-                antlr4.tree.ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
+                antlr4.ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
                 connection.sendDiagnostics({
                     uri: element.uri,
                     diagnostics: [
                         ...syntaxErrorListener.getSyntaxErrors(),
-                        ...semanticListener.getSemanticDiagnostics()
+                        // FIXME: 暂时注释掉
+                        // ...semanticListener.getSemanticDiagnostics()
                     ]
                 });
             });

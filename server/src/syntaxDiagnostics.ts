@@ -1,7 +1,7 @@
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
-import ErrorListener from './parser/antlr4/error/ErrorListener';
+import { ErrorListener } from 'antlr4';
 
-export default class SyntaxErrorListener extends ErrorListener {
+export default class SyntaxErrorListener extends ErrorListener<string> {
     private diagnostics: Diagnostic[] = [];
 
     /**

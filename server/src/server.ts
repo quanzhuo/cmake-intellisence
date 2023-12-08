@@ -1,39 +1,24 @@
-import {
-    CodeActionKind,
-    CodeActionParams,
-    createConnection, DidChangeConfigurationNotification, DidChangeConfigurationParams,
-    HoverParams, InitializedParams, InitializeParams, InitializeResult, ProposedFeatures,
-    SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams,
-    SignatureHelpParams, TextDocumentChangeEvent, TextDocuments, TextDocumentSyncKind
-} from 'vscode-languageserver/node';
-
-import {
-    CompletionItemKind, CompletionParams, DefinitionParams, DocumentFormattingParams,
-    DocumentSymbolParams, SignatureHelpTriggerKind
-} from 'vscode-languageserver-protocol';
-import { Range, TextDocument } from 'vscode-languageserver-textdocument';
-import {
-    CompletionItem, CompletionItemTag, Position
-} from 'vscode-languageserver-types';
-
+import { CharStreams, CommonTokenStream, ParseTreeWalker } from 'antlr4';
 import { exec } from 'child_process';
 import { existsSync } from 'fs';
+import { CompletionItemKind, CompletionParams, DefinitionParams, DocumentFormattingParams, DocumentSymbolParams, SignatureHelpTriggerKind } from 'vscode-languageserver-protocol';
+import { Range, TextDocument } from 'vscode-languageserver-textdocument';
+import { CompletionItem, CompletionItemTag, Position } from 'vscode-languageserver-types';
+import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
 import { cmakeInfo } from './cmakeInfo';
-import SyntaxErrorListener from './syntaxDiagnostics';
 import { SymbolListener } from './docSymbols';
-import { FormatListener } from './format';
-import antlr4 from './parser/antlr4/index.js';
-import CMakeLexer from './parser/CMakeLexer.js';
-import CMakeParser from './parser/CMakeParser.js';
-import { getTokenBuilder, getTokenModifiers, getTokenTypes, SemanticListener, tokenBuilders } from './semanticTokens';
-import { extSettings } from './settings';
-import { DefinationListener, incToBaseDir, parsedFiles, refToDef, topScope } from './symbolTable/goToDefination';
-import { getFileContext } from './utils';
+import { Formatter } from './format';
+import CMakeLexer from './generated/CMakeLexer';
+import CMakeParser, { FileContext } from './generated/CMakeParser';
 import { createLogger } from './logging';
 import SemanticDiagnosticsListener, { cmdNameCase } from './semanticDiagnostics';
-import { Formatter } from './format_';
+import { SemanticListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
+import { extSettings } from './settings';
+import { DefinationListener, incToBaseDir, parsedFiles, refToDef, topScope } from './symbolTable/goToDefination';
+import SyntaxErrorListener from './syntaxDiagnostics';
+import { getFileContext } from './utils';
 
 type Word = {
     text: string,
@@ -254,32 +239,33 @@ connection.onDocumentFormatting((params: DocumentFormattingParams) => {
     };
 
     return new Promise((resolve, rejects) => {
-        const input = antlr4.CharStreams.fromString(document.getText());
+        const input = CharStreams.fromString(document.getText());
         const lexer = new CMakeLexer(input);
-        const tokenStream = new antlr4.CommonTokenStream(lexer);
+        const tokenStream = new CommonTokenStream(lexer);
         const parser = new CMakeParser(tokenStream);
         const tree = parser.file();
         const formatListener = new Formatter(tabSize, tokenStream);
-        antlr4.tree.ParseTreeWalker.DEFAULT.walk(formatListener, tree);
+        ParseTreeWalker.DEFAULT.walk(formatListener, tree);
         resolve([
             {
                 range: range,
-                newText: formatListener.getFormatedText()
+                newText: formatListener.formatted
             }
         ]);
     });
 });
 
+
 connection.onDocumentSymbol((params: DocumentSymbolParams) => {
     const document = documents.get(params.textDocument.uri);
     return new Promise((resolve, reject) => {
-        const input = antlr4.CharStreams.fromString(document.getText());
+        const input = CharStreams.fromString(document.getText());
         const lexer = new CMakeLexer(input);
-        const tokenStream = new antlr4.CommonTokenStream(lexer);
+        const tokenStream = new CommonTokenStream(lexer);
         const parser = new CMakeParser(tokenStream);
         const tree = parser.file();
         const symbolListener = new SymbolListener();
-        antlr4.tree.ParseTreeWalker.DEFAULT.walk(symbolListener, tree);
+        ParseTreeWalker.DEFAULT.walk(symbolListener, tree);
         resolve(symbolListener.getSymbols());
     });
 });
@@ -316,7 +302,7 @@ connection.onDefinition((params: DefinitionParams) => {
             const baseDir: URI = Utils.dirname(rootFileURI);
             const tree = getFileContext(rootFileURI);
             const definationListener = new DefinationListener(baseDir, rootFileURI, topScope);
-            antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
+            ParseTreeWalker.DEFAULT.walk(definationListener, tree);
 
             contentChanged = false;
         }
@@ -335,7 +321,7 @@ connection.onDefinition((params: DefinitionParams) => {
                 const tree = getFileContext(curFile);
                 const baseDir: URI = Utils.dirname(curFile);
                 const definationListener = new DefinationListener(baseDir, curFile, topScope);
-                antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
+                ParseTreeWalker.DEFAULT.walk(definationListener, tree);
 
                 // current file is not included from toplevel file. we must clear it here.
                 // otherwise if we open another file and then switch back to this file,
@@ -361,9 +347,9 @@ connection.languages.semanticTokens.on(async (params: SemanticTokensParams) => {
 
     // const builder = getTokenBuilder(document);
     const docUri: URI = URI.parse(params.textDocument.uri);
-    const tree = getFileContext(docUri);
+    const tree: FileContext = getFileContext(docUri);
     const semanticListener = new SemanticListener(docUri);
-    antlr4.tree.ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
+    ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
 
     // return builder.build();
     return semanticListener.getSemanticTokens();
@@ -383,7 +369,7 @@ connection.languages.semanticTokens.onDelta((params: SemanticTokensDeltaParams) 
     const docuUri: URI = URI.parse(document.uri);
     const tree = getFileContext(docuUri);
     const semanticListener = new SemanticListener(docuUri);
-    antlr4.tree.ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
+    ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
 
     return semanticListener.buildEdits();
 });
@@ -453,16 +439,16 @@ documents.onDidChangeContent((change: TextDocumentChangeEvent<TextDocument>) => 
     }
 
     // const document = documents.get(change.document.uri);
-    const input = antlr4.CharStreams.fromString(change.document.getText());
+    const input = CharStreams.fromString(change.document.getText());
     const lexer = new CMakeLexer(input);
-    const tokenStream = new antlr4.CommonTokenStream(lexer);
+    const tokenStream = new CommonTokenStream(lexer);
     const parser = new CMakeParser(tokenStream);
     parser.removeErrorListeners();
     const syntaxErrorListener = new SyntaxErrorListener();
     parser.addErrorListener(syntaxErrorListener);
     const tree = parser.file();
     const semanticListener = new SemanticDiagnosticsListener();
-    antlr4.tree.ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
+    ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
     connection.sendDiagnostics({
         uri: change.document.uri,
         diagnostics: [
