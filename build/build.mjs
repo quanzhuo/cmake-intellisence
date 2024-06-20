@@ -119,7 +119,7 @@ class VSCodePackage extends PackageStep {
 
 console.log('clean workspace...');
 await runCommand('git', ['clean', '-fdx']);
-await runCommand('npm', ['i']);
+await runCommand('npm', ['i', '--registry=http://registry.npmmirror.com']);
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url));
 const workspace = path.join(__dirname, '..');
 let packageTool = new KylinIdePackage(workspace);

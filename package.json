@@ -16,7 +16,7 @@
     "Snippets",
     "Formatters"
   ],
-  "publisher": "KylinIDETeam",
+  "publisher": "KylinIdeTeam",
   "icon": "images/icon.png",
   "activationEvents": [
     "onLanguage:cmake",
@@ -126,32 +126,31 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run product",
-    "develop": "npm run grammar && webpack --mode development --watch",
-    "product": "npm run grammar && webpack --mode production --devtool false",
-    "watch": "npm run grammar && tsc -watch -b . --verbose",
+    "develop": "npm run grammar && npm run antlr4 && webpack --mode development --watch",
+    "product": "npm run grammar && npm run antlr4 && webpack --mode production --devtool false",
+    "antlr4": "npm run antlr4-lexer && npm run antlr4-parser",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
     "postinstall": "cd client && npm install && cd ../server && npm install && cd ..",
     "antlr4-lexer": "cd server/src/antlr && antlr4 -o ../generated/ -visitor -Dlanguage=TypeScript CMakeLexer.g4",
     "antlr4-parser": "cd server/src/antlr && antlr4 -o ../generated/ -visitor -Dlanguage=TypeScript CMakeParser.g4",
-    "antlr4": "npm run antlr4-lexer && npm run antlr4-parser",
     "grammar-cmake": "npx js-yaml ./syntaxes/cmake.tmLanguage.yml > ./syntaxes/cmake.tmLanguage.json",
     "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
     "grammar-cmdsignature": "npx js-yaml ./syntaxes/cmdsignature.tmLanguage.yml > ./syntaxes/cmdsignature.tmLanguage.json",
     "grammar": "node ./build/yaml-to-json.mjs"
   },
   "devDependencies": {
-    "@types/mocha": "^9.1.1",
+    "@types/mocha": "^10.0.6",
     "@types/node": "18.x",
-    "@typescript-eslint/eslint-plugin": "^5.31.0",
-    "@typescript-eslint/parser": "^5.31.0",
-    "eslint": "^8.20.0",
+    "@typescript-eslint/eslint-plugin": "^7.13.1",
+    "@typescript-eslint/parser": "^7.13.1",
+    "eslint": "^8.57.0",
     "js-yaml": "^4.1.0",
-    "mocha": "^10.0.0",
-    "ts-loader": "^9.4.1",
-    "typescript": "^4.8.4",
-    "webpack": "^5.74.0",
-    "webpack-cli": "^4.10.0"
+    "mocha": "^10.4.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.3",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
   }
 }
