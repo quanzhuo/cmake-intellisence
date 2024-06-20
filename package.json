@@ -133,9 +133,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run product",
-    "compile": "npm run grammar && tsc -b . --verbose",
-    "develop": "concurrently \"npm run grammar\" \"npm run dev-client\" \"npm run dev-server\"",
-    "product": "concurrently \"npm run grammar\" \"npm run prod-client\" \"npm run prod-server\"",
+    "develop": "npm run grammar && webpack --mode development --watch",
+    "product": "npm run grammar && webpack --mode production --devtool false",
     "watch": "npm run grammar && tsc -watch -b . --verbose",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
@@ -147,11 +146,7 @@
     "grammar-cmake": "npx js-yaml ./syntaxes/cmake.tmLanguage.yml > ./syntaxes/cmake.tmLanguage.json",
     "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
     "grammar-cmdsignature": "npx js-yaml ./syntaxes/cmdsignature.tmLanguage.yml > ./syntaxes/cmdsignature.tmLanguage.json",
-    "grammar": "node ./build/yaml-to-json.mjs",
-    "dev-client": "webpack --mode development --watch --config webpack.config.client.js",
-    "dev-server": "webpack --mode development --watch --config webpack.config.server.js",
-    "prod-client": "webpack --mode production --config webpack.config.client.js --devtool hidden-source-map",
-    "prod-server": "webpack --mode production --config webpack.config.server.js --devtool hidden-source-map"
+    "grammar": "node ./build/yaml-to-json.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^9.1.1",
