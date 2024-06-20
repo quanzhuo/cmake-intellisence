@@ -1,7 +1,7 @@
 {
   "name": "cmake-intellisence",
   "displayName": "CMake IntelliSence",
-  "description": "CMake IntelliSence for Kylin-IDE",
+  "description": "CMake IntelliSence for Visual Studio Code",
   "author": "quanzhuo",
   "version": "0.1.3",
   "engines": {
@@ -16,19 +16,12 @@
     "Snippets",
     "Formatters"
   ],
-  "keywords": [
-    "KylinIdeDev",
-    "KylinIdeDevEdit",
-    "KylinIdeDevCYuYan",
-    "KylinIdeDevCPlusPlus",
-    "KylinIdeDevOtherLanguages"
-  ],
   "publisher": "KylinIDETeam",
-  "downloadUrl": "https://gitee.com/openKylin/extensions-repo/tree/master/KylinIDETeam/cmake-intellisence",
   "icon": "images/icon.png",
   "activationEvents": [
     "onLanguage:cmake",
-    "workspaceContains:CMakeLists.txt"
+    "workspaceContains:CMakeLists.txt",
+    "workspaceContains:**/*.cmake"
   ],
   "main": "./dist/client",
   "contributes": {
@@ -153,7 +146,6 @@
     "@types/node": "18.x",
     "@typescript-eslint/eslint-plugin": "^5.31.0",
     "@typescript-eslint/parser": "^5.31.0",
-    "concurrently": "^7.5.0",
     "eslint": "^8.20.0",
     "js-yaml": "^4.1.0",
     "mocha": "^10.0.0",
