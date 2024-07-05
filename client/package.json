@@ -4,7 +4,7 @@
   "description": "Language Client for CMake IntelliSence extension",
   "author": "quanzhuo",
   "license": "MIT",
-  "publisher": "openKylin",
+  "publisher": "KylinIdeTeam",
   "engines": {
     "vscode": "^1.68.0"
   },

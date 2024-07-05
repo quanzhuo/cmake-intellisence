@@ -58,7 +58,7 @@ class KylinIdePackage extends PackageStep {
     }
 
     modifyPackageJson() {
-        this.packageJsonData.downloadUrl = 'https://gitee.com/openKylin/extensions-repo/tree/master/KylinIDETeam/cmake-intellisence';
+        this.packageJsonData.downloadUrl = 'https://gitee.com/openkylin/cmake-intellisence/releases';
         this.packageJsonData.keywords = [
             "KylinIdeDev",
             "KylinIdeDevEdit",
