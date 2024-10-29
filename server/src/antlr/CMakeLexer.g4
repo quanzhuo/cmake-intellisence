@@ -4,9 +4,9 @@ lexer grammar CMakeLexer;
     private nestingLevel: number = 0;
 }
 
-// options {
-//     caseInsensitive = true;
-// }
+options {
+    caseInsensitive = true;
+}
 
 channels {
     COMMENTS
@@ -31,8 +31,7 @@ OptionCmd: 'option';
 IncludeCmd: 'include';
 AddSubDirectory: 'add_subdirectory';
 
-ID: [a-zA-Z_] [a-zA-Z0-9_]* ;
-// AugumentId options { caseInsensitive = false; }: [a-zA-Z_] [a-zA-Z0-9_]* ;
+ID options{caseInsensitive = false;} : [a-zA-Z_] [a-zA-Z0-9_]* ;
 
 BracketArgument
     :   '[' BracketNested ']';
@@ -66,6 +65,7 @@ EscapeSequence
     :  EscapeIdentity | EscapeEncoded | EscapeSemicolon ;
 
 fragment EscapeIdentity
+options{caseInsensitive = false;}
     :   '\\' ~[a-zA-Z0-9;] ;
 
 fragment EscapeEncoded
