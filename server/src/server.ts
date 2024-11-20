@@ -10,6 +10,8 @@ import * as builtinCmds from './builtin-cmds.json';
 import { cmakeInfo } from './cmakeInfo';
 import { SymbolListener } from './docSymbols';
 import { Formatter } from './format';
+import CMakeFormatLexer from './generated/CMakeFormatLexer';
+import CMakeFormatParser from './generated/CMakeFormatParser';
 import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
 import { createLogger } from './logging';
@@ -240,9 +242,9 @@ connection.onDocumentFormatting((params: DocumentFormattingParams) => {
 
     return new Promise((resolve, rejects) => {
         const input = CharStreams.fromString(document.getText());
-        const lexer = new CMakeLexer(input);
+        const lexer = new CMakeFormatLexer(input);
         const tokenStream = new CommonTokenStream(lexer);
-        const parser = new CMakeParser(tokenStream);
+        const parser = new CMakeFormatParser(tokenStream);
         const tree = parser.file();
         const formatListener = new Formatter(tabSize, tokenStream);
         ParseTreeWalker.DEFAULT.walk(formatListener, tree);

@@ -11,6 +11,10 @@
     "type": "git",
     "url": "https://gitee.com/openkylin/cmake-intellisence"
   },
+  "bugs": {
+    "url": "https://gitee.com/openkylin/cmake-intellisence/issues",
+    "email": "quanzhuo@kylinos.cn"
+  },
   "categories": [
     "Programming Languages",
     "Snippets",
@@ -128,7 +132,7 @@
     "vscode:prepublish": "npm run product",
     "develop": "npm run grammar && npm run antlr4 && webpack --mode development --watch",
     "product": "npm run grammar && npm run antlr4 && webpack --mode production --devtool false",
-    "antlr4": "npm run antlr4-lexer && npm run antlr4-parser",
+    "antlr4": "npm run antlr4-lexer && npm run antlr4-parser && npm run antlr4-cmake-format",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
@@ -138,7 +142,8 @@
     "grammar-cmake": "npx js-yaml ./syntaxes/cmake.tmLanguage.yml > ./syntaxes/cmake.tmLanguage.json",
     "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
     "grammar-cmdsignature": "npx js-yaml ./syntaxes/cmdsignature.tmLanguage.yml > ./syntaxes/cmdsignature.tmLanguage.json",
-    "grammar": "node ./build/yaml-to-json.mjs"
+    "grammar": "node ./build/yaml-to-json.mjs",
+    "antlr4-cmake-format": "cd server/src/antlr && antlr4 -o ../generated/ -Dlanguage=TypeScript CMakeFormat.g4"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",
