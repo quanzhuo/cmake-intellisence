@@ -4,6 +4,7 @@ import * as builtinCmds from './builtin-cmds.json';
 import { BreakCmdContext, ContinueCmdContext, ElseCmdContext, ElseIfCmdContext, EndForeachCmdContext, EndFunctionCmdContext, EndIfCmdContext, EndMacroCmdContext, EndWhileCmdContext, ForeachCmdContext, FunctionCmdContext, IfCmdContext, IncludeCmdContext, LoopContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext, WhileCmdContext } from "./generated/CMakeParser";
 import CMakeListener from "./generated/CMakeParserListener";
 import { CmdCaseDiagnostics, extSettings } from "./settings";
+import localize from "./localize";
 
 export default class SemanticDiagnosticsListener extends CMakeListener {
     private diagnostics: Diagnostic[] = [];
@@ -38,7 +39,7 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
             },
             severity: DiagnosticSeverity.Error,
             source: 'cmake-intellisence',
-            message: `${token.text} command can only be used in loop}`
+            message: localize('diagnostics.breakContinue', token.text),
         });
     }
 

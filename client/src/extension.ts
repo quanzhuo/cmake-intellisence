@@ -1,14 +1,10 @@
 import { stat } from 'node:fs/promises';
 import * as path from 'path';
-import { commands, ExtensionContext, window, workspace } from 'vscode';
-import {
-    LanguageClient,
-    LanguageClientOptions,
-    ServerOptions,
-    TransportKind
-} from 'vscode-languageclient/node';
+import * as vscode from 'vscode';
+import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
 import * as which from 'which';
 import { getConfigLogLevel, Logger } from './logging';
+import localize from './localize';
 
 
 export const SERVER_ID = 'cmakeIntelliSence';
@@ -29,8 +25,8 @@ async function checkCMakeExecutable(cmakePath: string): Promise<boolean> {
     return true;
 }
 
-export async function activate(context: ExtensionContext) {
-    const config = workspace.getConfiguration(SERVER_ID);
+export async function activate(context: vscode.ExtensionContext) {
+    const config = vscode.workspace.getConfiguration(SERVER_ID);
     const logger = new Logger();
     logger.setLogLevel(getConfigLogLevel(config));
 
@@ -40,25 +36,24 @@ export async function activate(context: ExtensionContext) {
 
     async function checkAndStart(cmakePath: string) {
         if (await checkCMakeExecutable(cmakePath)) {
-            startLanguageServer(serverModule, logger);
+            startLanguageServer(serverModule, logger, context);
         } else {
-            let select = await window.showErrorMessage(`Can not find cmake: ${cmakePath}, please set cmakePath, otherwise only syntax highlight is enabled`,
-                'Open Settings', 'Ignore');
-            if (select === 'Open Settings') {
-                commands.executeCommand('workbench.action.openSettings', 'cmakeIntelliSence.cmakePath');
+            const selected = await vscode.window.showErrorMessage<string>(localize('cmakeNotFound'), localize('settings'));
+            if (selected) {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'cmakeIntelliSence.cmakePath');
             }
         }
     }
 
     checkAndStart(config.cmakePath);
 
-    context.subscriptions.push(workspace.onDidChangeConfiguration(async (e) => {
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async (e) => {
         if (e.affectsConfiguration(`${SERVER_ID}.loggingLevel`)) {
             logger.setLogLevel(getConfigLogLevel(config));
         }
 
         if (e.affectsConfiguration(`${SERVER_ID}.cmakePath`)) {
-            const cmakePath = workspace.getConfiguration(SERVER_ID).get<string>('cmakePath');
+            const cmakePath = vscode.workspace.getConfiguration(SERVER_ID).get<string>('cmakePath');
             if (!client?.isRunning()) {
                 checkAndStart(cmakePath);
             }
@@ -66,7 +61,7 @@ export async function activate(context: ExtensionContext) {
     }));
 }
 
-function startLanguageServer(serverModule: string, logger: Logger) {
+function startLanguageServer(serverModule: string, logger: Logger, context: vscode.ExtensionContext) {
     // The debug options for the server
     // --inspect=6009: runs the server in Node's Inspector mode so VS Code can attach to the server for debugging
     const debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
@@ -91,7 +86,11 @@ function startLanguageServer(serverModule: string, logger: Logger) {
             { language: 'cmake', scheme: 'file' },
             { language: 'cmake', scheme: 'untitled' }
         ],
-        outputChannel: logger.getOutputChannel()
+        outputChannel: logger.getOutputChannel(),
+        initializationOptions: {
+            language: vscode.env.language,
+            extensionPath: context.extensionPath,
+        }
     };
 
 

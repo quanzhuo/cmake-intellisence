@@ -1,8 +1,11 @@
 {
-    "cmakeIntelliSence.cmakePath": "Set path to CMake executable",
-    "cmakeIntelliSence.cmdCaseDiagnostics": "Whether generate diagnostic if command is in upper case",
-    "cmakeIntelliSence.cmdCaseDiagnostics.none": "Don't generate diagnostics",
-    "cmakeIntelliSence.cmdCaseDiagnostics.builtin": "Only generate diagnostics for builtin commands",
-    "cmakeIntelliSence.cmdCaseDiagnostics.all": "Generate diagnostic for all commands",
-    "cmakeIntelliSence.loggingLevel": "Control the logging level"
+    "cmakeNotFound": "CMake executable not found, please check the settings, otherwise some IntelliSense features will not work properly",
+    "settings": "Settings",
+    "cmakeIntelliSence.cmakePath": "Set the path to the CMake command",
+    "cmakeIntelliSence.cmdCaseDiagnostics": "Whether to generate diagnostics for uppercase commands",
+    "cmakeIntelliSence.cmdCaseDiagnostics.none": "Do not generate diagnostics",
+    "cmakeIntelliSence.cmdCaseDiagnostics.builtin": "Generate diagnostics only for built-in commands",
+    "cmakeIntelliSence.cmdCaseDiagnostics.all": "Generate diagnostics for all commands",
+    "cmakeIntelliSence.loggingLevel": "Control the logging level",
+    "diagnostics.breakContinue": "The command '{0}' can only be used within loops"
 }
