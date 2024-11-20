@@ -1,87 +1,120 @@
+import { Token } from "antlr4";
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver";
-import Token from "./parser/antlr4/Token";
-import CMakeListener from "./parser/CMakeListener";
-import { CmdCaseDiagnostics, extSettings } from "./settings";
 import * as builtinCmds from './builtin-cmds.json';
+import { BreakCmdContext, ContinueCmdContext, ElseCmdContext, ElseIfCmdContext, EndForeachCmdContext, EndFunctionCmdContext, EndIfCmdContext, EndMacroCmdContext, EndWhileCmdContext, ForeachCmdContext, FunctionCmdContext, IfCmdContext, IncludeCmdContext, LoopContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext, WhileCmdContext } from "./generated/CMakeParser";
+import CMakeListener from "./generated/CMakeParserListener";
+import { CmdCaseDiagnostics, extSettings } from "./settings";
 
 export default class SemanticDiagnosticsListener extends CMakeListener {
     private diagnostics: Diagnostic[] = [];
 
-    enterAddSubDirCmd(ctx: any): void {
-        this.checkCmdCase(ctx.start);
+    private checkBreakAndContinueCmd(ctx: BreakCmdContext | ContinueCmdContext): void {
+        let inLoop = false;
+        let node = ctx.parentCtx;
+        while (node) {
+            if (node instanceof LoopContext) {
+                inLoop = true;
+                break;
+            }
+            node = node.parentCtx;
+        }
+
+        if (inLoop) {
+            return;
+        }
+
+        const token = ctx.start;
+        const line = token.line - 1, column = token.column;
+        this.diagnostics.push({
+            range: {
+                start: {
+                    line,
+                    character: column
+                },
+                end: {
+                    line,
+                    character: column + token.text.length
+                }
+            },
+            severity: DiagnosticSeverity.Error,
+            source: 'cmake-intellisence',
+            message: `${token.text} command can only be used in loop}`
+        });
     }
 
-    enterBreakCmd(ctx: any): void {
+    enterBreakCmd = (ctx: BreakCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+        this.checkBreakAndContinueCmd(ctx);
+    };
 
-    enterContinueCmd(ctx: any): void {
+    enterContinueCmd = (ctx: ContinueCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+        this.checkBreakAndContinueCmd(ctx);
+    };
 
-    enterElseCmd(ctx: any): void {
+    enterElseCmd = (ctx: ElseCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterElseIfCmd(ctx: any): void {
+    enterElseIfCmd = (ctx: ElseIfCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterEndForeachCmd(ctx: any): void {
+    enterEndForeachCmd = (ctx: EndForeachCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterEndFunctionCmd(ctx: any): void {
+    enterEndFunctionCmd = (ctx: EndFunctionCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterEndIfCmd(ctx: any): void {
+    enterEndIfCmd = (ctx: EndIfCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterEndMacroCmd(ctx: any): void {
+    enterEndMacroCmd = (ctx: EndMacroCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterEndWhileCmd(ctx: any): void {
+    enterEndWhileCmd = (ctx: EndWhileCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterForeachCmd(ctx: any): void {
+    enterForeachCmd = (ctx: ForeachCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterFunctionCmd(ctx: any): void {
+    enterFunctionCmd = (ctx: FunctionCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterIfCmd(ctx: any): void {
+    enterIfCmd = (ctx: IfCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterIncludeCmd(ctx: any): void {
+    enterIncludeCmd = (ctx: IncludeCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterMacroCmd(ctx: any): void {
+    enterMacroCmd = (ctx: MacroCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterOptionCmd(ctx: any): void {
+    enterOptionCmd = (ctx: OptionCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterWhileCmd(ctx: any): void {
+    enterWhileCmd = (ctx: WhileCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterSetCmd(ctx: any): void {
+    enterSetCmd = (ctx: SetCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
-    enterOtherCmd(ctx: any): void {
+    enterOtherCmd = (ctx: OtherCmdContext): void => {
         this.checkCmdCase(ctx.start);
-    }
+    };
 
     checkCmdCase(token: Token) {
         const text: string = token.text;

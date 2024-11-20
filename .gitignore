@@ -10,3 +10,4 @@ server/src/*.d.ts
 *.interp
 *.tokens
 npmlist.json
+server/src/generated/

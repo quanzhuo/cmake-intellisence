@@ -3,10 +3,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { URI, Utils } from 'vscode-uri';
 import { cmakeInfo } from './cmakeInfo';
-import antlr4 from './parser/antlr4/index.js';
-import InputStream from './parser/antlr4/InputStream';
-import CMakeLexer from "./parser/CMakeLexer";
-import CMakeParser from "./parser/CMakeParser";
+import { CharStream, CharStreams, CommonTokenStream } from 'antlr4';
+import CMakeLexer from './generated/CMakeLexer';
+import CMakeParser from './generated/CMakeParser';
 import { documents, logger } from './server';
 
 export function getFileContext(uri: URI) {
@@ -17,9 +16,9 @@ export function getFileContext(uri: URI) {
     } else {
         text = readFileSync(uri.fsPath, { encoding: 'utf-8' });
     }
-    const input: InputStream = antlr4.CharStreams.fromString(text);
+    const input: CharStream = CharStreams.fromString(text);
     const lexer = new CMakeLexer(input);
-    const tokenStream = new antlr4.CommonTokenStream(lexer);
+    const tokenStream = new CommonTokenStream(lexer);
     const parser = new CMakeParser(tokenStream);
     return parser.file();
 }

@@ -1,12 +1,13 @@
+import { Token } from "antlr4";
 import { SemanticTokens, SemanticTokensBuilder } from "vscode-languageserver";
 import { URI } from "vscode-uri";
-import Token from "./parser/antlr4/Token";
-import CMakeListener from "./parser/CMakeListener";
-import { initParams, logger } from "./server";
 import * as builtinCmds from './builtin-cmds.json';
 import { cmakeInfo } from "./cmakeInfo";
+import { AddSubDirectoryCmdContext, ArgumentContext, ElseIfCmdContext, ForeachCmdContext, FunctionCmdContext, IfCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext, WhileCmdContext } from "./generated/CMakeParser";
+import CMakeListener from "./generated/CMakeParserListener";
+import { initParams, logger } from "./server";
 
-export let tokenTypes = [
+let tokenTypes = [
     'type',
     'enum',
     'parameter',
@@ -23,7 +24,7 @@ export let tokenTypes = [
     'operator'
 ];
 
-export let tokenModifiers = [
+let tokenModifiers = [
     'definition',
     'readonly',
     'deprecated',
@@ -121,16 +122,16 @@ export class SemanticListener extends CMakeListener {
         return this._builder.buildEdits();
     }
 
-    // private getTokenBuilder(uri: string): SemanticTokensBuilder {
-    //     let result = tokenBuilders.get(uri);
-    //     if (result !== undefined) {
-    //         return result;
-    //     }
+    private getTokenBuilder(uri: string): SemanticTokensBuilder {
+        let result = tokenBuilders.get(uri);
+        if (result !== undefined) {
+            return result;
+        }
 
-    //     result = new SemanticTokensBuilder();
-    //     tokenBuilders.set(uri, result);
-    //     return result;
-    // }
+        result = new SemanticTokensBuilder();
+        tokenBuilders.set(uri, result);
+        return result;
+    }
 
     private getCmdKeyWords(sigs: string[]): string[] {
         let result: string[] = [];
@@ -146,55 +147,65 @@ export class SemanticListener extends CMakeListener {
         return result;
     }
 
-    enterIfCmd(ctx: any): void {
-        ctx.argument().forEach(argCtx => {
+    private tokenInConditional(context: IfCmdContext | ElseIfCmdContext | WhileCmdContext): void {
+        context.argument_list().forEach((argCtx: ArgumentContext) => {
             if (argCtx.getChildCount() === 1) {
-                const argToken: Token = argCtx.start;
-                if (this.isOperator(argToken.text)) {
-                    // this._builder.push(argToken.line - 1, argToken.column,
-                    //     argToken.text.length, tokenTypes.indexOf(TokenTypes.keyword),
-                    //     this.getModifiers([]));
-                } else if (this.isVariable(argToken.text)) {
-                    this._builder.push(argToken.line - 1, argToken.column,
-                        argToken.text.length, tokenTypes.indexOf(TokenTypes.variable),
-                        this.getModifiers([]));
-                }
+                return;
+            }
+            const argToken: Token = argCtx.start;
+            if (this.isOperator(argToken.text)) {
+                // this._builder.push(argToken.line - 1, argToken.column,
+                //     argToken.text.length, tokenTypes.indexOf(TokenTypes.keyword),
+                //     this.getModifiers([]));
+            } else if (this.isVariable(argToken.text)) {
+                this._builder.push(argToken.line - 1, argToken.column, argToken.text.length,
+                    tokenTypes.indexOf(TokenTypes.variable),
+                    this.getModifiers([])
+                );
             }
         });
     }
 
-    enterElseIfCmd(ctx: any): void {
-        this.enterIfCmd(ctx);
-    }
-
-    enterForeachCmd(ctx: any): void {
-
-    }
-
-
-    enterWhileCmd(ctx: any): void {
-        this.enterIfCmd(ctx);
-    }
-
-    enterFunctionCmd(ctx: any): void {
-        const argCount = ctx.argument().length;
+    private tokenInFunction(context: FunctionCmdContext | MacroCmdContext): void {
+        const argCount = context.argument_list().length;
         if (argCount > 1) {
-            ctx.argument().slice(1).forEach(argCtx => {
+            context.argument_list().slice(1).forEach(argCtx => {
                 if (argCtx.getChildCount() === 1) {
                     const argToken: Token = argCtx.start;
                     this._builder.push(argToken.line - 1, argToken.column, argToken.text.length,
                         tokenTypes.indexOf(TokenTypes.parameter), this.getModifiers([]));
-               }
+                }
             });
         }
     }
 
-    enterMacroCmd(ctx: any): void {
-        this.enterFunctionCmd(ctx);
-    }
+    enterIfCmd = (ctx: IfCmdContext): void => {
+        this.tokenInConditional(ctx);
+    };
 
-    enterSetCmd(ctx: any): void {
-        const argCount = ctx.argument().length;
+    enterElseIfCmd = (ctx: ElseIfCmdContext): void => {
+        this.tokenInConditional(ctx);
+    };
+
+    enterForeachCmd = (ctx: ForeachCmdContext): void => {
+
+    };
+
+
+    enterWhileCmd = (ctx: WhileCmdContext): void => {
+        this.tokenInConditional(ctx);
+    };
+
+    enterFunctionCmd = (ctx: FunctionCmdContext): void => {
+        this.tokenInFunction(ctx);
+    };
+
+    enterMacroCmd = (ctx: MacroCmdContext): void => {
+        this.tokenInFunction(ctx);
+    };
+
+    enterSetCmd = (ctx: SetCmdContext): void => {
+        const argCount = ctx.argument_list().length;
         if (argCount > 0) {
             const varCtx = ctx.argument(0);
             const varToken: Token = varCtx.start;
@@ -202,21 +213,21 @@ export class SemanticListener extends CMakeListener {
                 tokenTypes.indexOf(TokenTypes.variable),
                 this.getModifiers([TokenModifiers.definition]));
         }
-    }
+    };
 
-    enterOptionCmd(ctx: any): void {
+    enterOptionCmd = (ctx: OptionCmdContext): void => {
 
-    }
+    };
 
-    enterIncludeCmd(ctx: any): void {
+    enterIncludeCmd = (ctx: IncludeCmdContext): void => {
 
-    }
+    };
 
-    enterAddSubDirCmd(ctx: any): void {
+    enterAddSubDirectoryCmd = (ctx: AddSubDirectoryCmdContext): void => {
 
-    }
+    };
 
-    enterOtherCmd(ctx: any): void {
+    enterOtherCmd = (ctx: OtherCmdContext): void => {
         const cmdName: Token = ctx.ID().symbol;
         const cmdNameLower: string = cmdName.text.toLowerCase();
         if (cmdNameLower in builtinCmds) {
@@ -230,16 +241,16 @@ export class SemanticListener extends CMakeListener {
             const keywords = this.getCmdKeyWords(sigs);
             logger.debug("cmd:", cmdName.text, "keywords:", keywords);
 
-            if (ctx.argument().length > 0) {
-                ctx.argument().forEach(argCtx => {
+            if (ctx.argument_list().length > 0) {
+                ctx.argument_list().forEach(argCtx => {
                     if (argCtx.getChildCount() === 1) {
                         const argToken: Token = argCtx.start;
                         if (keywords.includes(argToken.text)) {
                             this._builder.push(argToken.line - 1, argToken.column,
                                 argToken.text.length, tokenTypes.indexOf(TokenTypes.property),
-                                this.getModifiers([]));    
+                                this.getModifiers([]));
                         }
-                   }
+                    }
                 });
             }
         } else {
@@ -247,7 +258,7 @@ export class SemanticListener extends CMakeListener {
                 cmdName.text.length, tokenTypes.indexOf(TokenTypes.function),
                 this.getModifiers([]));
         }
-    }
+    };
 
     public getSemanticTokens(): SemanticTokens {
         return this._builder.build();

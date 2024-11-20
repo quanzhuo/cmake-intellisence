@@ -1,11 +1,14 @@
-import CMakeListener from "./parser/CMakeListener";
-import CMakeLexer from "./parser/CMakeLexer";
+import { CommonTokenStream } from "antlr4";
+import CMakeFormatLexer from "./generated/CMakeFormatLexer";
+import CMakeFormatListener from "./generated/CMakeFormatListener";
+import { CommandContext, FileContext } from "./generated/CMakeFormatParser";
 
-export class FormatListener extends CMakeListener {
+export class Formatter extends CMakeFormatListener {
     private _indent: number;
     private _indentLevel: number;
-    private _tokenStream: any;
+    private _tokenStream: CommonTokenStream;
     private _formatted: string;
+    private hiddenChannel = CMakeFormatLexer.channelNames.indexOf("HIDDEN");
 
     constructor(_indent: number, tokenStream: any) {
         super();
@@ -16,392 +19,174 @@ export class FormatListener extends CMakeListener {
         this._formatted = "";
     }
 
-    getFormatedText(): string {
+    get formatted(): string {
         return this._formatted;
     }
 
-    /**
-     * Get comment on right of token whose index is tokenIndex.
-     * 
-     * According to syntax in CMake.g4, the '\n' immidiately after the command
-     * is sent to the parser, while all other newlines is ignored. So if token is
-     * '\n', '(' or argument, there maybe multiple comments on right, if token is
-     * ')', there will be only one comment on right.
-     * 
-     * @param tokenIndex index of token
-     * @return
-     */
-    private getCommentOnRight(tokenIndex: number): string {
-        const hiddenTokens = this._tokenStream.getHiddenTokensToRight(tokenIndex, CMakeLexer.HIDDEN);
-        if (hiddenTokens === null) {
-            return "";
+    enterFile = (ctx: FileContext) => {
+        for (let token of this._tokenStream.tokens) {
+            if (token.channel !== this.hiddenChannel) {
+                break;
+            }
+            this._formatted += token.text;
+        }
+    };
+
+
+    enterCommand = (ctx: CommandContext) => {
+        const cmd = ctx.start.text;
+
+        if (this.isEndBlockCmd(cmd)) {
+            --this._indentLevel;
+            if (this._indentLevel < 0) {
+                this._indentLevel = 0;
+            }
         }
 
-        let result = "";
-        const tokenLine: number = this._tokenStream.get(tokenIndex).line;
-        const total: number = this._tokenStream.tokens.length;
-        for (const t of hiddenTokens) {
-            // comment is on same line as the previous token
-            if (t.line === tokenLine) {
-                result += t.text;
-            } else {
-                const tokenType: number = this._tokenStream.get(tokenIndex).type;
-                if (tokenType === CMakeLexer.NL) {
-                    result += ' '.repeat(this.getIndent()) + t.text;
-                } else {
-                    result += ' '.repeat(this.getIndent() + 4) + t.text;
+        // indent
+        this._formatted += " ".repeat(this.getIndent());
+
+        // the command name and '('
+        this._formatted += cmd + '(';
+
+        // comment and newline can be placed after '('
+        this._formatted += this.getHiddenTextOnRight(ctx.LParen().symbol.tokenIndex,
+            this.getIndent() + this._indent
+        );
+
+        // all arguments
+        // if (ctx.hasOwnProperty('argument')) {
+        const cnt: number = ctx.argument_list().length;
+        const indent = (this._indentLevel + 1) * this._indent;
+        const cmdLineNo: number = ctx.LParen().symbol.line;
+        let prevLineNo: number = cmdLineNo;
+        let curLineNo: number = -1;
+        ctx.argument_list().forEach((argCtx, index, array) => {
+            curLineNo = argCtx.start.line;
+            if (curLineNo !== prevLineNo) {
+                this._formatted += ' '.repeat(indent);
+            }
+
+            this._formatted += this.getArgumentText(argCtx, indent);
+
+            const next = index + 1;
+            if (next < cnt) {
+                if (array[next].start.line === argCtx.stop.line) {
+                    this._formatted += ' ';
                 }
             }
-            const next: number = t.tokenIndex + 1;
-            if (next < total && this._tokenStream.get(next).type !== CMakeLexer.NL
-                || next >= total) {
-                result += "\n";
-            }
+
+            prevLineNo = argCtx.stop.line;
+        });
+        // }
+
+        // ')'
+        const rParenToken = ctx.RParen().symbol;
+        const rParenIndex = rParenToken.tokenIndex;
+        const prevToken = this._tokenStream.get(rParenIndex - 1);
+        if (rParenToken.line !== prevToken.line) {
+            this._formatted += ' '.repeat(this.getIndent());
         }
-        return result;
-    }
+        this._formatted += ')';
+
+        // get comment on right of command
+        this._formatted += this.getHiddenTextOnRight(rParenIndex, this.getIndent());
+
+        // command terminator
+        this._formatted += '\n';
+        const newLineIndex = rParenIndex + 1;
+
+        // consider increase or decrease indent level
+        if (this.isBlockCmd(cmd)) {
+            ++this._indentLevel;
+        }
+
+        // get all comments and newlines after command terminator
+        this._formatted += this.getHiddenTextOnRight(newLineIndex, this.getIndent());
+    };
 
     private getIndent(): number {
         return this._indent * this._indentLevel;
     }
 
-    /**
-     * @param id    command name
-     * @param index left paren's index in token stream
-     * @return
-     */
-    private getTextBeforeFirstArg(id: string, index: number) {
-        return ' '.repeat(this.getIndent())
-            + id
-            + "("
-            + this.getCommentOnRight(index);
+    private isBlockCmd(cmd: string): boolean {
+        return ['if', 'elseif', 'else', 'while', 'foreach', 'function', 'macro'].includes(cmd.toLowerCase());
     }
 
-    /**
-     * @param index index of right paren in token stream
-     * @return
-     */
-    private getTextAfterLastArg(index: number): string {
-        let ret = ")";
-
-        // get comment after ')'
-        ret += this.getCommentOnRight(index);
-        return ret;
+    private isEndBlockCmd(cmd: string): boolean {
+        return ['elseif', 'else', 'endif', 'endwhile', 'endforeach', 'endfunction', 'endmacro'].includes(cmd.toLowerCase());
     }
 
-    private isComment(token: any): boolean {
-        return token.type === CMakeLexer.BracketComment ||
-            token.type === CMakeLexer.LineComment;
-    }
+    private getHiddenTextOnRight(tokenIndex: number, indent: number): string {
+        const token = this._tokenStream.get(tokenIndex);
 
-    private addNewlineBeforeBlock(index: number) {
-        if (index <= 0) {
-            return;
+        let result = "";
+        const hiddenTokens = this._tokenStream.getHiddenTokensToRight(tokenIndex, this.hiddenChannel);
+        if (hiddenTokens === null) {
+            return result;
         }
 
-        // if this is not the top level command, return
-        if (this._indentLevel > 0) {
-            return;
+        if ((hiddenTokens.length > 0) &&
+            (hiddenTokens[0].type === CMakeFormatLexer.LineComment || hiddenTokens[0].type === CMakeFormatLexer.BracketComment) &&
+            hiddenTokens[0].line === token.line) {
+            result += ' ';
         }
 
-        const token = this._tokenStream.get(index - 1);
-        if (!this.isComment(token)) {
-            this._formatted += "\n";
-        }
-    }
+        // for (const t of hiddenTokens) {
+        //     result += t.text;
+        // }
 
-    private addNewLineAfterBlock() {
-        if (this._indentLevel > 0) {
-            return;
-        }
+        let prevLineNo: number = token.line;
+        hiddenTokens.forEach((t, index) => {
+            const curLineNo: number = t.line;
+            if ((curLineNo !== prevLineNo) &&
+                (t.type === CMakeFormatLexer.LineComment || t.type === CMakeFormatLexer.BracketComment)) {
+                result += ' '.repeat(indent);
+            }
 
-        this._formatted += "\n";
-    }
-
-    /**
-     * @param index token index of newline token
-     */
-    private addCommentsAfterSeprator(index: number) {
-        const newline = this._tokenStream.get(index);
-        if (newline.type === CMakeLexer.NL) {
-            this._formatted += this.getCommentOnRight(index);
-        }
-    }
-
-    private getContextText(ctx: any): string {
-        if (ctx.getChildCount() === 0) {
-            return "";
-        }
-
-        let result: string = "";
-        for (let i = 0; i < ctx.getChildCount(); ++i) {
-            result += ctx.getChild(i).getText();
-        }
+            result += t.text;
+            prevLineNo = t.line;
+        });
 
         return result;
     }
 
-    private exitBeginBlockCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        ++this._indentLevel;
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
-    }
-
-    private exitEndBlockCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        this.addNewLineAfterBlock();
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
-    }
-
-    enterFile(ctx: any): void {
-        let hasComment = false;
-        for (const token of this._tokenStream.tokens) {
-            if (token.channel !== CMakeLexer.HIDDEN) {
-                break;
-            }
-            hasComment = true;
-            this._formatted += token.text + "\n";
-        }
-
-        // add a newline before the first command
-        if (hasComment) {
-            this._formatted += "\n";
-        }
-    }
-
-    enterIfCmd(ctx: any): void {
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this.addNewlineBeforeBlock(index - 1);
-        this._formatted += this.getTextBeforeFirstArg("if", index);
-    }
-
-    exitIfCmd(ctx: any): void {
-        this.exitBeginBlockCmd(ctx);
-    }
-
-    enterElseIfCmd(ctx: any): void {
-        --this._indentLevel;
-        this._formatted += this.getTextBeforeFirstArg("elseif", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitElseIfCmd(ctx: any): void {
-        this.exitBeginBlockCmd(ctx);
-    }
-
-    enterElseCmd(ctx: any): void {
-        --this._indentLevel;
-        this._formatted += this.getTextBeforeFirstArg("else", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitElseCmd(ctx: any): void {
-        this.exitBeginBlockCmd(ctx);
-    }
-
-    enterEndIfCmd(ctx: any): void {
-        --this._indentLevel;
-        this._formatted += this.getTextBeforeFirstArg("endif", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitEndIfCmd(ctx: any): void {
-        this.exitEndBlockCmd(ctx);
-    }
-
-    enterWhileCmd(ctx: any): void {
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this.addNewlineBeforeBlock(index - 1);
-        this._formatted += this.getTextBeforeFirstArg("while", index);
-    }
-
-    exitWhileCmd(ctx: any): void {
-        this.exitBeginBlockCmd(ctx);
-    }
-
-    enterEndWhileCmd(ctx: any): void {
-        --this._indentLevel;
-        this._formatted += this.getTextBeforeFirstArg("endwhile", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitEndWhileCmd(ctx: any): void {
-        this.exitEndBlockCmd(ctx);
-    }
-
-    enterForeachCmd(ctx: any): void {
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this.addNewlineBeforeBlock(index - 1);
-        this._formatted += this.getTextBeforeFirstArg("foreach", index);
-    }
-
-    exitForeachCmd(ctx: any): void {
-        this.exitBeginBlockCmd(ctx);
-    }
-
-    enterEndForeachCmd(ctx: any): void {
-        --this._indentLevel;
-        this._formatted += this.getTextBeforeFirstArg("endforeach", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitEndForeachCmd(ctx: any): void {
-        this.exitEndBlockCmd(ctx);
-    }
-
-    enterBreakCmd(ctx: any): void {
-        this._formatted += this.getTextBeforeFirstArg("break", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitBreakCmd(ctx: any): void {
-        this.exitOtherCmd(ctx);
-    }
-
-    enterContinueCmd(ctx: any): void {
-        this._formatted += this.getTextBeforeFirstArg("continue", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitContinueCmd(ctx: any): void {
-        this.exitOtherCmd(ctx);
-    }
-
-    enterFunctionCmd(ctx: any): void {
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this.addNewlineBeforeBlock(index - 1);
-        this._formatted += this.getTextBeforeFirstArg("function", index);
-    }
-
-    exitFunctionCmd(ctx: any): void {
-        this.exitBeginBlockCmd(ctx);
-    }
-
-    enterEndFunctionCmd(ctx: any): void {
-        --this._indentLevel;
-        this._formatted += this.getTextBeforeFirstArg("endfunction", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitEndFunctionCmd(ctx: any): void {
-        this.exitEndBlockCmd(ctx);
-    }
-
-    enterMacroCmd(ctx: any): void {
-        const index: number = ctx.LParen().getSymbol().tokenIndex;
-        this.addNewlineBeforeBlock(index - 1);
-        this._formatted += this.getTextBeforeFirstArg("macro", index);
-    }
-
-    exitMacroCmd(ctx: any): void {
-        this.exitBeginBlockCmd(ctx);
-    }
-
-    enterEndMacroCmd(ctx: any): void {
-        --this._indentLevel;
-        this._formatted += this.getTextBeforeFirstArg("endmacro", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitEndMacroCmd(ctx: any): void {
-        this.exitEndBlockCmd(ctx);
-    }
-
-    enterOtherCmd(ctx: any): void {
-        this._formatted += this.getTextBeforeFirstArg(ctx.ID().getText(), ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitOtherCmd(ctx: any): void {
-        const index: number = ctx.RParen().getSymbol().tokenIndex;
-        const text: string = this.getTextAfterLastArg(index);
-        this._formatted += text;
-
-        // append a newline as command seprator
-        this._formatted += "\n";
-
-        // comments after the newline
-        const nlIndex: number = text === ")" ? index + 1 : index + 2;
-        this.addCommentsAfterSeprator(nlIndex);
-    }
-
-    enterSetCmd(ctx: any): void {
-        this._formatted += this.getTextBeforeFirstArg("set", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitSetCmd(ctx: any): void {
-        this.exitOtherCmd(ctx);
-    }
-
-    enterOptionCmd(ctx: any): void {
-        this._formatted += this.getTextBeforeFirstArg("option", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitOptionCmd(ctx: any): void {
-        this.exitOtherCmd(ctx);
-    }
-
-    enterIncludeCmd(ctx: any): void {
-        this._formatted += this.getTextBeforeFirstArg("include", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitIncludeCmd(ctx: any): void {
-        this.exitOtherCmd(ctx);
-    }
-
-    enterAddSubDirCmd(ctx: any): void {
-        this._formatted += this.getTextBeforeFirstArg("add_subdirectory", ctx.LParen().getSymbol().tokenIndex);
-    }
-
-    exitAddSubDirCmd(ctx: any): void {
-        this.exitOtherCmd(ctx);
-    }
-
-    enterArgument(ctx: any): void {
-        const count: number = ctx.getChildCount();
-        if (count === 1) {
-            const lParenLine: number = ctx.parentCtx.LParen().getSymbol().line;
-            if (lParenLine !== ctx.stop.line) {
-                this._formatted += ' '.repeat(this.getIndent() + 4);
-            }
-            this._formatted += this.getContextText(ctx);
-        } else if (count > 1) {
-            this._formatted += "(";
-
-            // Comment can be placed after '('
-            const leftParen = ctx.LParen();
-            const index = leftParen.getSymbol().tokenIndex;
-            this._formatted += this.getCommentOnRight(index);
-        }
-    }
-
-    exitArgument(ctx: any): void {
-        const count: number = ctx.getChildCount();
-        if (count > 1) {
-            this._formatted += ")";
-        }
-
-        let next: number;
-        if (count === 1) {
-            next = ctx.stop.tokenIndex + 1;
+    private getArgumentText(argCtx: any, indent: number): string {
+        let result = "";
+        const cnt: number = argCtx.getChildCount();
+        if (cnt === 1) {
+            result += argCtx.stop.text;
+            result += this.getHiddenTextOnRight(argCtx.stop.tokenIndex, indent);
         } else {
-            next = ctx.RParen().getSymbol().tokenIndex + 1;
+            result += '(';
+            const lParenIndex: number = argCtx.LParen().symbol.tokenIndex;
+            result += this.getHiddenTextOnRight(lParenIndex, indent);
+            const innerCnt = argCtx.argument().length;
+            const innerIndent = indent + this._indent;
+            let prevLineNo: number = argCtx.LParen().symbol.line;
+            argCtx.argument().forEach((innerCtx, index) => {
+                const curLineNo: number = innerCtx.stop.line;
+                if (curLineNo !== prevLineNo) {
+                    result += ' '.repeat(innerIndent);
+                }
+                result += this.getArgumentText(innerCtx, indent);
+                if (index < innerCnt - 1) {
+                    result += ' ';
+                }
+
+                prevLineNo = curLineNo;
+            });
+
+            const rParenToken = argCtx.RParen().symbol;
+            if ((innerCnt > 0) &&
+                (argCtx.argument()[innerCnt - 1].stop.line !== rParenToken.line)) {
+                result += ' '.repeat(indent);
+            }
+
+            result += ')';
+            result += this.getHiddenTextOnRight(rParenToken.tokenIndex, indent);
         }
 
-        // If this argument is not the last argument,  append a space
-        if (this._tokenStream.get(next).type !== CMakeLexer.RParen) {
-            this._formatted += " ";
-        }
-
-        // Comment can be placed after argument
-        this._formatted += this.getCommentOnRight(next - 1);
+        return result;
     }
 }

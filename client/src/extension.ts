@@ -1,15 +1,14 @@
+import { stat } from 'node:fs/promises';
 import * as path from 'path';
-import { getConfigLogLevel, Logger } from './logging';
-import { workspace, ExtensionContext, window, commands } from 'vscode';
+import { commands, ExtensionContext, window, workspace } from 'vscode';
 import {
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
     TransportKind
 } from 'vscode-languageclient/node';
-import { existsSync } from 'fs';
-import { stat } from 'node:fs/promises';
 import * as which from 'which';
+import { getConfigLogLevel, Logger } from './logging';
 
 
 export const SERVER_ID = 'cmakeIntelliSence';
@@ -17,7 +16,7 @@ export const SERVER_NAME = 'CMake Language Server';
 
 let client: LanguageClient;
 
-async function checkCMakeExecutable(cmakePath: string) : Promise<boolean> {
+async function checkCMakeExecutable(cmakePath: string): Promise<boolean> {
     try {
         await stat(cmakePath);
     } catch (error) {
@@ -37,7 +36,7 @@ export async function activate(context: ExtensionContext) {
 
     const serverModule = context.asAbsolutePath(
         path.join('dist', 'server.js')
-        );
+    );
 
     async function checkAndStart(cmakePath: string) {
         if (await checkCMakeExecutable(cmakePath)) {
@@ -60,7 +59,7 @@ export async function activate(context: ExtensionContext) {
 
         if (e.affectsConfiguration(`${SERVER_ID}.cmakePath`)) {
             const cmakePath = workspace.getConfiguration(SERVER_ID).get<string>('cmakePath');
-            if (! client?.isRunning()) {
+            if (!client?.isRunning()) {
                 checkAndStart(cmakePath);
             }
         }

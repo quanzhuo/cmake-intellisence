@@ -1,13 +1,11 @@
-import Token from "../parser/antlr4/Token";
-import CMakeListener from "../parser/CMakeListener";
-import CMakeParser from "../parser/CMakeParser";
+import { ParseTree, ParseTreeWalker, Token } from 'antlr4';
+import { URI } from "vscode-uri";
+import { AddSubDirectoryCmdContext, ArgumentContext, EndFunctionCmdContext, EndMacroCmdContext, FunctionCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext } from "../generated/CMakeParser";
+import CMakeListener from "../generated/CMakeParserListener";
+import { getFileContext, getIncludeFileUri, getSubCMakeListsUri } from "../utils";
 import { DefinationListener, incToBaseDir, refToDef } from "./goToDefination";
 import { FileScope, FunctionScope, MacroScope, Scope } from "./scope";
 import { Sym, Type } from "./symbol";
-import { getFileContext, getIncludeFileUri, getSubCMakeListsUri } from "../utils";
-import antlr4 from "../parser/antlr4";
-import ParseTree from "../parser/antlr4/tree/ParseTree";
-import { URI } from "vscode-uri";
 
 export class FuncMacroListener extends CMakeListener {
     private currentScope: Scope;
@@ -28,7 +26,7 @@ export class FuncMacroListener extends CMakeListener {
         this.funcMacroSym = symbol;
     }
 
-    enterFunctionCmd(ctx: any): void {
+    enterFunctionCmd = (ctx: FunctionCmdContext): void => {
         const funcToken: Token = ctx.argument(0)?.start;
         if (funcToken === undefined) {
             return;
@@ -40,21 +38,34 @@ export class FuncMacroListener extends CMakeListener {
             // we now enter the desired function
             this.inBody = true;
         }
-    }
+    };
 
-    exitEndFunctionCmd(ctx: any): void {
+    exitEndFunctionCmd = (ctx: EndFunctionCmdContext): void => {
         this.inBody = false;
-    }
+    };
 
-    enterMacroCmd(ctx: any): void {
-        this.enterFunctionCmd(ctx);
-    }
+    enterMacroCmd = (ctx: MacroCmdContext): void => {
+        // this.enterFunctionCmd(ctx);
+        const funcToken: Token = ctx.argument(0)?.start;
+        if (funcToken === undefined) {
+            return;
+        }
 
-    exitEndMacroCmd(ctx: any): void {
-        this.exitEndFunctionCmd(ctx);
-    }
+        // token.line start from 1
+        if (funcToken.line - 1 === this.funcMacroSym.getLine() &&
+            funcToken.column === this.funcMacroSym.getColumn()) {
+            // we now enter the desired function
+            this.inBody = true;
+        }
+    };
 
-    enterSetCmd(ctx: any): void {
+    exitEndMacroCmd = (ctx: EndMacroCmdContext): void => {
+        // this.exitEndFunctionCmd(ctx);
+        this.inBody = false;
+    };
+
+    // FIXME: set command may be used in function/macro body
+    enterSetCmd = (ctx: SetCmdContext): void => {
         if (!this.inBody) {
             return;
         }
@@ -75,13 +86,14 @@ export class FuncMacroListener extends CMakeListener {
             // define variable in macro, add to parent scope
             this.currentScope.getEnclosingScope().define(varSymbol);
         }
-    }
+    };
 
-    enterOptionCmd(ctx: any): void {
+    // FIXME:
+    enterOptionCmd = (ctx: OptionCmdContext): void => {
         this.enterSetCmd(ctx);
-    }
+    };
 
-    enterIncludeCmd(ctx: any): void {
+    enterIncludeCmd = (ctx: IncludeCmdContext): void => {
         if (!this.inBody) {
             return;
         }
@@ -117,10 +129,10 @@ export class FuncMacroListener extends CMakeListener {
 
         const tree = getFileContext(incUri);
         const definationListener = new DefinationListener(baseDir, incUri, this.currentScope);
-        antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
-    }
+        ParseTreeWalker.DEFAULT.walk(definationListener, tree);
+    };
 
-    enterAddSubDirCmd(ctx: any): void {
+    enterAddSubDirectoryCmd = (ctx: AddSubDirectoryCmdContext): void => {
         this.parseTreeProperty.set(ctx, false);
         if (!this.inBody) {
             return;
@@ -160,10 +172,10 @@ export class FuncMacroListener extends CMakeListener {
         const subDirScope: Scope = new FileScope(this.currentScope);
         this.currentScope = subDirScope;
         const definationListener = new DefinationListener(baseDir, subCMakeListsUri, subDirScope);
-        antlr4.tree.ParseTreeWalker.DEFAULT.walk(definationListener, tree);
-    }
+        ParseTreeWalker.DEFAULT.walk(definationListener, tree);
+    };
 
-    exitAddSubDirCmd(ctx: any): void {
+    exitAddSubDirectoryCmd = (ctx: AddSubDirectoryCmdContext): void => {
         if (!this.inBody) {
             return;
         }
@@ -171,9 +183,9 @@ export class FuncMacroListener extends CMakeListener {
         if (this.parseTreeProperty.get(ctx)) {
             this.currentScope = this.currentScope.getEnclosingScope();
         }
-    }
+    };
 
-    enterOtherCmd(ctx: any): void {
+    enterOtherCmd = (ctx: OtherCmdContext): void => {
         if (!this.inBody) {
             return;
         }
@@ -191,15 +203,15 @@ export class FuncMacroListener extends CMakeListener {
 
         // add to refToDef
         refToDef.set(refPos, symbol.getLocation());
-    }
+    };
 
-    enterArgument(ctx: any): void {
+    enterArgument = (ctx: ArgumentContext): void => {
         if (!this.inBody) {
             return;
         }
 
-        if (ctx.parentCtx instanceof CMakeParser.FunctionCmdContext ||
-            ctx.parentCtx instanceof CMakeParser.MacroCmdContext) {
+        if (ctx.parentCtx instanceof FunctionCmdContext ||
+            ctx.parentCtx instanceof MacroCmdContext) {
             if (ctx.getChildCount() !== 1) {
                 return;
             }
@@ -237,5 +249,5 @@ export class FuncMacroListener extends CMakeListener {
                 (argToken.column + match.index + 2) + '_' + varRef;
             refToDef.set(refPos, symbol.getLocation());
         }
-    }
+    };
 }
