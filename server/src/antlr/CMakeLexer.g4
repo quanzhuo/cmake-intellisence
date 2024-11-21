@@ -5,82 +5,59 @@ lexer grammar CMakeLexer;
 }
 
 options {
-    caseInsensitive = true;
+	caseInsensitive = true;
 }
 
 channels {
-    COMMENTS
+	COMMENTS
 }
 
-IfCmd: 'if';
-ElseIfCmd: 'elseif';
-ElseCmd: 'else';
-EndIfCmd: 'endif';
-ForeachCmd: 'foreach';
-EndForeachCmd: 'endforeach';
-WhileCmd: 'while';
-EndWhileCmd: 'endwhile';
-BreakCmd: 'break';
-ContinueCmd: 'continue';
-FunctionCmd: 'function';
-EndFunctionCmd: 'endfunction';
-MacroCmd: 'macro';
-EndMacroCmd: 'endmacro';
-SetCmd: 'set';
-OptionCmd: 'option';
-IncludeCmd: 'include';
+If: 'if';
+ElseIf: 'elseif';
+Else: 'else';
+EndIf: 'endif';
+Foreach: 'foreach';
+EndForeach: 'endforeach';
+While: 'while';
+EndWhile: 'endwhile';
+Break: 'break';
+Continue: 'continue';
+Function: 'function';
+EndFunction: 'endfunction';
+Macro: 'macro';
+EndMacro: 'endmacro';
+Set: 'set';
+Option: 'option';
+Include: 'include';
 AddSubDirectory: 'add_subdirectory';
+ID options{
+	caseInsensitive = false;
+}: [a-zA-Z_] [a-zA-Z0-9_]*;
 
-ID options{caseInsensitive = false;} : [a-zA-Z_] [a-zA-Z0-9_]* ;
-
-BracketArgument
-    :   '[' BracketNested ']';
-
-QuotedArgument
-    :   '"' QuotedElement* '"' ;
-
-UnquotedArgument
-    :   (UnquotedElement)+ ;
-
-BracketComment
-    :   '#[' BracketNested ']' -> channel(COMMENTS) ;
-
-LineComment
-    :   '#' ~[\r\n]* -> channel(COMMENTS) ;
-
+BracketArgument: '[' BracketNested ']';
+QuotedArgument: '"' QuotedElement* '"';
+UnquotedArgument: (UnquotedElement)+;
+BracketComment: '#[' BracketNested ']' -> channel(COMMENTS);
+LineComment: '#' ~[\r\n]* -> channel(COMMENTS);
 
 // NL should be ignored between '(' and ')'
-IgnoreNLBetweenArgs
-    :   '\r'? '\n' { this.nestingLevel > 0 }? -> channel(HIDDEN) ;
+IgnoreNLBetweenArgs:
+	'\r'? '\n' { this.nestingLevel > 0 }? -> channel(HIDDEN);
 
-NL  :  '\r'? '\n' ;
+NL: '\r'? '\n';
+WS: [ \t]+ -> skip;
+LP: '(' {this.nestingLevel++;};
+RP: ')' {this.nestingLevel--;};
 
-WS  :   [ \t]+ -> skip ;
-
-LP  :   '(' {this.nestingLevel++;} ;
-
-RP  :   ')' {this.nestingLevel--;} ;
-
-EscapeSequence
-    :  EscapeIdentity | EscapeEncoded | EscapeSemicolon ;
-
-fragment EscapeIdentity
-options{caseInsensitive = false;}
-    :   '\\' ~[a-zA-Z0-9;] ;
-
-fragment EscapeEncoded
-    :   '\\t' | '\\r' | '\\n';
-
-fragment EscapeSemicolon
-    :   '\\;';
-
-fragment BracketNested
-    :   '=' BracketNested '='
-    |   '[' .*? ']'
-    ;
-
-fragment QuotedElement
-    :   ~[\\"] | EscapeSequence | '\\' NL;
-
-fragment UnquotedElement
-    :   ~[ \t\r\n()#"\\] | EscapeSequence;
+fragment EscapeSequence:
+	EscapeIdentity
+	| EscapeEncoded
+	| EscapeSemicolon;
+fragment EscapeIdentity options{
+	caseInsensitive = false;
+}: '\\' ~[a-zA-Z0-9;];
+fragment EscapeEncoded: '\\t' | '\\r' | '\\n';
+fragment EscapeSemicolon: '\\;';
+fragment BracketNested: '=' BracketNested '=' | '[' .*? ']';
+fragment QuotedElement: ~[\\"] | EscapeSequence | '\\' NL;
+fragment UnquotedElement: ~[ \t\r\n()#"\\] | EscapeSequence;
