@@ -8,10 +8,14 @@ import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, D
 import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
 import { cmakeInfo } from './cmakeInfo';
+import { DIAG_CODE_CMD_CASE } from './consts';
 import { SymbolListener } from './docSymbols';
 import { Formatter } from './format';
 import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
+import CMakeSimpleLexer from './generated/CMakeSimpleLexer';
+import CMakeSimpleParser from './generated/CMakeSimpleParser';
+import localize from './localize';
 import { createLogger } from './logging';
 import SemanticDiagnosticsListener, { CommandCaseChecker } from './semanticDiagnostics';
 import { SemanticListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
@@ -19,10 +23,6 @@ import { extSettings } from './settings';
 import { DefinationListener, incToBaseDir, parsedFiles, refToDef, topScope } from './symbolTable/goToDefination';
 import SyntaxErrorListener from './syntaxDiagnostics';
 import { getFileContext } from './utils';
-import localize from './localize';
-import { DIAG_CODE_CMD_CASE } from './consts';
-import CMakeSimpleLexer from './generated/CMakeSimpleLexer';
-import CMakeSimpleParser from './generated/CMakeSimpleParser';
 
 type Word = {
     text: string,
@@ -31,7 +31,6 @@ type Word = {
 };
 
 let contentChanged = true;
-
 export let initParams: InitializeParams;
 
 // Create a connection for the server, using Node's IPC as a transport.
@@ -40,7 +39,6 @@ export const connection = createConnection(ProposedFeatures.all);
 
 // Create a simple text document manager.
 export const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
-
 export const logger = createLogger('server');
 
 connection.onInitialize(async (params: InitializeParams) => {

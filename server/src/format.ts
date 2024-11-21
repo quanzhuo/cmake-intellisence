@@ -1,6 +1,6 @@
 import { CommonTokenStream } from "antlr4";
-import CMakeSimpleListener from "./generated/CMakeSimpleListener";
 import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
+import CMakeSimpleListener from "./generated/CMakeSimpleListener";
 import { CommandContext, FileContext } from "./generated/CMakeSimpleParser";
 
 export class Formatter extends CMakeSimpleListener {
@@ -151,7 +151,7 @@ export class Formatter extends CMakeSimpleListener {
         return result;
     }
 
-    private getArgumentText(argCtx: any, indent: number): string {
+    private getArgumentText(argCtx: CommandContext, indent: number): string {
         let result = "";
         const cnt: number = argCtx.getChildCount();
         if (cnt === 1) {
@@ -161,10 +161,10 @@ export class Formatter extends CMakeSimpleListener {
             result += '(';
             const lParenIndex: number = argCtx.LParen().symbol.tokenIndex;
             result += this.getHiddenTextOnRight(lParenIndex, indent);
-            const innerCnt = argCtx.argument().length;
+            const innerCnt = argCtx.argument_list().length;
             const innerIndent = indent + this._indent;
             let prevLineNo: number = argCtx.LParen().symbol.line;
-            argCtx.argument().forEach((innerCtx, index) => {
+            argCtx.argument_list().forEach((innerCtx, index) => {
                 const curLineNo: number = innerCtx.stop.line;
                 if (curLineNo !== prevLineNo) {
                     result += ' '.repeat(innerIndent);
@@ -179,7 +179,7 @@ export class Formatter extends CMakeSimpleListener {
 
             const rParenToken = argCtx.RParen().symbol;
             if ((innerCnt > 0) &&
-                (argCtx.argument()[innerCnt - 1].stop.line !== rParenToken.line)) {
+                (argCtx.argument_list()[innerCnt - 1].stop.line !== rParenToken.line)) {
                 result += ' '.repeat(indent);
             }
 
