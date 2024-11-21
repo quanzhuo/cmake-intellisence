@@ -1,4 +1,4 @@
-grammar CMakeFormat;
+grammar CMakeSimple;
 
 @lexer::members {
     private nesting: number = 0;

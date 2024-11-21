@@ -1,11 +1,10 @@
 {
     "cmakeNotFound": "CMake executable not found, please check the settings, otherwise some IntelliSense features will not work properly",
     "settings": "Settings",
-    "cmakeIntelliSence.cmakePath": "Set the path to the CMake command",
-    "cmakeIntelliSence.cmdCaseDiagnostics": "Whether to generate diagnostics for uppercase commands",
-    "cmakeIntelliSence.cmdCaseDiagnostics.none": "Do not generate diagnostics",
-    "cmakeIntelliSence.cmdCaseDiagnostics.builtin": "Generate diagnostics only for built-in commands",
-    "cmakeIntelliSence.cmdCaseDiagnostics.all": "Generate diagnostics for all commands",
-    "cmakeIntelliSence.loggingLevel": "Control the logging level",
-    "diagnostics.breakContinue": "The command '{0}' can only be used within loops"
+    "cmakePath": "Set the path to the CMake command",
+    "cmdCaseDiagnostics": "Whether to generate warnings for non-lowercase CMake commands",
+    "loggingLevel": "Control the logging level",
+    "diagnostics.breakContinue": "The command '{0}' can only be used within loops",
+    "diagnostics.cmdCase": "It is recommended to use lowercase CMake commands",
+    "codeAction.cmdCase": "Change command '{0}' to lowercase"
 }

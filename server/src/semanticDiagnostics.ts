@@ -1,9 +1,9 @@
-import { Token } from "antlr4";
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver";
-import * as builtinCmds from './builtin-cmds.json';
-import { BreakCmdContext, ContinueCmdContext, ElseCmdContext, ElseIfCmdContext, EndForeachCmdContext, EndFunctionCmdContext, EndIfCmdContext, EndMacroCmdContext, EndWhileCmdContext, ForeachCmdContext, FunctionCmdContext, IfCmdContext, IncludeCmdContext, LoopContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext, WhileCmdContext } from "./generated/CMakeParser";
+import { DIAG_CODE_CMD_CASE } from "./consts";
+import { BreakCmdContext, ContinueCmdContext, LoopContext } from "./generated/CMakeParser";
 import CMakeListener from "./generated/CMakeParserListener";
-import { CmdCaseDiagnostics, extSettings } from "./settings";
+import CMakeSimpleListener from "./generated/CMakeSimpleListener";
+import * as csp from './generated/CMakeSimpleParser';
 import localize from "./localize";
 
 export default class SemanticDiagnosticsListener extends CMakeListener {
@@ -44,95 +44,26 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
     }
 
     enterBreakCmd = (ctx: BreakCmdContext): void => {
-        this.checkCmdCase(ctx.start);
         this.checkBreakAndContinueCmd(ctx);
     };
 
     enterContinueCmd = (ctx: ContinueCmdContext): void => {
-        this.checkCmdCase(ctx.start);
         this.checkBreakAndContinueCmd(ctx);
     };
 
-    enterElseCmd = (ctx: ElseCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
 
-    enterElseIfCmd = (ctx: ElseIfCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
 
-    enterEndForeachCmd = (ctx: EndForeachCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
+    getSemanticDiagnostics(): Diagnostic[] {
+        return this.diagnostics;
+    }
+}
 
-    enterEndFunctionCmd = (ctx: EndFunctionCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
+export class CommandCaseChecker extends CMakeSimpleListener {
+    private diagnostics: Diagnostic[] = [];
 
-    enterEndIfCmd = (ctx: EndIfCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
-
-    enterEndMacroCmd = (ctx: EndMacroCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
-
-    enterEndWhileCmd = (ctx: EndWhileCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
-
-    enterForeachCmd = (ctx: ForeachCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
-
-    enterFunctionCmd = (ctx: FunctionCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
-
-    enterIfCmd = (ctx: IfCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
-
-    enterIncludeCmd = (ctx: IncludeCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
-
-    enterMacroCmd = (ctx: MacroCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
-
-    enterOptionCmd = (ctx: OptionCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
-
-    enterWhileCmd = (ctx: WhileCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
-
-    enterSetCmd = (ctx: SetCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
-
-    enterOtherCmd = (ctx: OtherCmdContext): void => {
-        this.checkCmdCase(ctx.start);
-    };
-
-    checkCmdCase(token: Token) {
+    enterCommand?: (ctx: csp.CommandContext) => void = (ctx: csp.CommandContext) => {
+        const token = ctx.start;
         const text: string = token.text;
-
-        switch (extSettings.cmdCaseDiagnostics) {
-            case CmdCaseDiagnostics.None: return;
-            case CmdCaseDiagnostics.Builtin:
-                if (!(text.toLowerCase() in builtinCmds)) {
-                    return;
-                }
-                break;
-            case CmdCaseDiagnostics.All:
-                break;
-            default:
-                throw new Error("undefined cmdCaseDiagnostics settings");
-        }
-
         const line: number = token.line, column: number = token.column;
         const isLowerCase = ((cmdText: string) => {
             for (const ch of cmdText) {
@@ -142,8 +73,6 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
             }
             return true;
         })(text);
-
-
 
         if (!isLowerCase) {
             this.diagnostics.push({
@@ -159,14 +88,13 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
                 },
                 severity: DiagnosticSeverity.Information,
                 source: 'cmake-intellisence',
-                message: cmdNameCase
+                message: localize('diagnostics.cmdCase'),
+                code: DIAG_CODE_CMD_CASE,
             });
         }
-    }
+    };
 
-    getSemanticDiagnostics(): Diagnostic[] {
+    getCmdCaseDdiagnostics(): Diagnostic[] {
         return this.diagnostics;
     }
 }
-
-export const cmdNameCase = 'cmake encourage lower case command name';

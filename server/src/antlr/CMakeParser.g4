@@ -34,7 +34,7 @@ endFunctionCmd: EndFunctionCmd LP argument* RP;
 breakCmd: BreakCmd LP RP;
 continueCmd: ContinueCmd LP RP;
 setCmd: SetCmd LP argument+ RP;
-optionCmd: SetCmd LP argument+ RP;
+optionCmd: OptionCmd LP argument+ RP;
 includeCmd: IncludeCmd LP argument+ RP;
 addSubDirectoryCmd: AddSubDirectory LP argument+ RP;
 otherCmd: ID LP argument * RP;

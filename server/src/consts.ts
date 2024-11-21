@@ -1,0 +1,1 @@
+export const DIAG_CODE_CMD_CASE = 0;

@@ -10,17 +10,19 @@ import * as builtinCmds from './builtin-cmds.json';
 import { cmakeInfo } from './cmakeInfo';
 import { SymbolListener } from './docSymbols';
 import { Formatter } from './format';
-import CMakeFormatLexer from './generated/CMakeFormatLexer';
-import CMakeFormatParser from './generated/CMakeFormatParser';
 import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
 import { createLogger } from './logging';
-import SemanticDiagnosticsListener, { cmdNameCase } from './semanticDiagnostics';
+import SemanticDiagnosticsListener, { CommandCaseChecker } from './semanticDiagnostics';
 import { SemanticListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
 import { extSettings } from './settings';
 import { DefinationListener, incToBaseDir, parsedFiles, refToDef, topScope } from './symbolTable/goToDefination';
 import SyntaxErrorListener from './syntaxDiagnostics';
 import { getFileContext } from './utils';
+import localize from './localize';
+import { DIAG_CODE_CMD_CASE } from './consts';
+import CMakeSimpleLexer from './generated/CMakeSimpleLexer';
+import CMakeSimpleParser from './generated/CMakeSimpleParser';
 
 type Word = {
     text: string,
@@ -176,6 +178,7 @@ connection.onSignatureHelp((params: SignatureHelpParams) => {
                 const word: string = getWordAtPosition(document, posBeforeLParen).text;
                 if (word.length === 0 || !(word in builtinCmds)) {
                     resolve(null);
+                    return;
                 }
 
                 const sigsStrArr: string[] = builtinCmds[word]['sig'];
@@ -242,9 +245,9 @@ connection.onDocumentFormatting((params: DocumentFormattingParams) => {
 
     return new Promise((resolve, rejects) => {
         const input = CharStreams.fromString(document.getText());
-        const lexer = new CMakeFormatLexer(input);
+        const lexer = new CMakeSimpleLexer(input);
         const tokenStream = new CommonTokenStream(lexer);
-        const parser = new CMakeFormatParser(tokenStream);
+        const parser = new CMakeSimpleParser(tokenStream);
         const tree = parser.file();
         const formatListener = new Formatter(tabSize, tokenStream);
         ParseTreeWalker.DEFAULT.walk(formatListener, tree);
@@ -383,15 +386,12 @@ connection.languages.semanticTokens.onRange((params: SemanticTokensRangeParams) 
 });
 
 connection.onCodeAction((params: CodeActionParams) => {
-    const isCmdCaseProblem = params.context.diagnostics.some(value => {
-        return value.message === cmdNameCase;
-    });
-
+    const isCmdCaseProblem = params.context.diagnostics.some(value => { return value.code === DIAG_CODE_CMD_CASE; });
     if (isCmdCaseProblem) {
         const cmdName: string = documents.get(params.textDocument.uri).getText(params.range);
         return [
             {
-                title: `convert '${cmdName}' to lower case`,
+                title: localize('codeAction.cmdCase', cmdName),
                 kind: CodeActionKind.QuickFix,
                 diagnostics: params.context.diagnostics,
                 isPreferred: true,
@@ -451,13 +451,19 @@ documents.onDidChangeContent((change: TextDocumentChangeEvent<TextDocument>) => 
     const tree = parser.file();
     const semanticListener = new SemanticDiagnosticsListener();
     ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
-    connection.sendDiagnostics({
+    const diagnostics = {
         uri: change.document.uri,
         diagnostics: [
             ...syntaxErrorListener.getSyntaxErrors(),
             ...semanticListener.getSemanticDiagnostics()
         ]
-    });
+    };
+    if (extSettings.cmdCaseDiagnostics) {
+        const cmdCaseChecker = new CommandCaseChecker();
+        ParseTreeWalker.DEFAULT.walk(cmdCaseChecker, tree);
+        diagnostics.diagnostics.push(...cmdCaseChecker.getCmdCaseDdiagnostics());
+    }
+    connection.sendDiagnostics(diagnostics);
 });
 
 documents.onDidClose((event: TextDocumentChangeEvent<TextDocument>) => {

@@ -90,7 +90,7 @@ export class FuncMacroListener extends CMakeListener {
 
     // FIXME:
     enterOptionCmd = (ctx: OptionCmdContext): void => {
-        this.enterSetCmd(ctx);
+        this.enterSetCmd(ctx as unknown as SetCmdContext);
     };
 
     enterIncludeCmd = (ctx: IncludeCmdContext): void => {

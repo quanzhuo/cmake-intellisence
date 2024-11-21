@@ -1,11 +1,10 @@
 {
     "cmakeNotFound": "未找到 CMake 可执行程序，请检查设置, 否则部分 IntelliSense 功能将无法正常工作",
     "settings": "设置",
-    "cmakeIntelliSence.cmakePath": "设置 CMake 命令的路径",
-    "cmakeIntelliSence.cmdCaseDiagnostics": "是否针对大写命令生成诊断信息",
-    "cmakeIntelliSence.cmdCaseDiagnostics.none": "不生成针对信息",
-    "cmakeIntelliSence.cmdCaseDiagnostics.builtin": "只针对内置命令生成诊断信息",
-    "cmakeIntelliSence.cmdCaseDiagnostics.all": "为所有命令生成诊断信息",
-    "cmakeIntelliSence.loggingLevel": "控制日志级别",
-    "diagnostics.breakContinue": "命令 '{0}' 只能在循环中使用"
+    "cmakePath": "设置 CMake 命令的路径",
+    "cmdCaseDiagnostics": "是否针对非小写的 cmake 命令生成警告信息",
+    "loggingLevel": "控制日志级别",
+    "diagnostics.breakContinue": "命令 '{0}' 只能在循环中使用",
+    "diagnostics.cmdCase": "建议使用小写形式的 CMake 命令",
+    "codeAction.cmdCase": "将命令 '{0}' 改为小写形式"
 }

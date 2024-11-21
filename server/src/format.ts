@@ -1,14 +1,14 @@
 import { CommonTokenStream } from "antlr4";
-import CMakeFormatLexer from "./generated/CMakeFormatLexer";
-import CMakeFormatListener from "./generated/CMakeFormatListener";
-import { CommandContext, FileContext } from "./generated/CMakeFormatParser";
+import CMakeSimpleListener from "./generated/CMakeSimpleListener";
+import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
+import { CommandContext, FileContext } from "./generated/CMakeSimpleParser";
 
-export class Formatter extends CMakeFormatListener {
+export class Formatter extends CMakeSimpleListener {
     private _indent: number;
     private _indentLevel: number;
     private _tokenStream: CommonTokenStream;
     private _formatted: string;
-    private hiddenChannel = CMakeFormatLexer.channelNames.indexOf("HIDDEN");
+    private hiddenChannel = CMakeSimpleLexer.channelNames.indexOf("HIDDEN");
 
     constructor(_indent: number, tokenStream: any) {
         super();
@@ -127,7 +127,7 @@ export class Formatter extends CMakeFormatListener {
         }
 
         if ((hiddenTokens.length > 0) &&
-            (hiddenTokens[0].type === CMakeFormatLexer.LineComment || hiddenTokens[0].type === CMakeFormatLexer.BracketComment) &&
+            (hiddenTokens[0].type === CMakeSimpleLexer.LineComment || hiddenTokens[0].type === CMakeSimpleLexer.BracketComment) &&
             hiddenTokens[0].line === token.line) {
             result += ' ';
         }
@@ -140,7 +140,7 @@ export class Formatter extends CMakeFormatListener {
         hiddenTokens.forEach((t, index) => {
             const curLineNo: number = t.line;
             if ((curLineNo !== prevLineNo) &&
-                (t.type === CMakeFormatLexer.LineComment || t.type === CMakeFormatLexer.BracketComment)) {
+                (t.type === CMakeSimpleLexer.LineComment || t.type === CMakeSimpleLexer.BracketComment)) {
                 result += ' '.repeat(indent);
             }
 

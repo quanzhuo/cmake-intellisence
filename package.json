@@ -86,22 +86,12 @@
           "cmakeIntelliSence.cmakePath": {
             "type": "string",
             "default": "cmake",
-            "description": "%cmakeIntelliSence.cmakePath%"
+            "description": "%cmakePath%"
           },
           "cmakeIntelliSence.cmdCaseDiagnostics": {
-            "type": "string",
-            "description": "%cmakeIntelliSence.cmdCaseDiagnostics%",
-            "enum": [
-              "none",
-              "builtin",
-              "all"
-            ],
-            "enumDescriptions": [
-              "%cmakeIntelliSence.cmdCaseDiagnostics.none%",
-              "%cmakeIntelliSence.cmdCaseDiagnostics.builtin%",
-              "%cmakeIntelliSence.cmdCaseDiagnostics.all%"
-            ],
-            "default": "builtin"
+            "type": "boolean",
+            "description": "%cmdCaseDiagnostics%",
+            "default": "true"
           },
           "cmakeIntelliSence.loggingLevel": {
             "type": "string",
@@ -113,7 +103,7 @@
               "Debug"
             ],
             "default": "Off",
-            "markdownDescription": "%cmakeIntelliSence.loggingLevel%"
+            "markdownDescription": "%loggingLevel%"
           },
           "cmakeIntelliSence.trace.server": {
             "type": "string",
@@ -143,7 +133,7 @@
     "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
     "grammar-cmdsignature": "npx js-yaml ./syntaxes/cmdsignature.tmLanguage.yml > ./syntaxes/cmdsignature.tmLanguage.json",
     "grammar": "node ./build/yaml-to-json.mjs",
-    "antlr4-cmake-format": "cd server/src/antlr && antlr4 -o ../generated/ -Dlanguage=TypeScript CMakeFormat.g4"
+    "antlr4-cmake-format": "cd server/src/antlr && antlr4 -o ../generated/ -Dlanguage=TypeScript CMakeSimple.g4"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",
