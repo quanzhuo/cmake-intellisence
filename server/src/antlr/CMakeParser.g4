@@ -23,7 +23,7 @@ elseIfCmd: ElseIfCmd LP argument* RP;
 elseCmd: ElseCmd LP RP;
 endIfCmd: EndIfCmd LP argument* RP;
 foreachCmd: ForeachCmd LP argument+ RP;
-endForeachCmd: EndForeachCmd LP argument+ RP;
+endForeachCmd: EndForeachCmd LP argument* RP;
 whileCmd: WhileCmd LP argument+ RP;
 endWhileCmd: EndWhileCmd LP argument* RP;
 macroCmd: MacroCmd LP argument+ RP;
