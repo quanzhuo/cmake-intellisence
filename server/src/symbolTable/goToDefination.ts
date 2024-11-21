@@ -1,11 +1,16 @@
 import { ParseTree, ParseTreeWalker, Token } from 'antlr4';
 import { Location } from "vscode-languageserver-types";
 import { URI, Utils } from "vscode-uri";
+import { AddSubDirectoryCmdContext, ArgumentContext, EndFunctionCmdContext, EndMacroCmdContext, FileContext, FunctionCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext } from '../generated/CMakeParser';
 import CMakeListener from "../generated/CMakeParserListener";
 import { getFileContext, getIncludeFileUri, getSubCMakeListsUri } from "../utils";
 import { FuncMacroListener } from "./function";
 import { FileScope, Scope } from "./scope";
 import { Sym, Type } from "./symbol";
+import { TextDocuments } from 'vscode-languageserver';
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import ExtensionSettings from '../settings';
+import { CMakeInfo } from '../cmakeInfo';
 
 export const topScope: FileScope = new FileScope(null);
 export const incToBaseDir: Map<string, URI> = new Map<string, URI>();
@@ -21,6 +26,8 @@ export const refToDef: Map<string, Location> = new Map();
 export const parsedFiles: Set<string> = new Set; // record all the parsed files
 
 export class DefinationListener extends CMakeListener {
+    private documents: TextDocuments<TextDocument>;
+    private cmakeInfo: CMakeInfo;
     private currentScope: Scope;
     private inBody = false;
     private curFile: URI;     // current file uri
@@ -28,19 +35,21 @@ export class DefinationListener extends CMakeListener {
 
     private parseTreeProperty = new Map<ParseTree, boolean>();
 
-    constructor(baseDir: URI, curFile: URI, scope: Scope) {
+    constructor(documents: TextDocuments<TextDocument>, cmakeInfo: CMakeInfo, baseDir: URI, curFile: URI, scope: Scope) {
         super();
+        this.documents = documents;
+        this.cmakeInfo = cmakeInfo;
         this.curFile = curFile;
         this.currentScope = scope;
         this.baseDir = baseDir;
         // Utils.dirname(URI.parse(uri)).fsPath
     }
 
-    enterFile = (ctx: any): void => {
+    enterFile = (ctx: FileContext): void => {
         parsedFiles.add(this.curFile.toString());
     };
 
-    enterFunctionCmd = (ctx: any): void => {
+    enterFunctionCmd = (ctx: FunctionCmdContext): void => {
         this.inBody = true;
 
         // create a function symbol
@@ -54,11 +63,11 @@ export class DefinationListener extends CMakeListener {
         }
     };
 
-    exitEndFunctionCmd = (ctx: any): void => {
+    exitEndFunctionCmd = (ctx: EndFunctionCmdContext): void => {
         this.inBody = false;
     };
 
-    enterMacroCmd = (ctx: any): void => {
+    enterMacroCmd = (ctx: MacroCmdContext): void => {
         this.inBody = true;
 
         // create a macro symbol
@@ -72,11 +81,11 @@ export class DefinationListener extends CMakeListener {
         }
     };
 
-    exitEndMacroCmd = (ctx: any): void => {
+    exitEndMacroCmd = (ctx: EndMacroCmdContext): void => {
         this.inBody = false;
     };
 
-    enterSetCmd = (ctx: any): void => {
+    enterSetCmd = (ctx: SetCmdContext): void => {
         if (this.inBody) {
             return;
         }
@@ -92,11 +101,11 @@ export class DefinationListener extends CMakeListener {
         }
     };
 
-    enterOptionCmd = (ctx: any): void => {
-        this.enterSetCmd(ctx);
+    enterOptionCmd = (ctx: OptionCmdContext): void => {
+        this.enterSetCmd(ctx as unknown as SetCmdContext);
     };
 
-    enterIncludeCmd = (ctx: any): void => {
+    enterIncludeCmd = (ctx: IncludeCmdContext): void => {
         if (this.inBody) {
             return;
         }
@@ -106,7 +115,7 @@ export class DefinationListener extends CMakeListener {
             return;
         }
 
-        const incUri: URI = getIncludeFileUri(this.baseDir, nameToken.text);
+        const incUri: URI = getIncludeFileUri(this.cmakeInfo, this.baseDir, nameToken.text);
         if (!incUri) {
             return;
         }
@@ -130,12 +139,12 @@ export class DefinationListener extends CMakeListener {
             }
         });
 
-        const tree = getFileContext(incUri);
-        const definationListener = new DefinationListener(this.baseDir, incUri, this.currentScope);
+        const tree = getFileContext(this.documents, incUri);
+        const definationListener = new DefinationListener(this.documents, this.cmakeInfo, this.baseDir, incUri, this.currentScope);
         ParseTreeWalker.DEFAULT.walk(definationListener, tree);
     };
 
-    enterAddSubDirectoryCmd = (ctx: any): void => {
+    enterAddSubDirectoryCmd = (ctx: AddSubDirectoryCmdContext): void => {
         this.parseTreeProperty.set(ctx, false);
 
         if (this.inBody) {
@@ -172,16 +181,16 @@ export class DefinationListener extends CMakeListener {
             }
         });
 
-        const tree = getFileContext(subCMakeListsUri);
+        const tree = getFileContext(this.documents, subCMakeListsUri);
         const subDirScope: Scope = new FileScope(this.currentScope);
         // FIXME: 此处是否应该切换作用域?
         this.currentScope = subDirScope;
         const subBaseDir: URI = Utils.joinPath(this.baseDir, dirToken.text);
-        const definationListener = new DefinationListener(subBaseDir, subCMakeListsUri, subDirScope);
+        const definationListener = new DefinationListener(this.documents, this.cmakeInfo, subBaseDir, subCMakeListsUri, subDirScope);
         ParseTreeWalker.DEFAULT.walk(definationListener, tree);
     };
 
-    exitAddSubDirectoryCmd = (ctx: any): void => {
+    exitAddSubDirectoryCmd = (ctx: AddSubDirectoryCmdContext): void => {
         if (this.inBody) {
             return;
         }
@@ -191,7 +200,7 @@ export class DefinationListener extends CMakeListener {
         }
     };
 
-    enterOtherCmd = (ctx: any): void => {
+    enterOtherCmd = (ctx: OtherCmdContext): void => {
         if (this.inBody) {
             return;
         }
@@ -212,14 +221,14 @@ export class DefinationListener extends CMakeListener {
 
         // parse the function body, only parse the function once
         if (!symbol.funcMacroParsed) {
-            const tree = getFileContext(symbol.getUri());
-            const functionListener = new FuncMacroListener(this.currentScope, symbol);
+            const tree = getFileContext(this.documents, symbol.getUri());
+            const functionListener = new FuncMacroListener(this.documents, this.cmakeInfo, this.currentScope, symbol);
             ParseTreeWalker.DEFAULT.walk(functionListener, tree);
             symbol.funcMacroParsed = true;
         }
     };
 
-    enterArgument = (ctx: any): void => {
+    enterArgument = (ctx: ArgumentContext): void => {
         // If we are in function/macro body, just return
         // parse function/macro content just delay to reference
         if (this.inBody) {

@@ -6,15 +6,20 @@ import { getFileContext, getIncludeFileUri, getSubCMakeListsUri } from "../utils
 import { DefinationListener, incToBaseDir, refToDef } from "./goToDefination";
 import { FileScope, FunctionScope, MacroScope, Scope } from "./scope";
 import { Sym, Type } from "./symbol";
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import { TextDocuments } from 'vscode-languageserver';
+import { CMakeInfo } from '../cmakeInfo';
 
 export class FuncMacroListener extends CMakeListener {
     private currentScope: Scope;
     private funcMacroSym: Sym;
     private inBody: boolean = false;
+    private documents: TextDocuments<TextDocument>;
+    private cmakeInfo: CMakeInfo;
 
     private parseTreeProperty = new Map<ParseTree, boolean>();
 
-    constructor(parent: Scope, symbol: Sym) {
+    constructor(documents: TextDocuments<TextDocument>, cmakeInfo: CMakeInfo, parent: Scope, symbol: Sym) {
         super();
 
         if (symbol.getType() === Type.Function) {
@@ -24,6 +29,8 @@ export class FuncMacroListener extends CMakeListener {
         }
 
         this.funcMacroSym = symbol;
+        this.documents = documents;
+        this.cmakeInfo = this.cmakeInfo;
     }
 
     enterFunctionCmd = (ctx: FunctionCmdContext): void => {
@@ -105,7 +112,7 @@ export class FuncMacroListener extends CMakeListener {
 
         // 获取包含该函数定义的文件的基路径
         const baseDir: URI = incToBaseDir.get(this.funcMacroSym.getUri().toString());
-        const incUri: URI = getIncludeFileUri(baseDir, nameToken.text);
+        const incUri: URI = getIncludeFileUri(this.cmakeInfo, baseDir, nameToken.text);
         if (!incUri) {
             return;
         }
@@ -127,8 +134,8 @@ export class FuncMacroListener extends CMakeListener {
             }
         });
 
-        const tree = getFileContext(incUri);
-        const definationListener = new DefinationListener(baseDir, incUri, this.currentScope);
+        const tree = getFileContext(this.documents, incUri);
+        const definationListener = new DefinationListener(this.documents, this.cmakeInfo, baseDir, incUri, this.currentScope);
         ParseTreeWalker.DEFAULT.walk(definationListener, tree);
     };
 
@@ -168,10 +175,10 @@ export class FuncMacroListener extends CMakeListener {
             }
         });
 
-        const tree = getFileContext(subCMakeListsUri);
+        const tree = getFileContext(this.documents, subCMakeListsUri);
         const subDirScope: Scope = new FileScope(this.currentScope);
         this.currentScope = subDirScope;
-        const definationListener = new DefinationListener(baseDir, subCMakeListsUri, subDirScope);
+        const definationListener = new DefinationListener(this.documents, this.cmakeInfo, baseDir, subCMakeListsUri, subDirScope);
         ParseTreeWalker.DEFAULT.walk(definationListener, tree);
     };
 

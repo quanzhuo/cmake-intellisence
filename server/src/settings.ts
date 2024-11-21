@@ -1,11 +1,11 @@
-import { connection } from "./server";
+import { Connection } from "vscode-languageserver";
 
 export default class ExtensionSettings {
     public loggingLevel: string;
     public cmakePath: string;
     public cmdCaseDiagnostics: boolean;
 
-    public async getSettings() {
+    public async getSettings(connection: Connection) {
         [
             this.cmakePath,
             this.loggingLevel,
@@ -17,5 +17,3 @@ export default class ExtensionSettings {
         ]);
     }
 }
-
-export const extSettings: ExtensionSettings = new ExtensionSettings();

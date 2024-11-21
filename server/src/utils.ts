@@ -1,14 +1,16 @@
+import { CharStream, CharStreams, CommonTokenStream } from 'antlr4';
 import { existsSync, readFileSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { URI, Utils } from 'vscode-uri';
-import { cmakeInfo } from './cmakeInfo';
-import { CharStream, CharStreams, CommonTokenStream } from 'antlr4';
 import CMakeLexer from './generated/CMakeLexer';
-import CMakeParser from './generated/CMakeParser';
-import { documents, logger } from './server';
+import CMakeParser, { FileContext } from './generated/CMakeParser';
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import { TextDocuments } from 'vscode-languageserver';
+import { CMakeInfo } from './cmakeInfo';
+import { logger } from './server';
 
-export function getFileContext(uri: URI) {
+export function getFileContext(documents: TextDocuments<TextDocument>, uri: URI): FileContext {
     const document = documents.get(uri.toString());
     let text: string;
     if (document) {
@@ -34,7 +36,7 @@ export function getSubCMakeListsUri(baseDir: URI, subDir: string): URI {
     return null;
 }
 
-export function getIncludeFileUri(baseDir: URI, includeFileName: string): URI {
+export function getIncludeFileUri(cmakeInfo: CMakeInfo, baseDir: URI, includeFileName: string): URI {
     const incFileUri: URI = Utils.joinPath(baseDir, includeFileName);
     if (existsSync(incFileUri.fsPath)) {
         return incFileUri;
@@ -42,13 +44,13 @@ export function getIncludeFileUri(baseDir: URI, includeFileName: string): URI {
         logger.error('getIncludeFileUri:', incFileUri.fsPath, 'not exist');
     }
 
-    const cmakePath: string = which('cmake');
-    if (cmakePath === null) {
-        return null;
-    }
+    // const cmakePath: string = which('cmake');
+    // if (cmakePath === null) {
+    //     return null;
+    // }
 
     const moduleDir = 'cmake-' + cmakeInfo.major + '.' + cmakeInfo.minor;
-    const resPath = path.join(cmakePath, '../..', 'share', moduleDir, 'Modules', includeFileName) + '.cmake';
+    const resPath = path.join(cmakeInfo.cmakePath, '../..', 'share', moduleDir, 'Modules', includeFileName) + '.cmake';
 
     if (existsSync(resPath)) {
         // return pathToFileURL(resPath).toString();

@@ -41,8 +41,7 @@ function levelName(level: LogLevel): LogLevelKey {
  * @param level The log level to check
  */
 function levelEnabled(level: LogLevel): boolean {
-    // const strlevel = vscode.workspace.getConfiguration('cmake').get<LogLevelKey>('loggingLevel', 'info');
-    const strLevel = extSettings.loggingLevel;
+    const strLevel = SingletonLogger.configedLevel;
     switch (strLevel) {
         case 'debug':
             return level >= LogLevel.Debug;
@@ -138,8 +137,10 @@ class SingletonLogger {
     }
 
     private static _inst: SingletonLogger | null = null;
+    static configedLevel: string;
 
-    static instance(): SingletonLogger {
+    static instance(level: string): SingletonLogger {
+        SingletonLogger.configedLevel = level;
         if (SingletonLogger._inst === null) {
             SingletonLogger._inst = new SingletonLogger();
         }
@@ -148,36 +149,34 @@ class SingletonLogger {
 }
 
 export class Logger {
-    constructor(readonly _tag: string) { }
+    private configedLevel: string;
+    constructor(readonly _tag: string, configedLevel: string) {
+        this.configedLevel = configedLevel;
+    }
     get tag() {
         return `[${this._tag}]`;
     }
 
     debug(...args: Stringable[]) {
-        SingletonLogger.instance().debug(this.tag, ...args);
+        SingletonLogger.instance(this.configedLevel).debug(this.tag, ...args);
     }
 
     info(...args: Stringable[]) {
-        SingletonLogger.instance().info(this.tag, ...args);
+        SingletonLogger.instance(this.configedLevel).info(this.tag, ...args);
     }
 
     warning(...args: Stringable[]) {
-        SingletonLogger.instance().warning(this.tag, ...args);
+        SingletonLogger.instance(this.configedLevel).warning(this.tag, ...args);
     }
 
     error(...args: Stringable[]) {
-        SingletonLogger.instance().error(this.tag, ...args);
-    }
-
-    static logTestName(suite?: string, test?: string) {
-        SingletonLogger.instance().info('-----------------------------------------------------------------------');
-        SingletonLogger.instance().info(`Beginning test: ${suite ?? 'unknown suite'} - ${test ?? 'unknown test'}`);
+        SingletonLogger.instance(this.configedLevel).error(this.tag, ...args);
     }
 }
 
-export function createLogger(tag: string) {
-    return new Logger(tag);
+export function createLogger(tag: string, configedLevel: string) {
+    return new Logger(tag, configedLevel);
 }
 
-import paths, { mkdir_p, exists } from './paths';
-import { extSettings } from './settings';
+import paths, { mkdir_p, exists } from './paths'; import { config } from 'process';
+

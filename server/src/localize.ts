@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import { resolve } from "path";
-import { initParams } from './server';
+import { initializationOptions } from './server';
+// import { initParams } from './server';
 
 export interface ILanguagePack {
     [key: string]: string;
@@ -30,11 +31,11 @@ export class Localize {
         const languageFormat = "package.nls{0}.json";
         const defaultLanguage = languageFormat.replace("{0}", "");
 
-        var rootPath = initParams.initializationOptions.extensionPath;
+        var rootPath = initializationOptions.extensionPath;
         const resolvedLanguage = this.recurseCandidates(
             rootPath,
             languageFormat,
-            initParams.initializationOptions.language,
+            initializationOptions.language,
         );
 
         const languageFilePath = resolve(rootPath, resolvedLanguage);

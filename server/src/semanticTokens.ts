@@ -1,11 +1,11 @@
 import { Token } from "antlr4";
-import { SemanticTokens, SemanticTokensBuilder } from "vscode-languageserver";
+import { InitializeParams, SemanticTokens, SemanticTokensBuilder } from "vscode-languageserver";
 import { URI } from "vscode-uri";
 import * as builtinCmds from './builtin-cmds.json';
-import { cmakeInfo } from "./cmakeInfo";
 import { AddSubDirectoryCmdContext, ArgumentContext, ElseIfCmdContext, ForeachCmdContext, FunctionCmdContext, IfCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext, WhileCmdContext } from "./generated/CMakeParser";
 import CMakeListener from "./generated/CMakeParserListener";
-import { initParams, logger } from "./server";
+import { logger } from "./server";
+import { CMakeInfo } from "./cmakeInfo";
 
 let tokenTypes = [
     'type',
@@ -67,14 +67,14 @@ export function getTokenBuilder(uri: string): SemanticTokensBuilder {
     return builder;
 }
 
-export function getTokenTypes(): string[] {
+export function getTokenTypes(initParams: InitializeParams): string[] {
     tokenTypes = tokenTypes.filter(value => {
         return initParams.capabilities.textDocument?.semanticTokens?.tokenTypes.includes(value);
     });
     return tokenTypes;
 }
 
-export function getTokenModifiers(): string[] {
+export function getTokenModifiers(initParams: InitializeParams): string[] {
     tokenModifiers = tokenModifiers.filter(value => {
         return initParams.capabilities.textDocument?.semanticTokens?.tokenModifiers.includes(value);
     });
@@ -85,6 +85,7 @@ export class SemanticListener extends CMakeListener {
     // private _data: number[] = [];
     private _builder: SemanticTokensBuilder;
     private _uri: URI;
+    private cmakeInfo: CMakeInfo;
 
     private _operator: string[] = [
         'EXISTS', 'COMMAND', 'DEFINED',
@@ -95,9 +96,10 @@ export class SemanticListener extends CMakeListener {
         'AND', 'NOT', 'OR'
     ];
 
-    constructor(uri: URI) {
+    constructor(uri: URI, cmakeInfo: CMakeInfo) {
         super();
         this._uri = uri;
+        this.cmakeInfo = cmakeInfo;
         this._builder = getTokenBuilder(uri.toString());
     }
 
@@ -106,7 +108,7 @@ export class SemanticListener extends CMakeListener {
     }
 
     private isVariable(token: string): boolean {
-        return cmakeInfo.variables.includes(token);
+        return this.cmakeInfo.variables.includes(token);
     }
 
     private getModifiers(modifiers: TokenModifiers[]): number {

@@ -55,7 +55,6 @@ export class Formatter extends CMakeSimpleListener {
         );
 
         // all arguments
-        // if (ctx.hasOwnProperty('argument')) {
         const cnt: number = ctx.argument_list().length;
         const indent = (this._indentLevel + 1) * this._indent;
         const cmdLineNo: number = ctx.LParen().symbol.line;
@@ -78,7 +77,6 @@ export class Formatter extends CMakeSimpleListener {
 
             prevLineNo = argCtx.stop.line;
         });
-        // }
 
         // ')'
         const rParenToken = ctx.RParen().symbol;
@@ -131,10 +129,6 @@ export class Formatter extends CMakeSimpleListener {
             hiddenTokens[0].line === token.line) {
             result += ' ';
         }
-
-        // for (const t of hiddenTokens) {
-        //     result += t.text;
-        // }
 
         let prevLineNo: number = token.line;
         hiddenTokens.forEach((t, index) => {

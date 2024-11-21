@@ -1,13 +1,12 @@
 import * as cp from 'child_process';
 import { promisify } from 'util';
-import { extSettings } from "./settings";
 
 type Modules = string[];
 type Policies = string[];
 type Variables = string[];
 type Properties = string[];
 
-class CMakeInfo {
+export class CMakeInfo {
     public version: string;
     public major: number;
     public minor: number;
@@ -17,6 +16,8 @@ class CMakeInfo {
     public variables: string[] = [];
     public properties: string[] = [];
 
+    constructor(public cmakePath: string) { }
+
     public async init() {
         [
             [this.version, this.major, this.minor, this.patch],
@@ -25,7 +26,7 @@ class CMakeInfo {
     }
 
     private async getCMakeVersion(): Promise<[string, number, number, number]> {
-        const command = extSettings.cmakePath + " --version";
+        const command = this.cmakePath + " --version";
         const { stdout, stderr } = await promisify(cp.exec)(command);
         const regexp: RegExp = /(\d+)\.(\d+)\.(\d+)/;
         const res = stdout.match(regexp);
@@ -38,7 +39,7 @@ class CMakeInfo {
     }
 
     private async getBuiltinEntries(): Promise<[Modules, Policies, Variables, Properties]> {
-        const command = extSettings.cmakePath + " --help-module-list --help-policy-list --help-variable-list --help-property-list";
+        const command = this.cmakePath + " --help-module-list --help-policy-list --help-variable-list --help-property-list";
         const { stdout, stderr } = await promisify(cp.exec)(command);
         const tmp = stdout.trim().split('\n\n\n');
         return [
@@ -49,5 +50,3 @@ class CMakeInfo {
         ];
     }
 }
-
-export const cmakeInfo = new CMakeInfo();
