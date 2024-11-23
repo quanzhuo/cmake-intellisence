@@ -306,14 +306,14 @@ class CMakeLanguageServer {
                 const word: string = this.getWordAtPosition(document, params.position).text;
                 if (word.length === 0) {
                     if (line[params.position.character - 1] === ')') {
-                        resolve(null);
+                        return resolve(null);
                     }
                 }
                 const firstSig: string = params.context.activeSignatureHelp?.signatures[0].label;
                 const leftParenIndex = firstSig.indexOf('(');
                 const command = firstSig.slice(0, leftParenIndex);
                 if (!command) {
-                    resolve(null);
+                    return resolve(null);
                 }
                 const sigsStrArr: string[] = builtinCmds[command]['sig'];
                 const signatures = sigsStrArr.map((value, index, arr) => {
@@ -418,7 +418,7 @@ class CMakeLanguageServer {
             }
 
             if (refToDef.has(wordPos)) {
-                resolve(refToDef.get(wordPos));
+                return resolve(refToDef.get(wordPos));
             } else {
                 if (!parsedFiles.has(params.textDocument.uri)) {
                     refToDef.clear();
@@ -434,7 +434,7 @@ class CMakeLanguageServer {
                     parsedFiles.delete(params.textDocument.uri);
 
                     if (refToDef.has(wordPos)) {
-                        resolve(refToDef.get(wordPos));
+                        return resolve(refToDef.get(wordPos));
                     }
                 }
 
@@ -625,9 +625,8 @@ class CMakeLanguageServer {
     private getArgumentSuggestions(command: string): Promise<CompletionItem[] | null> {
         return new Promise((resolve, rejects) => {
             if (!(command in builtinCmds)) {
-                resolve(null);
+                return resolve(null);
             }
-
             const sigs: string[] = builtinCmds[command]['sig'];
             const args: string[] = sigs.flatMap(sig => {
                 const matches = sig.match(/[A-Z][A-Z_]*[A-Z]/g);
