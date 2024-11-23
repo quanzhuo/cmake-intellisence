@@ -3,7 +3,7 @@ import { exec } from 'child_process';
 import { existsSync } from 'fs';
 import { CompletionItemKind, CompletionParams, DefinitionParams, DocumentFormattingParams, DocumentSymbolParams, SignatureHelpTriggerKind } from 'vscode-languageserver-protocol';
 import { Range, TextDocument } from 'vscode-languageserver-textdocument';
-import { CompletionItem, CompletionItemTag, Position } from 'vscode-languageserver-types';
+import { CompletionItem, CompletionItemTag, CompletionList, Hover, Position } from 'vscode-languageserver-types';
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
@@ -14,7 +14,7 @@ import { Formatter } from './format';
 import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
 import CMakeSimpleLexer from './generated/CMakeSimpleLexer';
-import CMakeSimpleParser from './generated/CMakeSimpleParser';
+import CMakeSimpleParser, * as cmsp from './generated/CMakeSimpleParser';
 import localize from './localize';
 import { Logger, createLogger } from './logging';
 import SemanticDiagnosticsListener, { CommandCaseChecker } from './semanticDiagnostics';
@@ -29,6 +29,22 @@ type Word = {
     line: number,
     col: number
 };
+
+enum CMakeCompletionType {
+    Command,
+    Module,
+    Policy,
+    Variable,
+    Property,
+    Argument,
+}
+
+interface CMakeCompletionInfo {
+    type: CMakeCompletionType,
+
+    // if type is CMakeCompletionType.Argument, this field is the active command name
+    command?: string,
+}
 
 export let logger: Logger;
 export let initializationOptions: any;
@@ -54,11 +70,11 @@ class CMakeLanguageServer {
         this.connection.onDocumentFormatting(this.onDocumentFormatting.bind(this));
         this.connection.onDocumentSymbol(this.onDocumentSymbol.bind(this));
         this.connection.onDefinition(this.onDefinition.bind(this));
+        this.connection.onCodeAction(this.onCodeAction.bind(this));
+        this.connection.onDidChangeConfiguration(this.onDidChangeConfiguration.bind(this));
         this.connection.languages.semanticTokens.on(this.onSemanticTokens.bind(this));
         this.connection.languages.semanticTokens.onDelta(this.onSemanticTokensDelta.bind(this));
         this.connection.languages.semanticTokens.onRange(this.onSemanticTokensRange.bind(this));
-        this.connection.onCodeAction(this.onCodeAction.bind(this));
-        this.connection.onDidChangeConfiguration(this.onDidChangeConfiguration.bind(this));
         this.documents.onDidChangeContent(this.onDidChangeContent.bind(this));
         this.documents.onDidClose(this.onDidClose.bind(this));
 
@@ -114,7 +130,7 @@ class CMakeLanguageServer {
         logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
     }
 
-    private async onHover(params: HoverParams) {
+    private async onHover(params: HoverParams): Promise<Hover | null> {
         const document: TextDocument = this.documents.get(params.textDocument.uri);
         const word = this.getWordAtPosition(document, params.position).text;
         if (word.length === 0) {
@@ -171,19 +187,87 @@ class CMakeLanguageServer {
         }
     }
 
-    private async onCompletion(params: CompletionParams) {
-        const document = this.documents.get(params.textDocument.uri);
-        const word = this.getWordAtPosition(document, params.position).text;
-        if (word.length === 0) {
+    /**
+     * Retrieves the current command context based on the given position.
+     * Utilizes binary search to determine if the position falls within the range of any command.
+     * 
+     * @param contexts - An array of command contexts to search within.
+     * @param position - The position to check against the command contexts.
+     * @returns The command context if the position is within any command's range, otherwise null.
+     */
+    private findActiveCommand(contexts: cmsp.CommandContext[], position: Position): cmsp.CommandContext | null {
+        if (contexts.length === 0) {
             return null;
         }
 
+        let left = 0, right = contexts.length - 1;
+        let mid = 0;
+        while (left <= right) {
+            mid = Math.floor((left + right) / 2);
+            // line is 1-based, column is 0-based in antlr4
+            const start = contexts[mid].start.line - 1;
+            const stop = contexts[mid].stop.line - 1;
+            if (position.line >= start && position.line <= stop) {
+                return contexts[mid];
+            } else if (position.line < start) {
+                right = mid - 1;
+            } else {
+                left = mid + 1;
+            }
+        }
+        return null;
+    }
+
+    private getCompletionInfoAtCursor(tree: cmsp.FileContext, position: Position): CMakeCompletionInfo {
+        const commands: cmsp.CommandContext[] = tree.command_list();
+        const currentCommand = this.findActiveCommand(commands, position);
+        if (currentCommand === null) {
+            return { type: CMakeCompletionType.Command };
+        } else {
+            const lParen = currentCommand.LParen();
+            if (lParen === null) {
+                return { type: CMakeCompletionType.Command };
+            }
+            // line is 1-based, column is 0-based in antlr4
+            const lParenLine = currentCommand.LParen().symbol.line - 1;
+            const rParenLine = currentCommand.RParen().symbol.line - 1;
+            const lParenColumn = currentCommand.LParen().symbol.column;
+            const rParenColumn = currentCommand.RParen().symbol.column;
+            if (position.line >= lParenLine && position.line <= rParenLine) {
+                // if the cursor is within the range of the command's arguments
+                if (position.character > lParenColumn && position.character <= rParenColumn) {
+                    return { type: CMakeCompletionType.Argument, command: currentCommand.ID().symbol.text };
+                } else {
+                    return { type: CMakeCompletionType.Command };
+                }
+            }
+        }
+        return { type: CMakeCompletionType.Command };
+    }
+
+    private async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
+        const document = this.documents.get(params.textDocument.uri);
+        const inputStream = CharStreams.fromString(document.getText());
+        const lexer = new CMakeSimpleLexer(inputStream);
+        const tokenStream = new CommonTokenStream(lexer);
+        const parser = new CMakeSimpleParser(tokenStream);
+        const tree = parser.file();
+        const info = this.getCompletionInfoAtCursor(tree, params.position);
+
+        const word = this.getWordAtPosition(document, params.position).text;
+        if (info.type === CMakeCompletionType.Command) {
+            return this.getCommandSuggestions(word);
+        } else if (info.type === CMakeCompletionType.Argument) {
+            const command = info.command.toLowerCase();
+            return this.getArgumentSuggestions(command);
+        }
+
         const results = await Promise.all([
-            this.getCommandProposals(word),
-            this.getProposals(word, CompletionItemKind.Module, this.cmakeInfo.modules),
-            this.getProposals(word, CompletionItemKind.Constant, this.cmakeInfo.policies),
-            this.getProposals(word, CompletionItemKind.Variable, this.cmakeInfo.variables),
-            this.getProposals(word, CompletionItemKind.Property, this.cmakeInfo.properties)
+            this.getCommandSuggestions(word),
+            this.getSuggestions(word, CompletionItemKind.Module, this.cmakeInfo.modules),
+            this.getSuggestions(word, CompletionItemKind.Constant, this.cmakeInfo.policies),
+            this.getSuggestions(word, CompletionItemKind.Variable, this.cmakeInfo.variables),
+            this.getSuggestions(word, CompletionItemKind.Property, this.cmakeInfo.properties)
         ]);
         return results.flat();
     }
@@ -517,7 +601,7 @@ class CMakeLanguageServer {
         return textDocument.getText(lineRange);
     }
 
-    private getCommandProposals(word: string): Thenable<CompletionItem[]> {
+    private getCommandSuggestions(word: string): Thenable<CompletionItem[]> {
         return new Promise((resolve, rejects) => {
             const similarCmds = Object.keys(builtinCmds).filter(cmd => {
                 return cmd.includes(word.toLowerCase());
@@ -538,7 +622,28 @@ class CMakeLanguageServer {
         });
     }
 
-    private getProposals(word: string, kind: CompletionItemKind, dataSource: string[]): Thenable<CompletionItem[]> {
+    private getArgumentSuggestions(command: string): Promise<CompletionItem[] | null> {
+        return new Promise((resolve, rejects) => {
+            if (!(command in builtinCmds)) {
+                resolve(null);
+            }
+
+            const sigs: string[] = builtinCmds[command]['sig'];
+            const args: string[] = sigs.flatMap(sig => {
+                const matches = sig.match(/[A-Z][A-Z_]*[A-Z]/g);
+                return matches ? matches : [];
+            });
+
+            resolve(args.map((arg, index, array) => {
+                return {
+                    label: arg,
+                    kind: CompletionItemKind.Variable
+                };
+            }));
+        });
+    }
+
+    private getSuggestions(word: string, kind: CompletionItemKind, dataSource: string[]): Thenable<CompletionItem[]> {
         return new Promise((resolve, rejects) => {
             const similar = dataSource.filter(candidate => {
                 return candidate.includes(word);

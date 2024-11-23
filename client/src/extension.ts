@@ -1,41 +1,25 @@
-import { stat } from 'node:fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
 import * as which from 'which';
-import { getConfigLogLevel, Logger } from './logging';
 import localize from './localize';
-
+import { getConfigLogLevel, Logger } from './logging';
 
 export const SERVER_ID = 'cmakeIntelliSence';
 export const SERVER_NAME = 'CMake Language Server';
 
 let client: LanguageClient;
 
-async function checkCMakeExecutable(cmakePath: string): Promise<boolean> {
-    try {
-        await stat(cmakePath);
-    } catch (error) {
-        try {
-            await which(cmakePath);
-        } catch (error) {
-            return false;
-        }
-    }
-    return true;
-}
-
 export async function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration(SERVER_ID);
     const logger = new Logger();
+    context.subscriptions.push(logger.getOutputChannel());
     logger.setLogLevel(getConfigLogLevel(config));
-
-    const serverModule = context.asAbsolutePath(
-        path.join('dist', 'server.js')
-    );
+    const serverModule = context.asAbsolutePath(path.join('dist', 'server.js'));
 
     async function checkAndStart(cmakePath: string) {
-        if (await checkCMakeExecutable(cmakePath)) {
+        const cmakePathAbs: string | null = which.sync(cmakePath, { nothrow: true });
+        if (cmakePathAbs) {
             startLanguageServer(serverModule, logger, context);
         } else {
             const selected = await vscode.window.showErrorMessage<string>(localize('cmakeNotFound'), localize('settings'));
@@ -93,7 +77,6 @@ function startLanguageServer(serverModule: string, logger: Logger, context: vsco
         }
     };
 
-
     client = new LanguageClient(SERVER_ID, SERVER_NAME, serverOptions, clientOptions);
 
     // start the client. This will also launch the server
@@ -103,8 +86,7 @@ function startLanguageServer(serverModule: string, logger: Logger, context: vsco
 
 
 export function deactivate() {
-    if (!client) {
-        return undefined;
+    if (client) {
+        return client.stop();
     }
-    return client.stop();
 }

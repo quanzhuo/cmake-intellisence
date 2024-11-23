@@ -96,13 +96,13 @@
           "cmakeIntelliSence.loggingLevel": {
             "type": "string",
             "enum": [
-              "Off",
-              "Error",
-              "Warnning",
-              "Info",
-              "Debug"
+              "off",
+              "error",
+              "warning",
+              "info",
+              "debug"
             ],
-            "default": "Off",
+            "default": "off",
             "markdownDescription": "%loggingLevel%"
           },
           "cmakeIntelliSence.trace.server": {

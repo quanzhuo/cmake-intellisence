@@ -5,7 +5,7 @@ import { SERVER_ID } from './extension';
 export enum LogLevel {
     DEBUG = 0,
     INFO = 1,
-    WARN = 2,
+    WARNING = 2,
     ERROR = 3,
     OFF = 4,
 }
@@ -49,10 +49,10 @@ export class Logger {
     }
 
     public warn(message: string, data?: unknown): void {
-        if (this.level > LogLevel.WARN) {
+        if (this.level > LogLevel.WARNING) {
             return;
         }
-        this.log(message, LogLevel.WARN);
+        this.log(message, LogLevel.WARNING);
         if (data) {
             this.logObject(data);
         }

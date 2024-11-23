@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import { resolve } from "path";
 import { initializationOptions } from './server';
-// import { initParams } from './server';
 
 export interface ILanguagePack {
     [key: string]: string;
