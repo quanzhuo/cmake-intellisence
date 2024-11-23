@@ -3,7 +3,7 @@ import { exec } from 'child_process';
 import { existsSync } from 'fs';
 import { CompletionItemKind, CompletionParams, DefinitionParams, DocumentFormattingParams, DocumentSymbolParams, SignatureHelpTriggerKind } from 'vscode-languageserver-protocol';
 import { Range, TextDocument } from 'vscode-languageserver-textdocument';
-import { CompletionItem, CompletionItemTag, CompletionList, Hover, Position } from 'vscode-languageserver-types';
+import { CompletionItem, CompletionItemTag, CompletionList, Hover, InsertTextFormat, Position } from 'vscode-languageserver-types';
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
@@ -603,16 +603,18 @@ class CMakeLanguageServer {
 
     private getCommandSuggestions(word: string): Thenable<CompletionItem[]> {
         return new Promise((resolve, rejects) => {
-            const similarCmds = Object.keys(builtinCmds).filter(cmd => {
+            const similarCmds = this.cmakeInfo.commands.filter(cmd => {
                 return cmd.includes(word.toLowerCase());
             });
             const proposalCmds: CompletionItem[] = similarCmds.map((value, index, array) => {
                 let item: CompletionItem = {
-                    label: value,
+                    label: `${value}`,
                     kind: CompletionItemKind.Function,
+                    insertText: `${value}($0)`,
+                    insertTextFormat: InsertTextFormat.Snippet,
                 };
 
-                if ("deprecated" in builtinCmds[value]) {
+                if (value in builtinCmds && "deprecated" in builtinCmds[value]) {
                     item.tags = [CompletionItemTag.Deprecated];
                 }
                 return item;
