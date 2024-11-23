@@ -5,6 +5,7 @@ type Modules = string[];
 type Policies = string[];
 type Variables = string[];
 type Properties = string[];
+type Commands = string[];
 
 export class CMakeInfo {
     public version: string;
@@ -15,13 +16,14 @@ export class CMakeInfo {
     public policies: string[] = [];
     public variables: string[] = [];
     public properties: string[] = [];
+    public commands: string[] = [];
 
     constructor(public cmakePath: string) { }
 
     public async init() {
         [
             [this.version, this.major, this.minor, this.patch],
-            [this.modules, this.policies, this.variables, this.properties]
+            [this.modules, this.policies, this.variables, this.properties, this.commands]
         ] = await Promise.all([this.getCMakeVersion(), this.getBuiltinEntries()]);
     }
 
@@ -38,8 +40,8 @@ export class CMakeInfo {
         ];
     }
 
-    private async getBuiltinEntries(): Promise<[Modules, Policies, Variables, Properties]> {
-        const command = this.cmakePath + " --help-module-list --help-policy-list --help-variable-list --help-property-list";
+    private async getBuiltinEntries(): Promise<[Modules, Policies, Variables, Properties, Commands]> {
+        const command = this.cmakePath + " --help-module-list --help-policy-list --help-variable-list --help-property-list --help-command-list";
         const { stdout, stderr } = await promisify(cp.exec)(command);
         const tmp = stdout.trim().split('\n\n\n');
         return [
@@ -47,6 +49,7 @@ export class CMakeInfo {
             tmp[1].split('\n'),
             tmp[2].split('\n'),
             tmp[3].split('\n'),
+            tmp[4].split('\n'),
         ];
     }
 }
