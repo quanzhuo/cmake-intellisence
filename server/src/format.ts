@@ -1,14 +1,15 @@
 import { CommonTokenStream } from "antlr4";
 import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
-import CMakeSimpleListener from "./generated/CMakeSimpleListener";
 import { CommandContext, FileContext } from "./generated/CMakeSimpleParser";
+import CMakeSimpleParserListener from "./generated/CMakeSimpleParserListener";
 
-export class Formatter extends CMakeSimpleListener {
+export class Formatter extends CMakeSimpleParserListener {
     private _indent: number;
     private _indentLevel: number;
     private _tokenStream: CommonTokenStream;
     private _formatted: string;
     private hiddenChannel = CMakeSimpleLexer.channelNames.indexOf("HIDDEN");
+    private commentsChannel = CMakeSimpleLexer.channelNames.indexOf("COMMENTS");
 
     constructor(_indent: number, tokenStream: any) {
         super();
@@ -25,7 +26,7 @@ export class Formatter extends CMakeSimpleListener {
 
     enterFile = (ctx: FileContext) => {
         for (let token of this._tokenStream.tokens) {
-            if (token.channel !== this.hiddenChannel) {
+            if (token.channel !== this.hiddenChannel && token.channel !== this.commentsChannel) {
                 break;
             }
             this._formatted += token.text;
@@ -119,7 +120,8 @@ export class Formatter extends CMakeSimpleListener {
         const token = this._tokenStream.get(tokenIndex);
 
         let result = "";
-        const hiddenTokens = this._tokenStream.getHiddenTokensToRight(tokenIndex, this.hiddenChannel);
+        // set channelIndex = -1 to get any non-default channel tokens
+        const hiddenTokens = this._tokenStream.getHiddenTokensToRight(tokenIndex, -1);
         if (hiddenTokens === null) {
             return result;
         }

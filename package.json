@@ -122,18 +122,15 @@
     "vscode:prepublish": "npm run product",
     "develop": "npm run grammar && npm run antlr4 && webpack --mode development --watch",
     "product": "npm run grammar && npm run antlr4 && webpack --mode production --devtool false",
-    "antlr4": "npm run antlr4-lexer && npm run antlr4-parser && npm run antlr4-cmake-format",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
     "postinstall": "cd client && npm install && cd ../server && npm install && cd ..",
-    "antlr4-lexer": "cd server/src/antlr && antlr4 -o ../generated/ -visitor -Dlanguage=TypeScript CMakeLexer.g4",
-    "antlr4-parser": "cd server/src/antlr && antlr4 -o ../generated/ -visitor -Dlanguage=TypeScript CMakeParser.g4",
     "grammar-cmake": "npx js-yaml ./syntaxes/cmake.tmLanguage.yml > ./syntaxes/cmake.tmLanguage.json",
     "grammar-cmakecache": "npx js-yaml ./syntaxes/cmakecache.tmLanguage.yml > ./syntaxes/cmakecache.tmLanguage.json",
     "grammar-cmdsignature": "npx js-yaml ./syntaxes/cmdsignature.tmLanguage.yml > ./syntaxes/cmdsignature.tmLanguage.json",
     "grammar": "node ./build/yaml-to-json.mjs",
-    "antlr4-cmake-format": "cd server/src/antlr && antlr4 -o ../generated/ -Dlanguage=TypeScript CMakeSimple.g4"
+    "antlr4": "cd server/src/antlr && antlr4 -o ../generated/ -visitor -Dlanguage=TypeScript CMakeLexer.g4 && antlr4 -o ../generated/ -visitor -Dlanguage=TypeScript CMakeParser.g4 && antlr4 -o ../generated/ -Dlanguage=TypeScript CMakeSimpleLexer.g4 && antlr4 -o ../generated/ -Dlanguage=TypeScript CMakeSimpleParser.g4"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",

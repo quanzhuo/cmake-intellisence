@@ -2,8 +2,8 @@ import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver";
 import { DIAG_CODE_CMD_CASE } from "./consts";
 import { BreakCmdContext, ContinueCmdContext, LoopContext } from "./generated/CMakeParser";
 import CMakeListener from "./generated/CMakeParserListener";
-import CMakeSimpleListener from "./generated/CMakeSimpleListener";
 import * as csp from './generated/CMakeSimpleParser';
+import CMakeSimpleParserListener from "./generated/CMakeSimpleParserListener";
 import localize from "./localize";
 
 export default class SemanticDiagnosticsListener extends CMakeListener {
@@ -58,7 +58,7 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
     }
 }
 
-export class CommandCaseChecker extends CMakeSimpleListener {
+export class CommandCaseChecker extends CMakeSimpleParserListener {
     private diagnostics: Diagnostic[] = [];
 
     enterCommand?: (ctx: csp.CommandContext) => void = (ctx: csp.CommandContext) => {

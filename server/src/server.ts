@@ -1,4 +1,4 @@
-import { CharStreams, CommonTokenStream, ParseTreeWalker } from 'antlr4';
+import { CharStreams, CommonTokenStream, ParseTreeWalker, Token } from 'antlr4';
 import { exec } from 'child_process';
 import { existsSync } from 'fs';
 import { CompletionItemKind, CompletionParams, DefinitionParams, DocumentFormattingParams, DocumentSymbolParams, SignatureHelpTriggerKind } from 'vscode-languageserver-protocol';
@@ -245,6 +245,30 @@ class CMakeLanguageServer {
         return { type: CMakeCompletionType.Command };
     }
 
+    private inComments(pos: Position, comments: Token[]): boolean {
+        let left = 0;
+        let right = comments.length - 1;
+
+        while (left <= right) {
+            const mid = Math.floor((left + right) / 2);
+            const comment = comments[mid];
+
+            if (comment.line === pos.line + 1) {
+                if (comment.column <= pos.character) {
+                    return true;
+                } else {
+                    right = mid - 1;
+                }
+            } else if (comment.line < pos.line + 1) {
+                left = mid + 1;
+            } else {
+                right = mid - 1;
+            }
+        }
+
+        return false;
+    }
+
     private async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
         const document = this.documents.get(params.textDocument.uri);
         const inputStream = CharStreams.fromString(document.getText());
@@ -252,6 +276,12 @@ class CMakeLanguageServer {
         const tokenStream = new CommonTokenStream(lexer);
         const parser = new CMakeSimpleParser(tokenStream);
         const tree = parser.file();
+        const comments = tokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
+
+        // if the cursor is in comments, return null
+        if (this.inComments(params.position, comments)) {
+            return null;
+        }
         const info = this.getCompletionInfoAtCursor(tree, params.position);
 
         const word = this.getWordAtPosition(document, params.position).text;
