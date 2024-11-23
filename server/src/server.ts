@@ -632,8 +632,7 @@ class CMakeLanguageServer {
                 const matches = sig.match(/[A-Z][A-Z_]*[A-Z]/g);
                 return matches ? matches : [];
             });
-
-            resolve(args.map((arg, index, array) => {
+            resolve(Array.from(new Set(args)).map((arg, index, array) => {
                 return {
                     label: arg,
                     kind: CompletionItemKind.Variable
