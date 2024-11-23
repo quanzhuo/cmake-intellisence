@@ -1,59 +1,25 @@
-[转到中文描述](#描述)
 # Description
 
-This extension add CMake language feature support to Kylin-IDE.
+CMake IntelliSense is a Visual Studio Code extension that support CMake language. It provides features such as syntax highlighting, semantic tokens, and code completion for CMake scripts. 
+
+## Feedback
+
+This extension is still under development, you may encounter bugs or missing features. If you have any suggestions or find any bugs, please feel free to open an issue on [gitee](https://gitee.com/openKylin/cmake-intellisence/issues) or [github](https://github.com/quanzhuo/cmake-intellisence/issues). Your feedback is highly appreciated.
+
+## Requirements
+
+This extension is written in TypeScript, no other runtime dependencies are required. You should have [CMake](https://cmake.org/download/) installed. 
 
 ## Features
 
 + syntax highlight
 + semantic tokens
-+ builtin commands document hover
-+ builtin commands signature support
 + commands, variable, properties... auto complete
 + document format
 + go to defination
 + publish diagnostics
 + code action
 
-## Requirements
-
-You should have CMake install.
-
-## Extension Settings
-
-This extension contributes the following settings:
-
-* `cmakeIntelliSence.loggingLevel`: Control the logging level.
-* `cmakeIntelliSence.trace.server`: Set to `verbose` or `message` to trace communication between client and server.
-* `cmakeIntelliSence.cmakePath`: path to cmake executable
-
-[english](#description)
-# 描述
-
-该扩展为支持kylin-IDE添加CMake语言功能。
-
-## 特性
-
-+ 语法高亮
-+ 语义标记
-+ 内置命令文档悬停
-+ 内置命令签名支持
-+ 命令，变量，属性…自动补全
-+ 文档格式化
-+ 转到定义
-+ 发布诊断信息
-+ 代码操作
-
-## 插件依赖
-
-使用该插件需要安装CMake软件包.
-
-## 插件设置
-
-该插件提供以下设置：
-
-* `cmakeIntelliSence.loggingLevel`: 控制日志级别。
-* `cmakeIntelliSence.trace.server`: 设置 `verbose` 或 `message` 跟踪客户端和服务器之间的通信.
-* `cmakeIntelliSence.cmakePath`: 设置可执行的路径
+![demo](https://github.com/quanzhuo/cmake-intellisence/raw/main/images/demo.gif)
 
 
