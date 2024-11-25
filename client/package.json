@@ -13,11 +13,9 @@
     "url": "https://gitee.com/openkylin/cmake-intellisence"
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1",
-    "which": "^5.0.0"
+    "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
-    "@types/vscode": "^1.68.0",
-    "@types/which": "^3.0.4"
+    "@types/vscode": "^1.68.0"
   }
 }
