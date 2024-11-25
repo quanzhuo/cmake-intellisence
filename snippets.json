@@ -1,40 +1,4 @@
 {
-	"Function": {
-		"prefix": "function",
-		"body": [
-			"function($1)",
-			"\t$2",
-			"endfunction()"
-		]
-	},
-	"While Loop": {
-		"prefix": "while",
-		"body": [
-			"while($1)",
-			"\t$2",
-			"endwhile()"
-		]
-	},
-	"Foreach Loop": {
-		"prefix": "foreach",
-		"body": [
-			"foreach(VAR $1)",
-			"\t$2",
-			"endforeach()"
-		]
-	},
-	"If Condition": {
-		"prefix": "if",
-		"body": [
-			"if($1)",
-			"\t$2",
-			"endif()"
-		]
-	},
-	"CMake Minimum Version": {
-		"prefix": "cmake_minimum_required",
-		"body": "cmake_minimum_required(VERSION $1)"
-	},
 	"Project Command": {
 		"prefix": "project",
 		"body": [
@@ -44,16 +8,17 @@
 			"        DESCRIPTION \"$3\")"
 		]
 	},
-	"Add An Executable": {
-		"prefix": "add_executable",
-		"body": "add_executable($1)"
-	},
-	"Add A Library": {
-		"prefix": "add_library",
-		"body": "add_library($1)"
-	},
-	"Link Libraries": {
-		"prefix": "target_link_libraries",
-		"body": "target_link_libraries($1)"
+	"Template CMakeLists.txt": {
+		"prefix": "cmake_minimum_required",
+		"body": [
+			"cmake_minimum_required(VERSION 3.0)",
+			"",
+			"project($1)",
+			"",
+			"set(CMAKE_CXX_STANDARD 11)",
+			"set(CMAKE_CXX_STANDARD_REQUIRED ON)",
+			"",
+			"add_executable($1 $2)"
+		]
 	}
 }
