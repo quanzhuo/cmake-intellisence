@@ -119,7 +119,7 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "node -e \"fs.rmSync('dist', {'recursive': true})\" && npm run product",
+    "vscode:prepublish": "node -e \"fs.rmSync('dist', {'recursive': true, 'force': true})\" && npm run product",
     "develop": "npm run grammar && npm run antlr4 && webpack --mode development --watch",
     "product": "npm run grammar && npm run antlr4 && webpack --mode production --devtool false",
     "pretest": "npm run compile && npm run lint",
