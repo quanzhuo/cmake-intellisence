@@ -1,4 +1,4 @@
-import { CharStreams, CommonTokenStream, ParseTreeWalker } from 'antlr4';
+import { CharStreams, CommonTokenStream, ParseTreeWalker, Token } from 'antlr4';
 import { exec } from 'child_process';
 import { existsSync } from 'fs';
 import { CompletionParams, DefinitionParams, DocumentFormattingParams, DocumentSymbolParams, SignatureHelpTriggerKind } from 'vscode-languageserver-protocol';
@@ -8,14 +8,14 @@ import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, D
 import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from './cmakeInfo';
-import Completion, { inComments } from './completion';
+import Completion, { findCommandAtPosition, inComments } from './completion';
 import { DIAG_CODE_CMD_CASE } from './consts';
 import { SymbolListener } from './docSymbols';
 import { Formatter } from './format';
 import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
 import CMakeSimpleLexer from './generated/CMakeSimpleLexer';
-import CMakeSimpleParser from './generated/CMakeSimpleParser';
+import CMakeSimpleParser, * as cmsp from './generated/CMakeSimpleParser';
 import localize from './localize';
 import { Logger, createLogger } from './logging';
 import SemanticDiagnosticsListener, { CommandCaseChecker } from './semanticDiagnostics';
@@ -143,64 +143,69 @@ export class CMakeLanguageServer {
         const lexer = new CMakeSimpleLexer(inputStream);
         const tokenStream = new CommonTokenStream(lexer);
         const parser = new CMakeSimpleParser(tokenStream);
-        parser.file();
+        const tree = parser.file();
         const comments = tokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
         if (inComments(params.position, comments)) {
             return null;
         }
 
-        const word = getWordAtPosition(document, params.position).text;
-        if (word.length === 0) {
+        const commands: cmsp.CommandContext[] = tree.command_list();
+        const hoveredCommand = findCommandAtPosition(commands, params.position);
+        if (hoveredCommand === null) {
             return null;
         }
 
-        const wordLower = word.toLowerCase();
-        if (wordLower in builtinCmds) {
-            const sigs = '```cmdsignature\n'
-                + builtinCmds[wordLower]['sig'].join('\n')
-                + '\n```';
-            const cmdHelp: string = builtinCmds[wordLower]['doc'] + '\n' + sigs;
-            return {
-                contents: {
-                    kind: 'markdown',
-                    value: cmdHelp
-                }
-            };
-        }
-
-        let moduleArg = '';
-
-        if (this.cmakeInfo.modules.includes(word)) {
-            const line = document.getText({
-                start: { line: params.position.line, character: 0 },
-                end: { line: params.position.line, character: Number.MAX_VALUE }
-            });
-            if (line.trim().startsWith('include')) {
-                moduleArg = '--help-module ';
-            }
-        } else if (this.cmakeInfo.policies.includes(word)) {
-            moduleArg = '--help-policy ';
-        } else if (this.cmakeInfo.variables.includes(word)) {
-            moduleArg = '--help-variable ';
-        } else if (this.cmakeInfo.properties.includes(word)) {
-            moduleArg = '--help-property ';
-        }
-
-        if (moduleArg.length !== 0) {
-            const command = 'cmake ' + moduleArg + word;
-            return new Promise((resolve, rejects) => {
-                exec(command, (error, stdout, stderr) => {
-                    if (error) {
-                        rejects(error);
+        const commandToken: Token = hoveredCommand.ID().symbol;
+        const commandName = commandToken.text.toLowerCase();
+        // if hover on command name
+        if ((params.position.line + 1 === commandToken.line) && (params.position.character <= commandToken.column + commandToken.text.length)) {
+            if (commandName.toLowerCase() in builtinCmds) {
+                const sigs = '```cmdsignature\n'
+                    + builtinCmds[commandName]['sig'].join('\n')
+                    + '\n```';
+                const cmdHelp: string = builtinCmds[commandName]['doc'] + '\n' + sigs;
+                return {
+                    contents: {
+                        kind: 'markdown',
+                        value: cmdHelp
                     }
-                    resolve({
-                        contents: {
-                            kind: 'plaintext',
-                            value: stdout
+                };
+            }
+        }
+        // hover on arguments
+        else {
+            const word = getWordAtPosition(document, params.position).text;
+            if (word.length === 0) {
+                return null;
+            }
+
+            let arg = '';
+            if (commandName === 'include' && this.cmakeInfo.modules.includes(word)) {
+                arg = '--help-module ';
+            } else if (commandName === 'cmake_policy' && this.cmakeInfo.policies.includes(word)) {
+                arg = '--help-policy ';
+            } else if (this.cmakeInfo.variables.includes(word)) {
+                arg = '--help-variable ';
+            } else if (this.cmakeInfo.properties.includes(word)) {
+                arg = '--help-property ';
+            }
+
+            if (arg.length !== 0) {
+                const command = 'cmake ' + arg + word;
+                return new Promise((resolve, rejects) => {
+                    exec(command, (error, stdout, stderr) => {
+                        if (error) {
+                            rejects(error);
                         }
+                        resolve({
+                            contents: {
+                                kind: 'plaintext',
+                                value: stdout
+                            }
+                        });
                     });
                 });
-            });
+            }
         }
     }
 

@@ -57,6 +57,38 @@ export function inComments(pos: Position, comments: Token[]): boolean {
     return false;
 }
 
+/**
+ * Retrieves the current command context based on the given position.
+ * Utilizes binary search to determine if the position falls within the range of any command.
+ * 
+ * @param contexts - An array of command contexts to search within.
+ * @param position - The position to check against the command contexts.
+ * @returns The command context if the position is within any command's range, otherwise null.
+ */
+export function findCommandAtPosition(contexts: cmsp.CommandContext[], position: Position): cmsp.CommandContext | null {
+    if (contexts.length === 0) {
+        return null;
+    }
+
+    let left = 0, right = contexts.length - 1;
+    let mid = 0;
+
+    while (left <= right) {
+        mid = Math.floor((left + right) / 2);
+        // line is 1-based, column is 0-based in antlr4
+        const start = contexts[mid].start.line - 1;
+        const stop = contexts[mid].stop.line - 1;
+        if (position.line >= start && position.line <= stop) {
+            return contexts[mid];
+        } else if (position.line < start) {
+            right = mid - 1;
+        } else {
+            left = mid + 1;
+        }
+    }
+    return null;
+}
+
 export default class Completion {
     constructor(
         private initParams: InitializeParams,
@@ -66,40 +98,9 @@ export default class Completion {
         private cmakeInfo: CMakeInfo,
     ) { }
 
-    /**
- * Retrieves the current command context based on the given position.
- * Utilizes binary search to determine if the position falls within the range of any command.
- * 
- * @param contexts - An array of command contexts to search within.
- * @param position - The position to check against the command contexts.
- * @returns The command context if the position is within any command's range, otherwise null.
- */
-    private findActiveCommand(contexts: cmsp.CommandContext[], position: Position): cmsp.CommandContext | null {
-        if (contexts.length === 0) {
-            return null;
-        }
-
-        let left = 0, right = contexts.length - 1;
-        let mid = 0;
-        while (left <= right) {
-            mid = Math.floor((left + right) / 2);
-            // line is 1-based, column is 0-based in antlr4
-            const start = contexts[mid].start.line - 1;
-            const stop = contexts[mid].stop.line - 1;
-            if (position.line >= start && position.line <= stop) {
-                return contexts[mid];
-            } else if (position.line < start) {
-                right = mid - 1;
-            } else {
-                left = mid + 1;
-            }
-        }
-        return null;
-    }
-
     private getCompletionInfoAtCursor(tree: cmsp.FileContext, position: Position): CMakeCompletionInfo {
         const commands: cmsp.CommandContext[] = tree.command_list();
-        const currentCommand = this.findActiveCommand(commands, position);
+        const currentCommand = findCommandAtPosition(commands, position);
         if (currentCommand === null) {
             return { type: CMakeCompletionType.Command };
         } else {
