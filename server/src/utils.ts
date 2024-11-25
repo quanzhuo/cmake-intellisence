@@ -9,6 +9,26 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { TextDocuments } from 'vscode-languageserver';
 import { CMakeInfo } from './cmakeInfo';
 import { logger } from './server';
+import * as cmsp from './generated/CMakeSimpleParser';
+import * as cmsl from './generated/CMakeSimpleLexer';
+import CMakeSimpleLexer from './generated/CMakeSimpleLexer';
+import CMakeSimpleParser from './generated/CMakeSimpleParser';
+
+export function getSimpleFileContext(text: string): cmsp.FileContext {
+    const input: CharStream = CharStreams.fromString(text);
+    const lexer = new CMakeSimpleLexer(input);
+    const tokenStream = new CommonTokenStream(lexer);
+    const parser = new CMakeSimpleParser(tokenStream);
+    return parser.file();
+}
+
+// export function getFileContext(text: string): FileContext {
+//     const input: CharStream = CharStreams.fromString(text);
+//     const lexer = new CMakeLexer(input);
+//     const tokenStream = new CommonTokenStream(lexer);
+//     const parser = new CMakeParser(tokenStream);
+//     return parser.file();
+// }
 
 export function getFileContext(documents: TextDocuments<TextDocument>, uri: URI): FileContext {
     const document = documents.get(uri.toString());

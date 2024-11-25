@@ -23,6 +23,40 @@ interface CMakeCompletionInfo {
     command?: string,
 }
 
+/**
+ * Determines if a given position is within a list of comments.
+ *
+ * This function performs a binary search on the sorted list of comments to check if the specified position
+ * falls within any of the comment ranges.
+ *
+ * @param pos - The position to check, represented by a `Position` object with `line` and `character` properties.
+ * @param comments - An array of `Token` objects representing the comments, each with `line` and `column` properties.
+ * @returns `true` if the position is within a comment, `false` otherwise.
+ */
+export function inComments(pos: Position, comments: Token[]): boolean {
+    let left = 0;
+    let right = comments.length - 1;
+
+    while (left <= right) {
+        const mid = Math.floor((left + right) / 2);
+        const comment = comments[mid];
+
+        if (comment.line === pos.line + 1) {
+            if (comment.column <= pos.character) {
+                return true;
+            } else {
+                right = mid - 1;
+            }
+        } else if (comment.line < pos.line + 1) {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+
+    return false;
+}
+
 export default class Completion {
     constructor(
         private initParams: InitializeParams,
@@ -31,30 +65,6 @@ export default class Completion {
         private extSettings: ExtensionSettings,
         private cmakeInfo: CMakeInfo,
     ) { }
-
-    private inComments(pos: Position, comments: Token[]): boolean {
-        let left = 0;
-        let right = comments.length - 1;
-
-        while (left <= right) {
-            const mid = Math.floor((left + right) / 2);
-            const comment = comments[mid];
-
-            if (comment.line === pos.line + 1) {
-                if (comment.column <= pos.character) {
-                    return true;
-                } else {
-                    right = mid - 1;
-                }
-            } else if (comment.line < pos.line + 1) {
-                left = mid + 1;
-            } else {
-                right = mid - 1;
-            }
-        }
-
-        return false;
-    }
 
     /**
  * Retrieves the current command context based on the given position.
@@ -168,7 +178,7 @@ export default class Completion {
                     insertTextFormat: InsertTextFormat.Snippet,
                 });
             }
-            
+
             if (similarCmds.includes('macro')) {
                 suggestedCommands.push({
                     label: 'macro ... endmacro',
@@ -228,7 +238,7 @@ export default class Completion {
         const comments = tokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
 
         // if the cursor is in comments, return null
-        if (this.inComments(params.position, comments)) {
+        if (inComments(params.position, comments)) {
             return null;
         }
         const info = this.getCompletionInfoAtCursor(tree, params.position);

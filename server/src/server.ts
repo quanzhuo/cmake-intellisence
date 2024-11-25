@@ -8,7 +8,7 @@ import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, D
 import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from './cmakeInfo';
-import Completion from './completion';
+import Completion, { inComments } from './completion';
 import { DIAG_CODE_CMD_CASE } from './consts';
 import { SymbolListener } from './docSymbols';
 import { Formatter } from './format';
@@ -139,6 +139,16 @@ export class CMakeLanguageServer {
 
     private async onHover(params: HoverParams): Promise<Hover | null> {
         const document: TextDocument = this.documents.get(params.textDocument.uri);
+        const inputStream = CharStreams.fromString(document.getText());
+        const lexer = new CMakeSimpleLexer(inputStream);
+        const tokenStream = new CommonTokenStream(lexer);
+        const parser = new CMakeSimpleParser(tokenStream);
+        parser.file();
+        const comments = tokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
+        if (inComments(params.position, comments)) {
+            return null;
+        }
+
         const word = getWordAtPosition(document, params.position).text;
         if (word.length === 0) {
             return null;
