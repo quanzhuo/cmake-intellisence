@@ -1,15 +1,16 @@
 import { CharStreams, CommonTokenStream, ParseTreeWalker, Token } from 'antlr4';
 import { exec } from 'child_process';
 import { existsSync } from 'fs';
-import { CompletionParams, DefinitionParams, DocumentFormattingParams, DocumentSymbolParams, SignatureHelpTriggerKind } from 'vscode-languageserver-protocol';
+import { CompletionParams, DefinitionParams, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams, SignatureHelpTriggerKind } from 'vscode-languageserver-protocol';
 import { Range, TextDocument } from 'vscode-languageserver-textdocument';
-import { CompletionItem, CompletionList, Hover, Position } from 'vscode-languageserver-types';
+import { CompletionItem, CompletionList, DocumentLink, Hover, Position } from 'vscode-languageserver-types';
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from './cmakeInfo';
 import Completion, { findCommandAtPosition, inComments } from './completion';
 import { DIAG_CODE_CMD_CASE } from './consts';
+import { DocumentLinkInfo } from './docLink';
 import { SymbolListener } from './docSymbols';
 import { Formatter } from './format';
 import CMakeLexer from './generated/CMakeLexer';
@@ -23,7 +24,7 @@ import { SemanticListener, getTokenBuilder, getTokenModifiers, getTokenTypes, to
 import ExtensionSettings from './settings';
 import { DefinationListener, incToBaseDir, parsedFiles, refToDef, topScope } from './symbolTable/goToDefination';
 import SyntaxErrorListener from './syntaxDiagnostics';
-import { getFileContext } from './utils';
+import { getFileContext, getSimpleFileContext } from './utils';
 
 type Word = {
     text: string,
@@ -79,6 +80,7 @@ export class CMakeLanguageServer {
         this.connection.onDefinition(this.onDefinition.bind(this));
         this.connection.onCodeAction(this.onCodeAction.bind(this));
         this.connection.onDidChangeConfiguration(this.onDidChangeConfiguration.bind(this));
+        this.connection.onDocumentLinks(this.onDocumentLinks.bind(this));
         this.connection.languages.semanticTokens.on(this.onSemanticTokens.bind(this));
         this.connection.languages.semanticTokens.onDelta(this.onSemanticTokensDelta.bind(this));
         this.connection.languages.semanticTokens.onRange(this.onSemanticTokensRange.bind(this));
@@ -92,6 +94,9 @@ export class CMakeLanguageServer {
     private async onInitialize(params: InitializeParams): Promise<InitializeResult> {
         this.initParams = params;
         initializationOptions = params.initializationOptions;
+        this.cmakeInfo = new CMakeInfo(initializationOptions.cmakePath, this.connection);
+        await this.cmakeInfo.init();
+        logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
 
         const result: InitializeResult = {
             capabilities: {
@@ -118,7 +123,8 @@ export class CMakeLanguageServer {
                     codeActionKinds: [
                         CodeActionKind.QuickFix
                     ]
-                }
+                },
+                documentLinkProvider: {},
             },
             serverInfo: {
                 name: 'cmakels',
@@ -132,9 +138,6 @@ export class CMakeLanguageServer {
     private async onInitialized(params: InitializedParams) {
         this.connection.client.register(DidChangeConfigurationNotification.type, undefined);
         await this.extSettings.getSettings(this.connection);
-        this.cmakeInfo = new CMakeInfo(this.extSettings.cmakePath);
-        await this.cmakeInfo.init();
-        logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
     }
 
     private async onHover(params: HoverParams): Promise<Hover | null> {
@@ -505,6 +508,26 @@ export class CMakeLanguageServer {
             diagnostics.diagnostics.push(...cmdCaseChecker.getCmdCaseDdiagnostics());
         }
         this.connection.sendDiagnostics(diagnostics);
+    }
+
+    private async onDocumentLinks(params: DocumentLinkParams): Promise<DocumentLink[] | null> {
+        const document = this.documents.get(params.textDocument.uri);
+        const simpleFileContext = getSimpleFileContext(document.getText());
+        let commands: cmsp.CommandContext[] = simpleFileContext.command_list();
+        commands = commands.filter((command: cmsp.CommandContext) => {
+            const cmdName = command.ID().symbol.text;
+            return cmdName === 'include' ||
+                cmdName === 'file' ||
+                cmdName === 'target_sources' ||
+                cmdName === 'add_executable' ||
+                cmdName === 'add_library' ||
+                cmdName === 'add_subdirectory';
+        });
+        if (commands.length === 0) {
+            return null;
+        }
+
+        return new DocumentLinkInfo(commands, params.textDocument.uri, this.cmakeInfo).links;
     }
 
     private onDidClose(event: TextDocumentChangeEvent<TextDocument>) {

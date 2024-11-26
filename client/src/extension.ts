@@ -74,6 +74,7 @@ function startLanguageServer(serverModule: string, logger: Logger, context: vsco
         initializationOptions: {
             language: vscode.env.language,
             extensionPath: context.extensionPath,
+            cmakePath: vscode.workspace.getConfiguration(SERVER_ID).get<string>('cmakePath'),
         }
     };
 
