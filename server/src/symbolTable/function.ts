@@ -1,14 +1,14 @@
 import { ParseTree, ParseTreeWalker, Token } from 'antlr4';
+import { TextDocuments } from 'vscode-languageserver';
+import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from "vscode-uri";
+import { CMakeInfo } from '../cmakeInfo';
 import { AddSubDirectoryCmdContext, ArgumentContext, EndFunctionCmdContext, EndMacroCmdContext, FunctionCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext } from "../generated/CMakeParser";
 import CMakeListener from "../generated/CMakeParserListener";
-import { getFileContext, getIncludeFileUri, getSubCMakeListsUri } from "../utils";
+import { getFileContent, getFileContext, getIncludeFileUri, getSubCMakeListsUri } from "../utils";
 import { DefinationListener, incToBaseDir, refToDef } from "./goToDefination";
 import { FileScope, FunctionScope, MacroScope, Scope } from "./scope";
 import { Sym, Type } from "./symbol";
-import { TextDocument } from 'vscode-languageserver-textdocument';
-import { TextDocuments } from 'vscode-languageserver';
-import { CMakeInfo } from '../cmakeInfo';
 
 export class FuncMacroListener extends CMakeListener {
     private currentScope: Scope;
@@ -30,7 +30,7 @@ export class FuncMacroListener extends CMakeListener {
 
         this.funcMacroSym = symbol;
         this.documents = documents;
-        this.cmakeInfo = this.cmakeInfo;
+        this.cmakeInfo = cmakeInfo;
     }
 
     enterFunctionCmd = (ctx: FunctionCmdContext): void => {
@@ -134,7 +134,7 @@ export class FuncMacroListener extends CMakeListener {
             }
         });
 
-        const tree = getFileContext(this.documents, incUri);
+        const tree = getFileContext(getFileContent(this.documents, incUri));
         const definationListener = new DefinationListener(this.documents, this.cmakeInfo, baseDir, incUri, this.currentScope);
         ParseTreeWalker.DEFAULT.walk(definationListener, tree);
     };
@@ -175,7 +175,7 @@ export class FuncMacroListener extends CMakeListener {
             }
         });
 
-        const tree = getFileContext(this.documents, subCMakeListsUri);
+        const tree = getFileContext(getFileContent(this.documents, subCMakeListsUri));
         const subDirScope: Scope = new FileScope(this.currentScope);
         this.currentScope = subDirScope;
         const definationListener = new DefinationListener(this.documents, this.cmakeInfo, baseDir, subCMakeListsUri, subDirScope);

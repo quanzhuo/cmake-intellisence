@@ -325,11 +325,7 @@ export class CMakeLanguageServer {
     private onDocumentSymbol(params: DocumentSymbolParams) {
         const document = this.documents.get(params.textDocument.uri);
         return new Promise((resolve, reject) => {
-            const input = CharStreams.fromString(document.getText());
-            const lexer = new CMakeLexer(input);
-            const tokenStream = new CommonTokenStream(lexer);
-            const parser = new CMakeParser(tokenStream);
-            const tree = parser.file();
+            const tree = getSimpleFileContext(document.getText());
             const symbolListener = new SymbolListener();
             ParseTreeWalker.DEFAULT.walk(symbolListener, tree);
             resolve(symbolListener.getSymbols());
@@ -365,7 +361,7 @@ export class CMakeLanguageServer {
                 }
 
                 const baseDir: URI = Utils.dirname(rootFileURI);
-                const tree = getFileContext(this.documents, rootFileURI);
+                const tree = getFileContext(document.getText());
                 const definationListener = new DefinationListener(this.documents, this.cmakeInfo, baseDir, rootFileURI, topScope);
                 ParseTreeWalker.DEFAULT.walk(definationListener, tree);
 
@@ -381,7 +377,7 @@ export class CMakeLanguageServer {
                     incToBaseDir.clear();
 
                     const curFile: URI = URI.parse(params.textDocument.uri);
-                    const tree = getFileContext(this.documents, curFile);
+                    const tree = getFileContext(document.getText());
                     const baseDir: URI = Utils.dirname(curFile);
                     const definationListener = new DefinationListener(this.documents, this.cmakeInfo, baseDir, curFile, topScope);
                     ParseTreeWalker.DEFAULT.walk(definationListener, tree);
@@ -394,7 +390,7 @@ export class CMakeLanguageServer {
                 }
 
                 logger.warning(`can't find defination, word: ${word.text}, wordPos: ${wordPos}`);
-                return null;
+                return resolve(null);
             }
         });
     }
@@ -404,12 +400,10 @@ export class CMakeLanguageServer {
         if (document === undefined) {
             return { data: [] };
         }
-
         const docUri: URI = URI.parse(params.textDocument.uri);
-        const tree: FileContext = getFileContext(this.documents, docUri);
+        const tree: FileContext = getFileContext(document.getText());
         const semanticListener = new SemanticListener(docUri, this.cmakeInfo);
         ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
-
         return semanticListener.getSemanticTokens();
     }
 
@@ -423,12 +417,10 @@ export class CMakeLanguageServer {
 
         const builder = getTokenBuilder(document.uri);
         builder.previousResult(params.previousResultId);
-
         const docuUri: URI = URI.parse(document.uri);
-        const tree = getFileContext(this.documents, docuUri);
+        const tree = getFileContext(document.getText());
         const semanticListener = new SemanticListener(docuUri, this.cmakeInfo);
         ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
-
         return semanticListener.buildEdits();
     }
 

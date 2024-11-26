@@ -1,16 +1,15 @@
 import { ParseTree, ParseTreeWalker, Token } from 'antlr4';
+import { TextDocuments } from 'vscode-languageserver';
+import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Location } from "vscode-languageserver-types";
 import { URI, Utils } from "vscode-uri";
+import { CMakeInfo } from '../cmakeInfo';
 import { AddSubDirectoryCmdContext, ArgumentContext, EndFunctionCmdContext, EndMacroCmdContext, FileContext, FunctionCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext } from '../generated/CMakeParser';
 import CMakeListener from "../generated/CMakeParserListener";
-import { getFileContext, getIncludeFileUri, getSubCMakeListsUri } from "../utils";
+import { getFileContent, getFileContext, getIncludeFileUri, getSubCMakeListsUri } from "../utils";
 import { FuncMacroListener } from "./function";
 import { FileScope, Scope } from "./scope";
 import { Sym, Type } from "./symbol";
-import { TextDocuments } from 'vscode-languageserver';
-import { TextDocument } from 'vscode-languageserver-textdocument';
-import ExtensionSettings from '../settings';
-import { CMakeInfo } from '../cmakeInfo';
 
 export const topScope: FileScope = new FileScope(null);
 export const incToBaseDir: Map<string, URI> = new Map<string, URI>();
@@ -139,7 +138,7 @@ export class DefinationListener extends CMakeListener {
             }
         });
 
-        const tree = getFileContext(this.documents, incUri);
+        const tree = getFileContext(getFileContent(this.documents, incUri));
         const definationListener = new DefinationListener(this.documents, this.cmakeInfo, this.baseDir, incUri, this.currentScope);
         ParseTreeWalker.DEFAULT.walk(definationListener, tree);
     };
@@ -181,7 +180,7 @@ export class DefinationListener extends CMakeListener {
             }
         });
 
-        const tree = getFileContext(this.documents, subCMakeListsUri);
+        const tree = getFileContext(getFileContent(this.documents, subCMakeListsUri));
         const subDirScope: Scope = new FileScope(this.currentScope);
         // FIXME: 此处是否应该切换作用域?
         this.currentScope = subDirScope;
@@ -221,7 +220,7 @@ export class DefinationListener extends CMakeListener {
 
         // parse the function body, only parse the function once
         if (!symbol.funcMacroParsed) {
-            const tree = getFileContext(this.documents, symbol.getUri());
+            const tree = getFileContext(getFileContent(this.documents, symbol.getUri()));
             const functionListener = new FuncMacroListener(this.documents, this.cmakeInfo, this.currentScope, symbol);
             ParseTreeWalker.DEFAULT.walk(functionListener, tree);
             symbol.funcMacroParsed = true;

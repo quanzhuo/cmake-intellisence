@@ -2,17 +2,15 @@ import { CharStream, CharStreams, CommonTokenStream } from 'antlr4';
 import { existsSync, readFileSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { TextDocuments } from 'vscode-languageserver';
+import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI, Utils } from 'vscode-uri';
+import { CMakeInfo } from './cmakeInfo';
 import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
-import { TextDocument } from 'vscode-languageserver-textdocument';
-import { TextDocuments } from 'vscode-languageserver';
-import { CMakeInfo } from './cmakeInfo';
-import { logger } from './server';
-import * as cmsp from './generated/CMakeSimpleParser';
-import * as cmsl from './generated/CMakeSimpleLexer';
 import CMakeSimpleLexer from './generated/CMakeSimpleLexer';
-import CMakeSimpleParser from './generated/CMakeSimpleParser';
+import CMakeSimpleParser, * as cmsp from './generated/CMakeSimpleParser';
+import { logger } from './server';
 
 export function getSimpleFileContext(text: string): cmsp.FileContext {
     const input: CharStream = CharStreams.fromString(text);
@@ -22,27 +20,21 @@ export function getSimpleFileContext(text: string): cmsp.FileContext {
     return parser.file();
 }
 
-// export function getFileContext(text: string): FileContext {
-//     const input: CharStream = CharStreams.fromString(text);
-//     const lexer = new CMakeLexer(input);
-//     const tokenStream = new CommonTokenStream(lexer);
-//     const parser = new CMakeParser(tokenStream);
-//     return parser.file();
-// }
-
-export function getFileContext(documents: TextDocuments<TextDocument>, uri: URI): FileContext {
-    const document = documents.get(uri.toString());
-    let text: string;
-    if (document) {
-        text = document.getText();
-    } else {
-        text = readFileSync(uri.fsPath, { encoding: 'utf-8' });
-    }
+export function getFileContext(text: string): FileContext {
     const input: CharStream = CharStreams.fromString(text);
     const lexer = new CMakeLexer(input);
     const tokenStream = new CommonTokenStream(lexer);
     const parser = new CMakeParser(tokenStream);
     return parser.file();
+}
+
+export function getFileContent(documents: TextDocuments<TextDocument>, uri: URI): string {
+    const document = documents.get(uri.toString());
+    if (document) {
+        return document.getText();
+    } else {
+        return readFileSync(uri.fsPath, { encoding: 'utf-8' });
+    }
 }
 
 export function getSubCMakeListsUri(baseDir: URI, subDir: string): URI {

@@ -2,10 +2,9 @@ import { Token } from "antlr4";
 import { InitializeParams, SemanticTokens, SemanticTokensBuilder } from "vscode-languageserver";
 import { URI } from "vscode-uri";
 import * as builtinCmds from './builtin-cmds.json';
+import { CMakeInfo } from "./cmakeInfo";
 import { AddSubDirectoryCmdContext, ArgumentContext, ElseIfCmdContext, ForeachCmdContext, FunctionCmdContext, IfCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext, WhileCmdContext } from "./generated/CMakeParser";
 import CMakeListener from "./generated/CMakeParserListener";
-import { logger } from "./server";
-import { CMakeInfo } from "./cmakeInfo";
 
 let tokenTypes = [
     'type',
@@ -235,25 +234,28 @@ export class SemanticListener extends CMakeListener {
         if (cmdNameLower in builtinCmds) {
             const sigs: string[] = builtinCmds[cmdNameLower]['sig'];
             const keywords = this.getCmdKeyWords(sigs);
-            // FIXME: 打开文件夹时 logger 没有初始化导致执行下一句会报错
-            // logger.debug("cmd:", cmdName.text, "keywords:", keywords);
-
-            if (ctx.argument_list().length > 0) {
-                ctx.argument_list().forEach(argCtx => {
-                    if (argCtx.getChildCount() === 1) {
-                        const argToken: Token = argCtx.start;
-                        if (keywords.includes(argToken.text)) {
-                            this._builder.push(argToken.line - 1, argToken.column,
-                                argToken.text.length, tokenTypes.indexOf(TokenTypes.property),
-                                this.getModifiers([]));
-                        }
+            ctx.argument_list().forEach(argCtx => {
+                if (argCtx.getChildCount() === 1) {
+                    const argToken: Token = argCtx.start;
+                    if (keywords.includes(argToken.text)) {
+                        this._builder.push(
+                            argToken.line - 1,
+                            argToken.column,
+                            argToken.text.length,
+                            tokenTypes.indexOf(TokenTypes.property),
+                            this.getModifiers([])
+                        );
                     }
-                });
-            }
+                }
+            });
         } else {
-            this._builder.push(cmdName.line - 1, cmdName.column,
-                cmdName.text.length, tokenTypes.indexOf(TokenTypes.function),
-                this.getModifiers([]));
+            this._builder.push(
+                cmdName.line - 1,
+                cmdName.column,
+                cmdName.text.length,
+                tokenTypes.indexOf(TokenTypes.function),
+                this.getModifiers([])
+            );
         }
     };
 
