@@ -1,6 +1,5 @@
 import { CharStream, CharStreams, CommonTokenStream } from 'antlr4';
 import { existsSync, readFileSync } from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { TextDocuments } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -37,7 +36,7 @@ export function getFileContent(documents: TextDocuments<TextDocument>, uri: URI)
     }
 }
 
-export function getSubCMakeListsUri(baseDir: URI, subDir: string): URI {
+export function getSubCMakeListsUri(baseDir: URI, subDir: string): URI | null {
     const subCMakeListsUri: URI = Utils.joinPath(baseDir, subDir, 'CMakeLists.txt');
     if (existsSync(subCMakeListsUri.fsPath)) {
         return subCMakeListsUri;
@@ -48,7 +47,7 @@ export function getSubCMakeListsUri(baseDir: URI, subDir: string): URI {
     return null;
 }
 
-export function getIncludeFileUri(cmakeInfo: CMakeInfo, baseDir: URI, includeFileName: string): URI {
+export function getIncludeFileUri(cmakeInfo: CMakeInfo, baseDir: URI, includeFileName: string): URI | null {
     const incFileUri: URI = Utils.joinPath(baseDir, includeFileName);
     if (existsSync(incFileUri.fsPath)) {
         return incFileUri;
@@ -56,42 +55,11 @@ export function getIncludeFileUri(cmakeInfo: CMakeInfo, baseDir: URI, includeFil
         logger.error('getIncludeFileUri:', incFileUri.fsPath, 'not exist');
     }
 
-    // const cmakePath: string = which('cmake');
-    // if (cmakePath === null) {
-    //     return null;
-    // }
-
-    const moduleDir = 'cmake-' + cmakeInfo.major + '.' + cmakeInfo.minor;
-    const resPath = path.join(cmakeInfo.cmakePath, '../..', 'share', moduleDir, 'Modules', includeFileName) + '.cmake';
-
+    const resPath = path.join(cmakeInfo.systemModulePath, `${includeFileName}.cmake`);
     if (existsSync(resPath)) {
-        // return pathToFileURL(resPath).toString();
         return URI.file(resPath);
     } else {
         logger.error('getIncludeFileUri:', resPath, 'not exist');
-    }
-
-    return null;
-}
-
-export function which(cmd: string): string {
-    let command: string;
-    let pathEnvSep: string;
-    if (os.type() === 'Windows_NT') {
-        if (!cmd.endsWith('.exe')) {
-            command = cmd + ".exe";
-        }
-        pathEnvSep = ';';
-    } else {
-        command = cmd;
-        pathEnvSep = ':';
-    }
-
-    for (const dir of process.env.PATH.split(pathEnvSep)) {
-        const absPath: string = dir + path.sep + command;
-        if (existsSync(absPath)) {
-            return absPath;
-        }
     }
 
     return null;

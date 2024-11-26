@@ -9,6 +9,9 @@ export class DocumentLinkInfo {
     private _links: DocumentLink[] = [];
     constructor(
         public commands: cmsp.CommandContext[],
+        /**
+         * The uri of the current document
+         */
         public uri: string,
         public cmakeInfo: CMakeInfo,
     ) {
@@ -34,6 +37,9 @@ export class DocumentLinkInfo {
                     break;
                 case 'include':
                     links = this.include(cmd);
+                    break;
+                case 'configure_file':
+                    links = this.configureFile(cmd);
                     break;
             }
 
@@ -98,6 +104,15 @@ export class DocumentLinkInfo {
         }
 
         return this.getLinksFromArguments([firstArg], this.uri);
+    }
+
+    private configureFile(cmd: cmsp.CommandContext): DocumentLink[] {
+        const args = cmd.argument_list();
+        if (args.length < 2) {
+            return [];
+        }
+
+        return this.getLinksFromArguments(args.slice(0, 2), this.uri);
     }
 
     private includeSystemModule(arg: cmsp.ArgumentContext): DocumentLink[] {

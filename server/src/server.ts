@@ -520,6 +520,7 @@ export class CMakeLanguageServer {
                 cmdName === 'target_sources' ||
                 cmdName === 'add_executable' ||
                 cmdName === 'add_library' ||
+                cmdName === 'configure_file' ||
                 cmdName === 'add_subdirectory';
         });
         if (commands.length === 0) {
