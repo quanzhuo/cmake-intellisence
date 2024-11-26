@@ -19,7 +19,7 @@
     ]
   },
   "add_custom_target": {
-    "doc": "Adds a target with the given name that executes the given commands.",
+    "doc": "Add a target with no output so it will always be built.",
     "sig": [
       "add_custom_target(Name [ALL] [command1 [args1...]] [COMMAND command2 [args2...] ...] [DEPENDS depend depend depend ... ] [BYPRODUCTS [files...]] [WORKING_DIRECTORY dir] [COMMENT comment] [JOB_POOL job_pool] [VERBATIM] [USES_TERMINAL] [COMMAND_EXPAND_LISTS] [SOURCES src1 [src2...]])"
     ]
@@ -37,7 +37,7 @@
     ]
   },
   "add_executable": {
-    "doc": "Adds an executable target called <name> to be built from the source files listed in the command invocation.",
+    "doc": "Add an executable target called <name> to be built from the source files listed in the command invocation.",
     "sig": [
       "add_executable(<name> [WIN32] [MACOSX_BUNDLE] [EXCLUDE_FROM_ALL] [source1] [source2 ...])",
       "add_executable(<name> IMPORTED [GLOBAL])",
@@ -45,7 +45,7 @@
     ]
   },
   "add_library": {
-    "doc": "Adds a library target called <name> to be built from the source files listed in the command invocation.",
+    "doc": "Add a library target called <name> to be built from the source files listed in the command invocation.",
     "sig": [
       "add_library(<name> [STATIC | SHARED | MODULE] [EXCLUDE_FROM_ALL] [<source>...])",
       "add_library(<name> OBJECT [<source>...])",
@@ -102,7 +102,7 @@
     ]
   },
   "build_name": {
-    "doc": "Disallowed since version 3.0. Sets the specified variable to a string representing the platform and compiler settings",
+    "doc": "Disallowed since version 3.0. See CMake Policy CMP0036. Sets the specified variable to a string representing the platform and compiler settings. These values are now available through the CMAKE_SYSTEM and CMAKE_CXX_COMPILER variables.",
     "sig": [
       "build_name(variable)"
     ],
@@ -204,7 +204,7 @@
     ]
   },
   "configure_file": {
-    "doc": "Copy a file to another location and modify its contents.",
+    "doc": "Copies an <input> file to an <output> file while performing transformations of the input file content",
     "sig": [
       "configure_file(<input> <output> [NO_SOURCE_PERMISSIONS | USE_SOURCE_PERMISSIONS | FILE_PERMISSIONS <permissions>...] [COPYONLY] [ESCAPE_QUOTES] [@ONLY] [NEWLINE_STYLE [UNIX|DOS|WIN32|LF|CRLF] ])"
     ]
@@ -688,7 +688,8 @@
     "doc": "Deprecated since version 3.0: Use the install(TARGETS) command instead.",
     "sig": [
       "install_targets(<dir> [RUNTIME_DIRECTORY dir] target target)"
-    ]
+    ],
+    "deprecated": true
   },
   "link_directories": {
     "doc": "Add directories in which the linker will look for libraries.",
