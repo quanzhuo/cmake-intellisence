@@ -81,6 +81,13 @@
       "aux_source_directory(<dir> <variable>)"
     ]
   },
+  "block": {
+    "doc": "Evaluate a group of commands with a dedicated variable and/or policy scope.",
+    "sig": [
+      "block([SCOPE_FOR [POLICIES] [VARIABLES] ] [PROPAGATE <var-name>...])",
+      "block(SCOPE_FOR VARIABLES POLICIES)"
+    ]
+  },
   "break": {
     "doc": "Breaks from an enclosing foreach() or while() loop.",
     "sig": [
@@ -100,6 +107,12 @@
       "build_name(variable)"
     ],
     "deprecated": true
+  },
+  "cmake_file_api": {
+    "doc": "Enables interacting with the CMake file API",
+    "sig": [
+      "cmake_file_api(QUERY API_VERSION <version> [CODEMODEL <versions>...] [CACHE <versions>...] [CMAKEFILES <versions>...] [TOOLCHAINS <versions>...])"
+    ]
   },
   "cmake_host_system_information": {
     "doc": "Query various host system information.",
@@ -171,6 +184,12 @@
       "cmake_path(CONVERT <input> TO_CMAKE_PATH_LIST <out-var> [NORMALIZE])",
       "cmake_path(CONVERT <input> TO_NATIVE_PATH_LIST <out-var> [NORMALIZE])",
       "cmake_path(HASH <path-var> <out-var>)"
+    ]
+  },
+  "cmake_pkg_config": {
+    "doc": "Process pkg-config format package files.",
+    "sig": [
+      "cmake_pkg_config(EXTRACT <package> [<version>] [REQUIRED] [EXACT] [QUIET] [STRICTNESS <mode>] [ENV_MODE <mode>] [PC_LIBDIR <path>...] [PC_PATH <path>...] [DISABLE_UNINSTALLED <bool>] [PC_SYSROOT_DIR <path>] [TOP_BUILD_DIR <path>] [SYSTEM_INCLUDE_DIRS <path>...] [SYSTEM_LIBRARY_DIRS <path>...] [ALLOW_SYSTEM_INCLUDES <bool>] [ALLOW_SYSTEM_LIBS <bool>])"
     ]
   },
   "cmake_policy": {
@@ -336,6 +355,12 @@
     "doc": "Enable testing for current directory and below.",
     "sig": [
       "enable_testing()"
+    ]
+  },
+  "endblock": {
+    "doc": "Ends a list of commands in a block() and removes the scopes created by the block() command.",
+    "sig": [
+      "endblock()"
     ]
   },
   "endforeach": {

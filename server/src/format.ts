@@ -37,7 +37,7 @@ export class Formatter extends CMakeSimpleParserListener {
     enterCommand = (ctx: CommandContext) => {
         const cmd = ctx.start.text;
 
-        if (this.isEndBlockCmd(cmd)) {
+        if (this.isEndCommandGroupCmd(cmd)) {
             --this._indentLevel;
             if (this._indentLevel < 0) {
                 this._indentLevel = 0;
@@ -96,7 +96,7 @@ export class Formatter extends CMakeSimpleParserListener {
         const newLineIndex = rParenIndex + 1;
 
         // consider increase or decrease indent level
-        if (this.isBlockCmd(cmd)) {
+        if (this.isCommandGroupCmd(cmd)) {
             ++this._indentLevel;
         }
 
@@ -108,12 +108,12 @@ export class Formatter extends CMakeSimpleParserListener {
         return this._indent * this._indentLevel;
     }
 
-    private isBlockCmd(cmd: string): boolean {
-        return ['if', 'elseif', 'else', 'while', 'foreach', 'function', 'macro'].includes(cmd.toLowerCase());
+    private isCommandGroupCmd(cmd: string): boolean {
+        return ['if', 'elseif', 'else', 'while', 'foreach', 'function', 'macro', 'block'].includes(cmd.toLowerCase());
     }
 
-    private isEndBlockCmd(cmd: string): boolean {
-        return ['elseif', 'else', 'endif', 'endwhile', 'endforeach', 'endfunction', 'endmacro'].includes(cmd.toLowerCase());
+    private isEndCommandGroupCmd(cmd: string): boolean {
+        return ['elseif', 'else', 'endif', 'endwhile', 'endforeach', 'endfunction', 'endmacro', 'endblock'].includes(cmd.toLowerCase());
     }
 
     private getHiddenTextOnRight(tokenIndex: number, indent: number): string {

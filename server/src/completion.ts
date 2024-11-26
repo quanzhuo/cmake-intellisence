@@ -145,6 +145,16 @@ export default class Completion {
                 return item;
             });
 
+            if (similarCmds.includes('block')) {
+                suggestedCommands.push({
+                    label: 'block ... endblock',
+                    kind: CompletionItemKind.Snippet,
+                    insertText: 'block(${1:name})\n\t${0}\nendblock()',
+                    insertTextFormat: InsertTextFormat.Snippet,
+                    preselect: true,
+                });
+            }
+
             if (similarCmds.includes('if')) {
                 suggestedCommands.push({
                     label: 'if ... endif',
