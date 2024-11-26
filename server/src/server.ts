@@ -1,7 +1,7 @@
 import { CharStreams, CommonTokenStream, ParseTreeWalker, Token } from 'antlr4';
 import { exec } from 'child_process';
 import { existsSync } from 'fs';
-import { CompletionParams, DefinitionParams, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams, SignatureHelpTriggerKind } from 'vscode-languageserver-protocol';
+import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams, SignatureHelpTriggerKind } from 'vscode-languageserver-protocol';
 import { Range, TextDocument } from 'vscode-languageserver-textdocument';
 import { CompletionItem, CompletionList, DocumentLink, Hover, Position } from 'vscode-languageserver-types';
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, createConnection } from 'vscode-languageserver/node';
@@ -64,6 +64,7 @@ export class CMakeLanguageServer {
     private extSettings = new ExtensionSettings();
     private cmakeInfo: CMakeInfo;
     private completion: Completion;
+    private disposables: Disposable[] = [];
 
     constructor() {
         this.initialize();
@@ -81,11 +82,17 @@ export class CMakeLanguageServer {
         this.connection.onCodeAction(this.onCodeAction.bind(this));
         this.connection.onDidChangeConfiguration(this.onDidChangeConfiguration.bind(this));
         this.connection.onDocumentLinks(this.onDocumentLinks.bind(this));
+        this.connection.onShutdown(this.onShutdown.bind(this));
+
         this.connection.languages.semanticTokens.on(this.onSemanticTokens.bind(this));
         this.connection.languages.semanticTokens.onDelta(this.onSemanticTokensDelta.bind(this));
         this.connection.languages.semanticTokens.onRange(this.onSemanticTokensRange.bind(this));
-        this.documents.onDidChangeContent(this.onDidChangeContent.bind(this));
-        this.documents.onDidClose(this.onDidClose.bind(this));
+
+        this.disposables.push(this.documents.onDidChangeContent(this.onDidChangeContent.bind(this)));
+        this.disposables.push(this.documents.onDidClose(this.onDidClose.bind(this)));
+
+        process.on('SIGTERM', () => this.onShutdown());
+        process.on('SIGINT', () => this.onShutdown());
 
         this.documents.listen(this.connection);
         this.connection.listen();
@@ -474,8 +481,8 @@ export class CMakeLanguageServer {
      * https://github.com/microsoft/vscode/issues/54821
      * https://github.com/microsoft/vscode-languageserver-node/issues/380
      */
-    private onDidChangeConfiguration(params: DidChangeConfigurationParams) {
-        this.extSettings.getSettings(this.connection);
+    private async onDidChangeConfiguration(params: DidChangeConfigurationParams) {
+        await this.extSettings.getSettings(this.connection);
     }
 
     // The content of a text document has changed. This event is emitted
@@ -548,6 +555,12 @@ export class CMakeLanguageServer {
 
         return textDocument.getText(lineRange);
     }
+
+    private onShutdown() {
+        this.disposables.forEach((disposable) => {
+            disposable.dispose();
+        });
+    }
 }
 
-new CMakeLanguageServer();
+const server = new CMakeLanguageServer();
