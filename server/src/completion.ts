@@ -127,19 +127,20 @@ export default class Completion {
 
     private getCommandSuggestions(word: string): Thenable<CompletionItem[]> {
         return new Promise((resolve, rejects) => {
-            const similarCmds = this.cmakeInfo.commands.filter(cmd => {
-                return cmd.includes(word.toLowerCase());
-            });
-            const suggestedCommands: CompletionItem[] = similarCmds.map((value, index, array) => {
+            const similarCmds = this.cmakeInfo.commands.filter(cmd => { return cmd.includes(word.toLowerCase()); });
+            const suggestedCommands: CompletionItem[] = similarCmds.map((commandName, index, array) => {
                 let item: CompletionItem = {
-                    label: `${value}`,
+                    label: `${commandName}`,
                     kind: CompletionItemKind.Function,
-                    insertText: `${value}($0)`,
+                    insertText: `${commandName}($0)`,
                     insertTextFormat: InsertTextFormat.Snippet,
                 };
 
-                if (value in builtinCmds && "deprecated" in builtinCmds[value]) {
-                    item.tags = [CompletionItemTag.Deprecated];
+                if (commandName in builtinCmds) {
+                    item.documentation = builtinCmds[commandName]['doc'];
+                    if ("deprecated" in builtinCmds[commandName]) {
+                        item.tags = [CompletionItemTag.Deprecated];
+                    }
                 }
                 return item;
             });
@@ -150,6 +151,7 @@ export default class Completion {
                     kind: CompletionItemKind.Snippet,
                     insertText: 'if(${1:condition})\n\t${0}\nendif()',
                     insertTextFormat: InsertTextFormat.Snippet,
+                    preselect: true,
                 });
             }
 
@@ -159,6 +161,7 @@ export default class Completion {
                     kind: CompletionItemKind.Snippet,
                     insertText: 'foreach(${1:item} ${2:items})\n\t${0}\nendforeach()',
                     insertTextFormat: InsertTextFormat.Snippet,
+                    preselect: true,
                 });
             }
 
@@ -168,6 +171,7 @@ export default class Completion {
                     kind: CompletionItemKind.Snippet,
                     insertText: 'while(${1:condition})\n\t${0}\nendwhile()',
                     insertTextFormat: InsertTextFormat.Snippet,
+                    preselect: true,
                 });
             }
 
@@ -177,6 +181,7 @@ export default class Completion {
                     kind: CompletionItemKind.Snippet,
                     insertText: 'function(${1:name} ${2:args})\n\t${0}\nendfunction()',
                     insertTextFormat: InsertTextFormat.Snippet,
+                    preselect: true,
                 });
             }
 
@@ -186,6 +191,7 @@ export default class Completion {
                     kind: CompletionItemKind.Snippet,
                     insertText: 'macro(${1:name} ${2:args})\n\t${0}\nendmacro()',
                     insertTextFormat: InsertTextFormat.Snippet,
+                    preselect: true,
                 });
             }
 
@@ -242,8 +248,8 @@ export default class Completion {
         if (inComments(params.position, comments)) {
             return null;
         }
-        const info = this.getCompletionInfoAtCursor(tree, params.position);
 
+        const info = this.getCompletionInfoAtCursor(tree, params.position);
         const word = getWordAtPosition(document, params.position).text;
         if (info.type === CMakeCompletionType.Command) {
             return this.getCommandSuggestions(word);
