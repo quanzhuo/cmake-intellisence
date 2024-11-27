@@ -8,7 +8,7 @@ import * as cmsp from "./generated/CMakeSimpleParser";
 export class DocumentLinkInfo {
     private _links: DocumentLink[] = [];
     constructor(
-        public commands: cmsp.CommandContext[],
+        public simpleFileContext: cmsp.FileContext,
         /**
          * The uri of the current document
          */
@@ -19,7 +19,9 @@ export class DocumentLinkInfo {
     }
 
     private findLinks() {
-        for (const cmd of this.commands) {
+        const commandLists = this.simpleFileContext.command_list();
+        const argCtxList: cmsp.ArgumentContext[] = [];
+        for (const cmd of commandLists) {
             const cmdName = cmd.ID().getText();
             let links: DocumentLink[] = [];
             switch (cmdName) {
@@ -41,10 +43,22 @@ export class DocumentLinkInfo {
                 case 'configure_file':
                     links = this.configureFile(cmd);
                     break;
+                default:
+                    argCtxList.push(...cmd.argument_list().filter((argCtx: cmsp.ArgumentContext) => {
+                        const argText = argCtx.getText();
+                        return argCtx.getChildCount() === 1 &&
+                            (argText.endsWith('.cpp') ||
+                                argText.endsWith('.c') ||
+                                argText.endsWith('.h') ||
+                                argText.endsWith('.hpp') ||
+                                argText.endsWith('.cxx'));
+                    }));
+
             }
 
             this._links.push(...links);
         }
+        this._links.push(...this.getLinksFromArguments(argCtxList, this.uri));
     }
 
     private getLinksFromArguments(args: cmsp.ArgumentContext[], uri: string): DocumentLink[] {
@@ -129,7 +143,7 @@ export class DocumentLinkInfo {
                 tooltip: modulePath,
             }];
         } else {
-            
+
             return [];
         }
     }

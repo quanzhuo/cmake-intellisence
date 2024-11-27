@@ -512,22 +512,7 @@ export class CMakeLanguageServer {
     private async onDocumentLinks(params: DocumentLinkParams): Promise<DocumentLink[] | null> {
         const document = this.documents.get(params.textDocument.uri);
         const simpleFileContext = getSimpleFileContext(document.getText());
-        let commands: cmsp.CommandContext[] = simpleFileContext.command_list();
-        commands = commands.filter((command: cmsp.CommandContext) => {
-            const cmdName = command.ID().symbol.text;
-            return cmdName === 'include' ||
-                cmdName === 'file' ||
-                cmdName === 'target_sources' ||
-                cmdName === 'add_executable' ||
-                cmdName === 'add_library' ||
-                cmdName === 'configure_file' ||
-                cmdName === 'add_subdirectory';
-        });
-        if (commands.length === 0) {
-            return null;
-        }
-
-        return new DocumentLinkInfo(commands, params.textDocument.uri, this.cmakeInfo).links;
+        return new DocumentLinkInfo(simpleFileContext, params.textDocument.uri, this.cmakeInfo).links;
     }
 
     private onDidClose(event: TextDocumentChangeEvent<TextDocument>) {
