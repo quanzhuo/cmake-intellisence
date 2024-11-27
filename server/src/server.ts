@@ -10,6 +10,7 @@ import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from './cmakeInfo';
 import Completion, { findCommandAtPosition, inComments } from './completion';
 import { DIAG_CODE_CMD_CASE } from './consts';
+import SemanticDiagnosticsListener, { CommandCaseChecker, SyntaxErrorListener } from './diagnostics';
 import { DocumentLinkInfo } from './docLink';
 import { SymbolListener } from './docSymbols';
 import { Formatter } from './format';
@@ -19,11 +20,9 @@ import CMakeSimpleLexer from './generated/CMakeSimpleLexer';
 import CMakeSimpleParser, * as cmsp from './generated/CMakeSimpleParser';
 import localize from './localize';
 import { Logger, createLogger } from './logging';
-import SemanticDiagnosticsListener, { CommandCaseChecker } from './semanticDiagnostics';
 import { SemanticListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
 import ExtensionSettings from './settings';
 import { DefinationListener, incToBaseDir, parsedFiles, refToDef, topScope } from './symbolTable/goToDefination';
-import SyntaxErrorListener from './syntaxDiagnostics';
 import { getFileContext, getSimpleFileContext } from './utils';
 
 type Word = {
@@ -484,6 +483,7 @@ export class CMakeLanguageServer {
             this.contentChanged = true;
         }
 
+        // check syntax errors
         const input = CharStreams.fromString(change.document.getText());
         const lexer = new CMakeLexer(input);
         const tokenStream = new CommonTokenStream(lexer);
@@ -492,8 +492,12 @@ export class CMakeLanguageServer {
         const syntaxErrorListener = new SyntaxErrorListener();
         parser.addErrorListener(syntaxErrorListener);
         const tree = parser.file();
+
+        // check semantic errors
         const semanticListener = new SemanticDiagnosticsListener();
         ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
+
+        // all diagnostics
         const diagnostics = {
             uri: change.document.uri,
             diagnostics: [
