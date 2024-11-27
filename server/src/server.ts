@@ -39,15 +39,15 @@ export function getWordAtPosition(textDocument: TextDocument, position: Position
     const lineRange: Range = {
         start: { line: position.line, character: 0 },
         end: { line: position.line, character: Number.MAX_VALUE }
-    };
-    const line = textDocument.getText(lineRange),
+    },
+        line = textDocument.getText(lineRange),
         start = line.substring(0, position.character),
-        end = line.substring(position.character);
-    const startReg = /[a-zA-Z0-9_\.\/]*$/,
-        endReg = /^[a-zA-Z0-9_\.\/]*/;
-
-    const startWord = start.match(startReg)[0],
+        end = line.substring(position.character),
+        startReg = /[a-zA-Z0-9_\.\/]*$/,
+        endReg = /^[a-zA-Z0-9_\.\/]*/,
+        startWord = start.match(startReg)[0],
         endWord = end.match(endReg)[0];
+
     return {
         text: startWord + endWord,
         line: position.line,
@@ -111,7 +111,9 @@ export class CMakeLanguageServer {
                 signatureHelpProvider: {
                     triggerCharacters: ['(']
                 },
-                completionProvider: {},
+                completionProvider: {
+                    triggerCharacters: ['/', '(', ' ']
+                },
                 documentFormattingProvider: true,
                 documentSymbolProvider: true,
                 definitionProvider: true,

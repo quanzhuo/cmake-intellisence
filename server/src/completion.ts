@@ -1,12 +1,15 @@
 import { CharStreams, CommonTokenStream, Token } from "antlr4";
+import * as fs from 'fs';
 import { CompletionItem, CompletionItemKind, CompletionItemTag, CompletionList, CompletionParams, Connection, InitializeParams, InsertTextFormat, Position, TextDocuments } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { URI } from "vscode-uri";
 import { CMakeInfo } from "./cmakeInfo";
 import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
 import CMakeSimpleParser, * as cmsp from "./generated/CMakeSimpleParser";
 import { builtinCmds, getWordAtPosition } from "./server";
 import ExtensionSettings from "./settings";
 import { getCmdKeyWords } from "./utils";
+import path = require("path");
 
 enum CMakeCompletionType {
     Command,
@@ -104,6 +107,7 @@ export default class Completion {
         private documents: TextDocuments<TextDocument>,
         private extSettings: ExtensionSettings,
         private cmakeInfo: CMakeInfo,
+        private completionParams?: CompletionParams,
     ) { }
 
     private isCursorWithinParentheses(position: Position, lParenLine: number, lParenColumn: number, rParenLine: number, rParenColumn: number): boolean {
@@ -284,6 +288,42 @@ export default class Completion {
         return proposals;
     }
 
+    private async getFileSuggestions(word: string): Promise<CompletionItem[] | null> {
+        const uri: URI = URI.parse(this.completionParams.textDocument.uri);
+        const fsPath: string = uri.fsPath;
+
+        // Get the directory part and the filter part from the word
+        const lastSlashIndex = word.lastIndexOf('/');
+        const dir = path.join(path.dirname(fsPath), word.substring(0, lastSlashIndex + 1));
+        const filter = word.substring(lastSlashIndex + 1);
+
+        // Read the directory contents
+        const files = await new Promise<string[]>((resolve, reject) => {
+            fs.readdir(dir, (err: NodeJS.ErrnoException | null, files: string[]) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(files);
+                }
+            });
+        });
+
+        // Filter the files based on the filter part
+        const filteredFiles = files.filter(file => file.includes(filter));
+
+        // Create completion items
+        const suggestions: CompletionItem[] = await Promise.all(filteredFiles.map(async (file) => {
+            const filePath = path.join(dir, file);
+            const stat = await fs.promises.stat(filePath);
+            return {
+                label: file,
+                kind: stat.isDirectory() ? CompletionItemKind.Folder : CompletionItemKind.File,
+            };
+        }));
+
+        return suggestions;
+    }
+
     private async getArgumentSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
         return new Promise((resolve, rejects) => {
             if (!(info.command in builtinCmds)) {
@@ -292,6 +332,11 @@ export default class Completion {
 
             if (info.command === 'find_package' && info.index === 0) {
                 resolve(this.getModuleSuggestions(word));
+                return;
+            }
+
+            if (word.startsWith('./') || word.startsWith('../')) {
+                resolve(this.getFileSuggestions(word));
                 return;
             }
 
@@ -307,6 +352,7 @@ export default class Completion {
     }
 
     public async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
+        this.completionParams = params;
         const document = this.documents.get(params.textDocument.uri);
         const inputStream = CharStreams.fromString(document.getText());
         const lexer = new CMakeSimpleLexer(inputStream);
