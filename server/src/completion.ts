@@ -19,8 +19,15 @@ enum CMakeCompletionType {
 interface CMakeCompletionInfo {
     type: CMakeCompletionType,
 
-    // if type is CMakeCompletionType.Argument, this field is the active command name
+    /**
+     * if type is CMakeCompletionType.Argument, this field is the active command name
+     */
     command?: string,
+
+    /**
+     * if type is CMakeCompletionType.Argument, this field is the current argument index
+     */
+    index?: number,
 }
 
 /**
@@ -98,34 +105,69 @@ export default class Completion {
         private cmakeInfo: CMakeInfo,
     ) { }
 
-    private getCompletionInfoAtCursor(tree: cmsp.FileContext, position: Position): CMakeCompletionInfo {
+    private isCursorWithinParentheses(position: Position, lParenLine: number, lParenColumn: number, rParenLine: number, rParenColumn: number): boolean {
+        if (position.line < lParenLine || position.line > rParenLine) {
+            return false;
+        }
+        if (position.line === lParenLine && position.character <= lParenColumn) {
+            return false;
+        }
+        if (position.line === rParenLine && position.character > rParenColumn) {
+            return false;
+        }
+        return true;
+    }
+
+    private getCompletionInfoAtCursor(tree: cmsp.FileContext, pos: Position): CMakeCompletionInfo {
         const commands: cmsp.CommandContext[] = tree.command_list();
-        const currentCommand = findCommandAtPosition(commands, position);
+        const currentCommand = findCommandAtPosition(commands, pos);
         if (currentCommand === null) {
             return { type: CMakeCompletionType.Command };
         } else {
             const lParen = currentCommand.LParen();
-            if (lParen === null) {
+            const rParen = currentCommand.RParen();
+            if (lParen === null || rParen === null) {
                 return { type: CMakeCompletionType.Command };
             }
             // line is 1-based, column is 0-based in antlr4
-            const lParenLine = currentCommand.LParen().symbol.line - 1;
-            const rParenLine = currentCommand.RParen().symbol.line - 1;
-            const lParenColumn = currentCommand.LParen().symbol.column;
-            const rParenColumn = currentCommand.RParen().symbol.column;
-            if (position.line >= lParenLine && position.line <= rParenLine) {
-                // if the cursor is within the range of the command's arguments
-                if (position.character > lParenColumn && position.character <= rParenColumn) {
-                    return { type: CMakeCompletionType.Argument, command: currentCommand.ID().symbol.text };
-                } else {
-                    return { type: CMakeCompletionType.Command };
+            const lParenLine = lParen.symbol.line - 1;
+            const rParenLine = rParen.symbol.line - 1;
+            const lParenColumn = lParen.symbol.column;
+            const rParenColumn = rParen.symbol.column;
+
+            // Check if the cursor is within the parentheses
+            if (this.isCursorWithinParentheses(pos, lParenLine, lParenColumn, rParenLine, rParenColumn)) {
+                // Get the current argument index
+                const args = currentCommand.argument_list();
+                let index = 0;
+                for (let i = 0; i < args.length; i++) {
+                    const arg = args[i];
+                    const argStart = arg.start;
+
+                    // Check if the cursor is within the current argument
+                    if (pos.line === argStart.line - 1 && pos.character >= argStart.column && pos.character <= argStart.column + argStart.text.length) {
+                        index = i;
+                        break;
+                    }
+                    // Check if the cursor is before the current argument
+                    else if (pos.line < argStart.line - 1 || (pos.line === argStart.line - 1 && pos.character < argStart.column)) {
+                        index = i;
+                        break;
+                    }
+                    // If the cursor is after the current argument
+                    else {
+                        index = i + 1;
+                    }
                 }
+                // console.log(`index: ${index}`);
+                return { type: CMakeCompletionType.Argument, command: currentCommand.ID().symbol.text, index: index };
+            } else {
+                return { type: CMakeCompletionType.Command };
             }
         }
-        return { type: CMakeCompletionType.Command };
     }
 
-    private getCommandSuggestions(word: string): Thenable<CompletionItem[]> {
+    private async getCommandSuggestions(word: string): Promise<CompletionItem[]> {
         return new Promise((resolve, rejects) => {
             const similarCmds = this.cmakeInfo.commands.filter(cmd => { return cmd.includes(word.toLowerCase()); });
             const suggestedCommands: CompletionItem[] = similarCmds.map((commandName, index, array) => {
@@ -209,7 +251,7 @@ export default class Completion {
         });
     }
 
-    private getSuggestions(word: string, kind: CompletionItemKind, dataSource: string[]): Thenable<CompletionItem[]> {
+    private async getSuggestions(word: string, kind: CompletionItemKind, dataSource: string[]): Promise<CompletionItem[]> {
         return new Promise((resolve, rejects) => {
             const similar = dataSource.filter(candidate => {
                 return candidate.includes(word);
@@ -226,12 +268,33 @@ export default class Completion {
         });
     }
 
-    private getArgumentSuggestions(command: string): Promise<CompletionItem[] | null> {
+    private getModuleSuggestions(word: string): CompletionItem[] {
+        const similar = this.cmakeInfo.modules.filter(candidate => {
+            return candidate.includes(word);
+        });
+
+        const proposals: CompletionItem[] = similar.map((value, index, array) => {
+            return {
+                label: value.startsWith('Find') ? value.substring(4) : value,
+                kind: CompletionItemKind.Module,
+            };
+        });
+
+        return proposals;
+    }
+
+    private async getArgumentSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
         return new Promise((resolve, rejects) => {
-            if (!(command in builtinCmds)) {
+            if (!(info.command in builtinCmds)) {
                 return resolve(null);
             }
-            const sigs: string[] = builtinCmds[command]['sig'];
+
+            if (info.command === 'find_package' && info.index === 0) {
+                resolve(this.getModuleSuggestions(word));
+                return;
+            }
+
+            const sigs: string[] = builtinCmds[info.command]['sig'];
             const args: string[] = sigs.flatMap(sig => {
                 const matches = sig.match(/[A-Z][A-Z_]*[A-Z]/g);
                 return matches ? matches : [];
@@ -239,7 +302,7 @@ export default class Completion {
             resolve(Array.from(new Set(args)).map((arg, index, array) => {
                 return {
                     label: arg,
-                    kind: CompletionItemKind.Variable
+                    kind: CompletionItemKind.Keyword,
                 };
             }));
         });
@@ -262,10 +325,9 @@ export default class Completion {
         const info = this.getCompletionInfoAtCursor(tree, params.position);
         const word = getWordAtPosition(document, params.position).text;
         if (info.type === CMakeCompletionType.Command) {
-            return this.getCommandSuggestions(word);
+            return await this.getCommandSuggestions(word);
         } else if (info.type === CMakeCompletionType.Argument) {
-            const command = info.command.toLowerCase();
-            return this.getArgumentSuggestions(command);
+            return await this.getArgumentSuggestions(info, word);
         }
 
         const results = await Promise.all([
