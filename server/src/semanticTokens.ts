@@ -5,6 +5,7 @@ import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from "./cmakeInfo";
 import { AddSubDirectoryCmdContext, ArgumentContext, ElseIfCmdContext, ForeachCmdContext, FunctionCmdContext, IfCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext, WhileCmdContext } from "./generated/CMakeParser";
 import CMakeListener from "./generated/CMakeParserListener";
+import { getCmdKeyWords } from "./utils";
 
 let tokenTypes = [
     'type',
@@ -134,20 +135,6 @@ export class SemanticListener extends CMakeListener {
         return result;
     }
 
-    private getCmdKeyWords(sigs: string[]): string[] {
-        let result: string[] = [];
-        sigs.forEach(sig => {
-            const keys = sig.match(/\b[A-Z_]+\b/g);
-            if (keys !== null) {
-                keys.forEach(key => {
-                    result.push(key);
-                });
-            }
-        });
-
-        return result;
-    }
-
     private tokenInConditional(context: IfCmdContext | ElseIfCmdContext | WhileCmdContext): void {
         context.argument_list().forEach((argCtx: ArgumentContext) => {
             if (argCtx.getChildCount() === 1) {
@@ -233,19 +220,22 @@ export class SemanticListener extends CMakeListener {
         const cmdNameLower: string = cmdName.text.toLowerCase();
         if (cmdNameLower in builtinCmds) {
             const sigs: string[] = builtinCmds[cmdNameLower]['sig'];
-            const keywords = this.getCmdKeyWords(sigs);
-            ctx.argument_list().forEach(argCtx => {
-                if (argCtx.getChildCount() === 1) {
-                    const argToken: Token = argCtx.start;
-                    if (keywords.includes(argToken.text)) {
-                        this._builder.push(
-                            argToken.line - 1,
-                            argToken.column,
-                            argToken.text.length,
-                            tokenTypes.indexOf(TokenTypes.property),
-                            this.getModifiers([])
-                        );
-                    }
+            const keywords = getCmdKeyWords(sigs);
+            const args: ArgumentContext[] = ctx.argument_list();
+            args.forEach(argCtx => {
+                const id = argCtx.ID();
+                if (!id) {
+                    return;
+                }
+                const argToken: Token = argCtx.start;
+                if (keywords.includes(argToken.text)) {
+                    this._builder.push(
+                        argToken.line - 1,
+                        argToken.column,
+                        argToken.text.length,
+                        tokenTypes.indexOf(TokenTypes.keyword),
+                        this.getModifiers([])
+                    );
                 }
             });
         } else {

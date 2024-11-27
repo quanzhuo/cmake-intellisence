@@ -6,6 +6,7 @@ import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
 import CMakeSimpleParser, * as cmsp from "./generated/CMakeSimpleParser";
 import { builtinCmds, getWordAtPosition } from "./server";
 import ExtensionSettings from "./settings";
+import { getCmdKeyWords } from "./utils";
 
 enum CMakeCompletionType {
     Command,
@@ -295,11 +296,8 @@ export default class Completion {
             }
 
             const sigs: string[] = builtinCmds[info.command]['sig'];
-            const args: string[] = sigs.flatMap(sig => {
-                const matches = sig.match(/[A-Z][A-Z_]*[A-Z]/g);
-                return matches ? matches : [];
-            });
-            resolve(Array.from(new Set(args)).map((arg, index, array) => {
+            const args: string[] = getCmdKeyWords(sigs);
+            resolve(args.map((arg) => {
                 return {
                     label: arg,
                     kind: CompletionItemKind.Keyword,

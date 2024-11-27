@@ -64,3 +64,11 @@ export function getIncludeFileUri(cmakeInfo: CMakeInfo, baseDir: URI, includeFil
 
     return null;
 }
+
+export function getCmdKeyWords(sigs: string[]): string[] {
+    const keywords = new Set<string>();
+    sigs.forEach(sig => {
+        (sig.match(/[A-Z][A-Z_]*[A-Z]/g) ?? []).forEach(keyword => keywords.add(keyword));
+    });
+    return Array.from(keywords);
+}
