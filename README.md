@@ -16,6 +16,7 @@ This extension is written in TypeScript, no other runtime dependencies are requi
 + semantic tokens
 + commands, variable, properties... auto complete
 + document format
++ document link
 + go to defination
 + publish diagnostics
 + code action

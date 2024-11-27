@@ -1,5 +1,14 @@
 # Change Log
 
+## v0.2.1 (2024-11-27)
+
+* 添加 document link 特性
+* 添加 shutdown 事件处理，清理资源
+* 添加 block/endblock 等新命令
+* 补全时显示文档
+* 支持文件补全， 模块补全(find_package)
+* 修复参数补全时，识别参数错误的问题
+
 ## v0.2.0 (2024-11-25)
 
 * 升级 antlr4 到 4.13.2， 使用 ts target
