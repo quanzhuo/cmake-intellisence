@@ -42,6 +42,19 @@ export class CMakeInfo {
             [this.modules, this.policies, this.variables, this.properties, this.commands]
         ] = await Promise.all([this.getCMakeVersion(), this.getBuiltinEntries()]);
 
+        const langVariables: string[] = [];
+        const languages = ['C', 'CXX'];
+        for (const variable of this.variables) {
+            if (variable.includes('<LANG>')) {
+                for (const lang of languages) {
+                    langVariables.push(variable.replace('<LANG>', lang));
+                }
+            } else {
+                langVariables.push(variable);
+            }
+        }
+        this.variables = langVariables;
+
         try {
             for (const dir of ['cmake', `cmake-${this.major}.${this.minor}`]) {
                 const module = path.join(path.dirname(this.cmakePath), '..', 'share', dir, 'Modules');

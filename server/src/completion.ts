@@ -24,6 +24,11 @@ interface CMakeCompletionInfo {
     type: CMakeCompletionType,
 
     /**
+     * if type is CMakeCompletionType.Argument, this field is the current command context
+     */
+    context?: cmsp.CommandContext,
+
+    /**
      * if type is CMakeCompletionType.Argument, this field is the active command name
      */
     command?: string,
@@ -165,7 +170,7 @@ export default class Completion {
                     }
                 }
                 // console.log(`index: ${index}`);
-                return { type: CMakeCompletionType.Argument, command: currentCommand.ID().symbol.text, index: index };
+                return { type: CMakeCompletionType.Argument, context: currentCommand, command: currentCommand.ID().symbol.text, index: index };
             } else {
                 return { type: CMakeCompletionType.Command };
             }
@@ -273,7 +278,7 @@ export default class Completion {
         });
     }
 
-    private getModuleSuggestions(word: string): CompletionItem[] {
+    private getModuleSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
         const similar = this.cmakeInfo.modules.filter(candidate => {
             return candidate.includes(word);
         });
@@ -288,7 +293,7 @@ export default class Completion {
         return proposals;
     }
 
-    private async getFileSuggestions(word: string): Promise<CompletionItem[] | null> {
+    private async getFileSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
         const uri: URI = URI.parse(this.completionParams.textDocument.uri);
         const fsPath: string = uri.fsPath;
 
@@ -324,6 +329,21 @@ export default class Completion {
         return suggestions;
     }
 
+    private getVariableSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
+        let similar = this.cmakeInfo.variables.filter(candidate => {
+            return candidate.includes(word);
+        });
+
+        const proposals: CompletionItem[] = similar.map((value, index, array) => {
+            return {
+                label: value,
+                kind: CompletionItemKind.Variable,
+            };
+        });
+
+        return proposals;
+    }
+
     private async getArgumentSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
         return new Promise((resolve, rejects) => {
             if (!(info.command in builtinCmds)) {
@@ -331,23 +351,24 @@ export default class Completion {
             }
 
             if (info.command === 'find_package' && info.index === 0) {
-                resolve(this.getModuleSuggestions(word));
+                resolve(this.getModuleSuggestions(info, word));
                 return;
             }
 
             if (word.startsWith('./') || word.startsWith('../')) {
-                resolve(this.getFileSuggestions(word));
+                resolve(this.getFileSuggestions(info, word));
                 return;
             }
 
             const sigs: string[] = builtinCmds[info.command]['sig'];
             const args: string[] = getCmdKeyWords(sigs);
-            resolve(args.map((arg) => {
+            const argsCompletions = args.map((arg) => {
                 return {
                     label: arg,
                     kind: CompletionItemKind.Keyword,
                 };
-            }));
+            });
+            resolve([...this.getVariableSuggestions(info, word), ...argsCompletions]);
         });
     }
 
