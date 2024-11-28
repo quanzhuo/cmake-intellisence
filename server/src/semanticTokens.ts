@@ -25,6 +25,7 @@ let tokenTypes = [
 ];
 
 let tokenModifiers = [
+    'declaration',
     'definition',
     'readonly',
     'deprecated',
@@ -32,10 +33,11 @@ let tokenModifiers = [
 ];
 
 enum TokenModifiers {
-    definition = 2 ** 0,
-    readonly = 2 ** 1,
-    deprecated = 2 ** 2,
-    documentation = 2 ** 3
+    declaration = 2 ** 0,
+    definition = 2 ** 1,
+    readonly = 2 ** 2,
+    deprecated = 2 ** 3,
+    documentation = 2 ** 4,
 };
 
 enum TokenTypes {
@@ -199,12 +201,12 @@ export class SemanticListener extends CMakeListener {
             const varToken: Token = varCtx.start;
             this._builder.push(varToken.line - 1, varToken.column, varToken.text.length,
                 tokenTypes.indexOf(TokenTypes.variable),
-                this.getModifiers([TokenModifiers.definition]));
+                this.getModifiers([TokenModifiers.declaration, TokenModifiers.definition]));
         }
     };
 
     enterOptionCmd = (ctx: OptionCmdContext): void => {
-
+        this.enterSetCmd(ctx as unknown as SetCmdContext);
     };
 
     enterIncludeCmd = (ctx: IncludeCmdContext): void => {
@@ -216,33 +218,30 @@ export class SemanticListener extends CMakeListener {
     };
 
     enterOtherCmd = (ctx: OtherCmdContext): void => {
-        const cmdName: Token = ctx.ID().symbol;
-        const cmdNameLower: string = cmdName.text.toLowerCase();
+        const commandToken: Token = ctx.ID().symbol;
+        const cmdNameLower: string = commandToken.text.toLowerCase();
         if (cmdNameLower in builtinCmds) {
             const sigs: string[] = builtinCmds[cmdNameLower]['sig'];
             const keywords = getCmdKeyWords(sigs);
             const args: ArgumentContext[] = ctx.argument_list();
             args.forEach(argCtx => {
-                const id = argCtx.ID();
-                if (!id) {
-                    return;
-                }
+                const text = argCtx.getText();
                 const argToken: Token = argCtx.start;
-                if (keywords.includes(argToken.text)) {
+                if (keywords.includes(text)) {
                     this._builder.push(
                         argToken.line - 1,
                         argToken.column,
                         argToken.text.length,
-                        tokenTypes.indexOf(TokenTypes.keyword),
+                        tokenTypes.indexOf(TokenTypes.type),
                         this.getModifiers([])
                     );
                 }
             });
         } else {
             this._builder.push(
-                cmdName.line - 1,
-                cmdName.column,
-                cmdName.text.length,
+                commandToken.line - 1,
+                commandToken.column,
+                commandToken.text.length,
                 tokenTypes.indexOf(TokenTypes.function),
                 this.getModifiers([])
             );

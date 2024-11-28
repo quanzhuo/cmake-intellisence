@@ -6,7 +6,7 @@ scopeName: source.cmake
 # places in the grammar. The key is the name of the rule and the value is the actual rule.
 repository:
   variable-reference:
-    name: variable.other.cmake
+    name: storage.other.cmake
     begin: \$(ENV|CACHE)?{
     beginCaptures:
       "0": { name: punctuation.definition.variable-ref.start.cmake }
@@ -16,7 +16,7 @@ repository:
     patterns:
       - include: "#variable-reference"
   generator-expression:
-    name: variable.other.cmake
+    name: storage.other.cmake
     begin: \$\<
     beginCaptures:
       "0": { name: punctuation.definition.generator-exp.start.cmake }
