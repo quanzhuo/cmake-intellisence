@@ -334,14 +334,14 @@ export default class Completion {
             return candidate.includes(word);
         });
 
-        const proposals: CompletionItem[] = similar.map((value, index, array) => {
+        const suggestions: CompletionItem[] = similar.map((value, index, array) => {
             return {
                 label: value,
                 kind: CompletionItemKind.Variable,
             };
         });
 
-        return proposals;
+        return suggestions;
     }
 
     private async getArgumentSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
@@ -353,6 +353,12 @@ export default class Completion {
             if (info.command === 'find_package' && info.index === 0) {
                 resolve(this.getModuleSuggestions(info, word));
                 return;
+            } else if (info.command === 'cmake_policy' && info.index === 1) {
+                const firstArg = info.context.argument(0).ID().getText();
+                if (firstArg === 'GET' || firstArg === 'SET') {
+                    resolve(this.getPolicySuggestions(info, word));
+                    return;
+                }
             }
 
             if (word.startsWith('./') || word.startsWith('../')) {
@@ -370,6 +376,21 @@ export default class Completion {
             });
             resolve([...this.getVariableSuggestions(info, word), ...argsCompletions]);
         });
+    }
+
+    private getPolicySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
+        let similar = this.cmakeInfo.policies.filter(candidate => {
+            return candidate.includes(word);
+        });
+
+        const suggestions: CompletionItem[] = similar.map((value, index, array) => {
+            return {
+                label: value,
+                kind: CompletionItemKind.Constant,
+            };
+        });
+
+        return suggestions;
     }
 
     public async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
