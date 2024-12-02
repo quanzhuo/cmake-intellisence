@@ -74,30 +74,30 @@ export class CMakeLanguageServer {
     }
 
     private initialize() {
-        this.connection.onInitialize(this.onInitialize.bind(this));
-        this.connection.onInitialized(this.onInitialized.bind(this));
-        this.connection.onHover(this.onHover.bind(this));
-        this.connection.onCompletion(this.onCompletion.bind(this));
-        this.connection.onSignatureHelp(this.onSignatureHelp.bind(this));
-        this.connection.onDocumentFormatting(this.onDocumentFormatting.bind(this));
-        this.connection.onDocumentSymbol(this.onDocumentSymbol.bind(this));
-        this.connection.onDefinition(this.onDefinition.bind(this));
-        this.connection.onCodeAction(this.onCodeAction.bind(this));
-        this.connection.onDidChangeConfiguration(this.onDidChangeConfiguration.bind(this));
-        this.connection.onDocumentLinks(this.onDocumentLinks.bind(this));
-        this.connection.onShutdown(this.onShutdown.bind(this));
-
-        this.connection.languages.semanticTokens.on(this.onSemanticTokens.bind(this));
-        this.connection.languages.semanticTokens.onDelta(this.onSemanticTokensDelta.bind(this));
-        this.connection.languages.semanticTokens.onRange(this.onSemanticTokensRange.bind(this));
-
-        this.disposables.push(this.documents.onDidChangeContent(this.onDidChangeContent.bind(this)));
-        this.disposables.push(this.documents.onDidClose(this.onDidClose.bind(this)));
+        this.disposables.push(
+            this.connection.onInitialize(this.onInitialize.bind(this)),
+            this.connection.onInitialized(this.onInitialized.bind(this)),
+            this.connection.onHover(this.onHover.bind(this)),
+            this.connection.onCompletion(this.onCompletion.bind(this)),
+            this.connection.onSignatureHelp(this.onSignatureHelp.bind(this)),
+            this.connection.onDocumentFormatting(this.onDocumentFormatting.bind(this)),
+            this.connection.onDocumentSymbol(this.onDocumentSymbol.bind(this)),
+            this.connection.onDefinition(this.onDefinition.bind(this)),
+            this.connection.onCodeAction(this.onCodeAction.bind(this)),
+            this.connection.onDidChangeConfiguration(this.onDidChangeConfiguration.bind(this)),
+            this.connection.onDocumentLinks(this.onDocumentLinks.bind(this)),
+            this.connection.onShutdown(this.onShutdown.bind(this)),
+            this.connection.languages.semanticTokens.on(this.onSemanticTokens.bind(this)),
+            this.connection.languages.semanticTokens.onDelta(this.onSemanticTokensDelta.bind(this)),
+            this.connection.languages.semanticTokens.onRange(this.onSemanticTokensRange.bind(this)),
+            this.documents.onDidChangeContent(this.onDidChangeContent.bind(this)),
+            this.documents.onDidClose(this.onDidClose.bind(this)),
+        );
 
         process.on('SIGTERM', () => this.onShutdown());
         process.on('SIGINT', () => this.onShutdown());
 
-        this.documents.listen(this.connection);
+        this.disposables.push(this.documents.listen(this.connection));
         this.connection.listen();
     }
 
