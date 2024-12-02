@@ -1,11 +1,11 @@
-import { CharStreams, CommonTokenStream, Token } from "antlr4";
+import { CommonTokenStream, Token } from "antlr4";
 import * as fs from 'fs';
 import { CompletionItem, CompletionItemKind, CompletionItemTag, CompletionList, CompletionParams, Connection, InitializeParams, InsertTextFormat, Position, TextDocuments } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { URI } from "vscode-uri";
 import { CMakeInfo } from "./cmakeInfo";
 import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
-import CMakeSimpleParser, * as cmsp from "./generated/CMakeSimpleParser";
+import * as cmsp from "./generated/CMakeSimpleParser";
 import { builtinCmds, getWordAtPosition } from "./server";
 import ExtensionSettings from "./settings";
 import { getCmdKeyWords } from "./utils";
@@ -110,6 +110,8 @@ export default class Completion {
         private initParams: InitializeParams,
         private connection: Connection,
         private documents: TextDocuments<TextDocument>,
+        // private simpleTokenStream: CommonTokenStream,
+        // private simpleFileContext: cmsp.FileContext,
         private extSettings: ExtensionSettings,
         private cmakeInfo: CMakeInfo,
         private completionParams?: CompletionParams,
@@ -393,23 +395,17 @@ export default class Completion {
         return suggestions;
     }
 
-    public async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
+    public async onCompletion(params: CompletionParams, simpleFileContext: cmsp.FileContext, simpleTokenStream: CommonTokenStream): Promise<CompletionItem[] | CompletionList | null> {
         this.completionParams = params;
-        const document = this.documents.get(params.textDocument.uri);
-        const inputStream = CharStreams.fromString(document.getText());
-        const lexer = new CMakeSimpleLexer(inputStream);
-        const tokenStream = new CommonTokenStream(lexer);
-        const parser = new CMakeSimpleParser(tokenStream);
-        const tree = parser.file();
-        const comments = tokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
+        const comments = simpleTokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
 
         // if the cursor is in comments, return null
         if (inComments(params.position, comments)) {
             return null;
         }
 
-        const info = this.getCompletionInfoAtCursor(tree, params.position);
-        const word = getWordAtPosition(document, params.position).text;
+        const info = this.getCompletionInfoAtCursor(simpleFileContext, params.position);
+        const word = getWordAtPosition(this.documents.get(params.textDocument.uri), params.position).text;
         if (info.type === CMakeCompletionType.Command) {
             return await this.getCommandSuggestions(word);
         } else if (info.type === CMakeCompletionType.Argument) {

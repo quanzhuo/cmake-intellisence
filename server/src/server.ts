@@ -23,7 +23,7 @@ import { Logger, createLogger } from './logging';
 import { SemanticListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
 import ExtensionSettings from './settings';
 import { DefinationListener, incToBaseDir, parsedFiles, refToDef, topScope } from './symbolTable/goToDefination';
-import { getFileContext, getSimpleFileContext } from './utils';
+import { getFileContent } from './utils';
 
 type Word = {
     text: string,
@@ -64,6 +64,10 @@ export class CMakeLanguageServer {
     private cmakeInfo: CMakeInfo;
     private completion: Completion;
     private disposables: Disposable[] = [];
+    private fileContexts: Map<string, FileContext> = new Map();
+    private tokenStreams: Map<string, CommonTokenStream> = new Map();
+    private simpleTokenStreams: Map<string, CommonTokenStream> = new Map();
+    private simpleFileContexts: Map<string, cmsp.FileContext> = new Map();
 
     constructor() {
         this.initialize();
@@ -149,18 +153,14 @@ export class CMakeLanguageServer {
     }
 
     private async onHover(params: HoverParams): Promise<Hover | null> {
-        const document: TextDocument = this.documents.get(params.textDocument.uri);
-        const inputStream = CharStreams.fromString(document.getText());
-        const lexer = new CMakeSimpleLexer(inputStream);
-        const tokenStream = new CommonTokenStream(lexer);
-        const parser = new CMakeSimpleParser(tokenStream);
-        const tree = parser.file();
-        const comments = tokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
+        const simpleTokenStream = this.getSimpleTokenStream(params.textDocument.uri);
+        const comments = simpleTokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
         if (inComments(params.position, comments)) {
             return null;
         }
 
-        const commands: cmsp.CommandContext[] = tree.command_list();
+        const simpleFileContext: cmsp.FileContext = this.getSimplFileContext(params.textDocument.uri);
+        const commands: cmsp.CommandContext[] = simpleFileContext.command_list();
         const hoveredCommand = findCommandAtPosition(commands, params.position);
         if (hoveredCommand === null) {
             return null;
@@ -185,6 +185,7 @@ export class CMakeLanguageServer {
         }
         // hover on arguments
         else {
+            const document = this.documents.get(params.textDocument.uri);
             const word = getWordAtPosition(document, params.position).text;
             if (word.length === 0) {
                 return null;
@@ -225,7 +226,7 @@ export class CMakeLanguageServer {
             this.completion = new Completion(this.initParams, this.connection, this.documents, this.extSettings, this.cmakeInfo);
         }
 
-        return this.completion.onCompletion(params);
+        return this.completion.onCompletion(params, this.getSimplFileContext(params.textDocument.uri), this.getSimpleTokenStream(params.textDocument.uri));
     }
 
     private onSignatureHelp(params: SignatureHelpParams) {
@@ -307,13 +308,8 @@ export class CMakeLanguageServer {
         };
 
         return new Promise((resolve, rejects) => {
-            const input = CharStreams.fromString(document.getText());
-            const lexer = new CMakeSimpleLexer(input);
-            const tokenStream = new CommonTokenStream(lexer);
-            const parser = new CMakeSimpleParser(tokenStream);
-            const tree = parser.file();
-            const formatListener = new Formatter(tabSize, tokenStream);
-            ParseTreeWalker.DEFAULT.walk(formatListener, tree);
+            const formatListener = new Formatter(tabSize, this.getSimpleTokenStream(params.textDocument.uri));
+            ParseTreeWalker.DEFAULT.walk(formatListener, this.getSimplFileContext(params.textDocument.uri));
             resolve([
                 {
                     range: range,
@@ -324,11 +320,9 @@ export class CMakeLanguageServer {
     }
 
     private onDocumentSymbol(params: DocumentSymbolParams) {
-        const document = this.documents.get(params.textDocument.uri);
         return new Promise((resolve, reject) => {
-            const tree = getSimpleFileContext(document.getText());
             const symbolListener = new SymbolListener();
-            ParseTreeWalker.DEFAULT.walk(symbolListener, tree);
+            ParseTreeWalker.DEFAULT.walk(symbolListener, this.getFileContext(params.textDocument.uri));
             resolve(symbolListener.getSymbols());
         });
     }
@@ -362,7 +356,7 @@ export class CMakeLanguageServer {
                 }
 
                 const baseDir: URI = Utils.dirname(rootFileURI);
-                const tree = getFileContext(document.getText());
+                const tree = this.getFileContext(rootFile);
                 const definationListener = new DefinationListener(this.documents, this.cmakeInfo, baseDir, rootFileURI, topScope);
                 ParseTreeWalker.DEFAULT.walk(definationListener, tree);
 
@@ -378,7 +372,7 @@ export class CMakeLanguageServer {
                     incToBaseDir.clear();
 
                     const curFile: URI = URI.parse(params.textDocument.uri);
-                    const tree = getFileContext(document.getText());
+                    const tree = this.getFileContext(document.uri);
                     const baseDir: URI = Utils.dirname(curFile);
                     const definationListener = new DefinationListener(this.documents, this.cmakeInfo, baseDir, curFile, topScope);
                     ParseTreeWalker.DEFAULT.walk(definationListener, tree);
@@ -402,9 +396,8 @@ export class CMakeLanguageServer {
             return { data: [] };
         }
         const docUri: URI = URI.parse(params.textDocument.uri);
-        const tree: FileContext = getFileContext(document.getText());
         const semanticListener = new SemanticListener(docUri, this.cmakeInfo);
-        ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
+        ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(params.textDocument.uri));
         return semanticListener.getSemanticTokens();
     }
 
@@ -418,10 +411,9 @@ export class CMakeLanguageServer {
 
         const builder = getTokenBuilder(document.uri);
         builder.previousResult(params.previousResultId);
-        const docuUri: URI = URI.parse(document.uri);
-        const tree = getFileContext(document.getText());
-        const semanticListener = new SemanticListener(docuUri, this.cmakeInfo);
-        ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
+        const docUri: URI = URI.parse(document.uri);
+        const semanticListener = new SemanticListener(docUri, this.cmakeInfo);
+        ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(document.uri));
         return semanticListener.buildEdits();
     }
 
@@ -480,28 +472,35 @@ export class CMakeLanguageServer {
 
     // The content of a text document has changed. This event is emitted
     // when the text document first opened or when its content has changed.
-    private onDidChangeContent(change: TextDocumentChangeEvent<TextDocument>) {
-        if (change.document.version !== 1) {
-            this.contentChanged = true;
-        }
-
+    private onDidChangeContent(event: TextDocumentChangeEvent<TextDocument>) {
         // check syntax errors
-        const input = CharStreams.fromString(change.document.getText());
+        const input = CharStreams.fromString(event.document.getText());
         const lexer = new CMakeLexer(input);
         const tokenStream = new CommonTokenStream(lexer);
         const parser = new CMakeParser(tokenStream);
         parser.removeErrorListeners();
         const syntaxErrorListener = new SyntaxErrorListener();
         parser.addErrorListener(syntaxErrorListener);
-        const tree = parser.file();
+        const fileContext = parser.file();
+        this.fileContexts.set(event.document.uri, fileContext);
+        this.tokenStreams.set(event.document.uri, tokenStream);
+
+        // get simpleFileContext
+        input.reset();
+        const simpleLexer = new CMakeSimpleLexer(input);
+        const simpleTokenStream = new CommonTokenStream(simpleLexer);
+        const simpleParser = new CMakeSimpleParser(simpleTokenStream);
+        const simpleFileContext = simpleParser.file();
+        this.simpleFileContexts.set(event.document.uri, simpleFileContext);
+        this.simpleTokenStreams.set(event.document.uri, simpleTokenStream);
 
         // check semantic errors
         const semanticListener = new SemanticDiagnosticsListener();
-        ParseTreeWalker.DEFAULT.walk(semanticListener, tree);
+        ParseTreeWalker.DEFAULT.walk(semanticListener, fileContext);
 
         // all diagnostics
         const diagnostics = {
-            uri: change.document.uri,
+            uri: event.document.uri,
             diagnostics: [
                 ...syntaxErrorListener.getSyntaxErrors(),
                 ...semanticListener.getSemanticDiagnostics()
@@ -509,15 +508,14 @@ export class CMakeLanguageServer {
         };
         if (this.extSettings.cmdCaseDiagnostics) {
             const cmdCaseChecker = new CommandCaseChecker();
-            ParseTreeWalker.DEFAULT.walk(cmdCaseChecker, tree);
+            ParseTreeWalker.DEFAULT.walk(cmdCaseChecker, simpleFileContext);
             diagnostics.diagnostics.push(...cmdCaseChecker.getCmdCaseDdiagnostics());
         }
         this.connection.sendDiagnostics(diagnostics);
     }
 
     private async onDocumentLinks(params: DocumentLinkParams): Promise<DocumentLink[] | null> {
-        const document = this.documents.get(params.textDocument.uri);
-        const simpleFileContext = getSimpleFileContext(document.getText());
+        const simpleFileContext = this.getSimplFileContext(params.textDocument.uri);
         return new DocumentLinkInfo(simpleFileContext, params.textDocument.uri, this.cmakeInfo).links;
     }
 
@@ -538,6 +536,53 @@ export class CMakeLanguageServer {
         };
 
         return textDocument.getText(lineRange);
+    }
+
+    private getFileContext(uri: string): FileContext {
+        if (this.fileContexts.has(uri)) {
+            return this.fileContexts.get(uri);
+        }
+
+        const input = CharStreams.fromString(getFileContent(this.documents, URI.parse(uri)));
+        const lexer = new CMakeLexer(input);
+        const tokenStream = new CommonTokenStream(lexer);
+        const parser = new CMakeParser(tokenStream);
+        const fileContext = parser.file();
+        this.fileContexts.set(uri, fileContext);
+        this.tokenStreams.set(uri, tokenStream);
+        return fileContext;
+    }
+
+    private getTokenStream(uri: string): CommonTokenStream {
+        if (this.tokenStreams.has(uri)) {
+            return this.tokenStreams.get(uri);
+        }
+        this.getFileContext(uri);
+        return this.tokenStreams.get(uri);
+    }
+
+    private getSimplFileContext(uri: string): cmsp.FileContext {
+        if (this.simpleFileContexts.has(uri)) {
+            return this.simpleFileContexts.get(uri);
+        }
+
+        const document = this.documents.get(uri);
+        const input = CharStreams.fromString(getFileContent(this.documents, URI.parse(uri)));
+        const lexer = new CMakeSimpleLexer(input);
+        const tokenStream = new CommonTokenStream(lexer);
+        const parser = new CMakeSimpleParser(tokenStream);
+        const fileContext = parser.file();
+        this.simpleFileContexts.set(uri, fileContext);
+        this.simpleTokenStreams.set(uri, tokenStream);
+        return fileContext;
+    }
+
+    private getSimpleTokenStream(uri: string): CommonTokenStream {
+        if (this.simpleTokenStreams.has(uri)) {
+            return this.simpleTokenStreams.get(uri);
+        }
+        this.getSimplFileContext(uri);
+        return this.simpleTokenStreams.get(uri);
     }
 
     private onShutdown() {
