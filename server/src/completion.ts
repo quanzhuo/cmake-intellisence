@@ -135,48 +135,49 @@ export default class Completion {
         const currentCommand = findCommandAtPosition(commands, pos);
         if (currentCommand === null) {
             return { type: CMakeCompletionType.Command };
-        } else {
-            const lParen = currentCommand.LParen();
-            const rParen = currentCommand.RParen();
-            if (lParen === null || rParen === null) {
-                return { type: CMakeCompletionType.Command };
-            }
-            // line is 1-based, column is 0-based in antlr4
-            const lParenLine = lParen.symbol.line - 1;
-            const rParenLine = rParen.symbol.line - 1;
-            const lParenColumn = lParen.symbol.column;
-            const rParenColumn = rParen.symbol.column;
-
-            // Check if the cursor is within the parentheses
-            if (this.isCursorWithinParentheses(pos, lParenLine, lParenColumn, rParenLine, rParenColumn)) {
-                // Get the current argument index
-                const args = currentCommand.argument_list();
-                let index = 0;
-                for (let i = 0; i < args.length; i++) {
-                    const arg = args[i];
-                    const argStart = arg.start;
-
-                    // Check if the cursor is within the current argument
-                    if (pos.line === argStart.line - 1 && pos.character >= argStart.column && pos.character <= argStart.column + argStart.text.length) {
-                        index = i;
-                        break;
-                    }
-                    // Check if the cursor is before the current argument
-                    else if (pos.line < argStart.line - 1 || (pos.line === argStart.line - 1 && pos.character < argStart.column)) {
-                        index = i;
-                        break;
-                    }
-                    // If the cursor is after the current argument
-                    else {
-                        index = i + 1;
-                    }
-                }
-                // console.log(`index: ${index}`);
-                return { type: CMakeCompletionType.Argument, context: currentCommand, command: currentCommand.ID().symbol.text, index: index };
-            } else {
-                return { type: CMakeCompletionType.Command };
-            }
         }
+
+        const lParen = currentCommand.LParen();
+        const rParen = currentCommand.RParen();
+        if (lParen === null || rParen === null) {
+            return { type: CMakeCompletionType.Command };
+        }
+        // line is 1-based, column is 0-based in antlr4
+        const lParenLine = lParen.symbol.line - 1;
+        const rParenLine = rParen.symbol.line - 1;
+        const lParenColumn = lParen.symbol.column;
+        const rParenColumn = rParen.symbol.column;
+
+        // Check if the cursor is within the parentheses
+        if (this.isCursorWithinParentheses(pos, lParenLine, lParenColumn, rParenLine, rParenColumn)) {
+            // Get the current argument index
+            const args = currentCommand.argument_list();
+            let index = 0;
+            for (let i = 0; i < args.length; i++) {
+                const arg = args[i];
+                const argStart = arg.start;
+
+                // Check if the cursor is within the current argument
+                if (pos.line === argStart.line - 1 && pos.character >= argStart.column && pos.character <= argStart.column + argStart.text.length) {
+                    index = i;
+                    break;
+                }
+                // Check if the cursor is before the current argument
+                else if (pos.line < argStart.line - 1 || (pos.line === argStart.line - 1 && pos.character < argStart.column)) {
+                    index = i;
+                    break;
+                }
+                // If the cursor is after the current argument
+                else {
+                    index = i + 1;
+                }
+            }
+            // console.log(`index: ${index}`);
+            return { type: CMakeCompletionType.Argument, context: currentCommand, command: currentCommand.ID().symbol.text, index: index };
+        } else {
+            return { type: CMakeCompletionType.Command };
+        }
+
     }
 
     private async getCommandSuggestions(word: string): Promise<CompletionItem[]> {

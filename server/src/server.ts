@@ -1,15 +1,15 @@
 import { CharStreams, CommonTokenStream, ParseTreeWalker, Token } from 'antlr4';
 import { exec } from 'child_process';
-import { existsSync } from 'fs';
 import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams, SignatureHelpTriggerKind } from 'vscode-languageserver-protocol';
 import { Range, TextDocument } from 'vscode-languageserver-textdocument';
-import { CompletionItem, CompletionList, DocumentLink, Hover, Position } from 'vscode-languageserver-types';
+import { CompletionItem, CompletionList, DocumentLink, Hover, Location, LocationLink, Position } from 'vscode-languageserver-types';
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, createConnection } from 'vscode-languageserver/node';
-import { URI, Utils } from 'vscode-uri';
+import { URI } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from './cmakeInfo';
 import Completion, { findCommandAtPosition, inComments } from './completion';
 import { DIAG_CODE_CMD_CASE } from './consts';
+import { DefinitionResolver } from './defination';
 import SemanticDiagnosticsListener, { CommandCaseChecker, SyntaxErrorListener } from './diagnostics';
 import { DocumentLinkInfo } from './docLink';
 import { SymbolListener } from './docSymbols';
@@ -22,7 +22,6 @@ import localize from './localize';
 import { Logger, createLogger } from './logging';
 import { SemanticListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
 import ExtensionSettings from './settings';
-import { DefinationListener, incToBaseDir, parsedFiles, refToDef, topScope } from './symbolTable/goToDefination';
 import { getFileContent } from './utils';
 
 type Word = {
@@ -56,7 +55,6 @@ export function getWordAtPosition(textDocument: TextDocument, position: Position
 }
 
 export class CMakeLanguageServer {
-    private contentChanged = true;
     private initParams: InitializeParams;
     private connection = createConnection(ProposedFeatures.all);
     private documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
@@ -159,7 +157,7 @@ export class CMakeLanguageServer {
             return null;
         }
 
-        const simpleFileContext: cmsp.FileContext = this.getSimplFileContext(params.textDocument.uri);
+        const simpleFileContext: cmsp.FileContext = this.getSimpleFileContext(params.textDocument.uri);
         const commands: cmsp.CommandContext[] = simpleFileContext.command_list();
         const hoveredCommand = findCommandAtPosition(commands, params.position);
         if (hoveredCommand === null) {
@@ -226,7 +224,7 @@ export class CMakeLanguageServer {
             this.completion = new Completion(this.initParams, this.connection, this.documents, this.extSettings, this.cmakeInfo);
         }
 
-        return this.completion.onCompletion(params, this.getSimplFileContext(params.textDocument.uri), this.getSimpleTokenStream(params.textDocument.uri));
+        return this.completion.onCompletion(params, this.getSimpleFileContext(params.textDocument.uri), this.getSimpleTokenStream(params.textDocument.uri));
     }
 
     private onSignatureHelp(params: SignatureHelpParams) {
@@ -309,7 +307,7 @@ export class CMakeLanguageServer {
 
         return new Promise((resolve, rejects) => {
             const formatListener = new Formatter(tabSize, this.getSimpleTokenStream(params.textDocument.uri));
-            ParseTreeWalker.DEFAULT.walk(formatListener, this.getSimplFileContext(params.textDocument.uri));
+            ParseTreeWalker.DEFAULT.walk(formatListener, this.getSimpleFileContext(params.textDocument.uri));
             resolve([
                 {
                     range: range,
@@ -327,67 +325,24 @@ export class CMakeLanguageServer {
         });
     }
 
-    private onDefinition(params: DefinitionParams) {
-        const workspaceFolders = this.initParams.workspaceFolders;
-        if (workspaceFolders === null || workspaceFolders.length === 0) {
-            return null;
+    private onDefinition(params: DefinitionParams): Promise<Location | Location[] | LocationLink[] | null> {
+        const uri: string = params.textDocument.uri;
+        const simpleFileContext: cmsp.FileContext = this.getSimpleFileContext(uri);
+        const simpleTokenStream: CommonTokenStream = this.getSimpleTokenStream(uri);
+        const comments = simpleTokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
+        if (inComments(params.position, comments)) {
+            return Promise.resolve(null);
         }
-        if (workspaceFolders.length > 1) {
-            this.connection.window.showInformationMessage("CMake IntelliSence doesn't support multi-root workspace now");
-            return null;
+
+        const commands = simpleFileContext.command_list();
+        const command = findCommandAtPosition(commands, params.position);
+        if (command === null) {
+            return Promise.resolve(null);
         }
 
-        return new Promise((resolve, reject) => {
-            const document = this.documents.get(params.textDocument.uri);
-            const word: Word = getWordAtPosition(document, params.position);
-            const wordPos: string = params.textDocument.uri + '_' + params.position.line + '_' +
-                word.col + '_' + word.text;
-
-            if (this.contentChanged) {
-                refToDef.clear();
-                topScope.clear();
-                incToBaseDir.clear();
-
-                let rootFile = workspaceFolders[0].uri + '/CMakeLists.txt';
-                let rootFileURI: URI = URI.parse(rootFile);
-                if (!existsSync(rootFileURI.fsPath)) {
-                    rootFile = params.textDocument.uri;
-                    rootFileURI = URI.parse(rootFile);
-                }
-
-                const baseDir: URI = Utils.dirname(rootFileURI);
-                const tree = this.getFileContext(rootFile);
-                const definationListener = new DefinationListener(this.documents, this.cmakeInfo, baseDir, rootFileURI, topScope);
-                ParseTreeWalker.DEFAULT.walk(definationListener, tree);
-
-                this.contentChanged = false;
-            }
-
-            if (refToDef.has(wordPos)) {
-                return resolve(refToDef.get(wordPos));
-            } else {
-                if (!parsedFiles.has(params.textDocument.uri)) {
-                    refToDef.clear();
-                    topScope.clear();
-                    incToBaseDir.clear();
-
-                    const curFile: URI = URI.parse(params.textDocument.uri);
-                    const tree = this.getFileContext(document.uri);
-                    const baseDir: URI = Utils.dirname(curFile);
-                    const definationListener = new DefinationListener(this.documents, this.cmakeInfo, baseDir, curFile, topScope);
-                    ParseTreeWalker.DEFAULT.walk(definationListener, tree);
-
-                    parsedFiles.delete(params.textDocument.uri);
-
-                    if (refToDef.has(wordPos)) {
-                        return resolve(refToDef.get(wordPos));
-                    }
-                }
-
-                logger.warning(`can't find defination, word: ${word.text}, wordPos: ${wordPos}`);
-                return resolve(null);
-            }
-        });
+        const workspaceFolder = this.initParams.workspaceFolders[0].uri;
+        const resolver = new DefinitionResolver(this.fileContexts, this.documents, this.cmakeInfo, workspaceFolder, URI.parse(uri), command);
+        return resolver.resolve(params);
     }
 
     private async onSemanticTokens(params: SemanticTokensParams) {
@@ -515,7 +470,7 @@ export class CMakeLanguageServer {
     }
 
     private async onDocumentLinks(params: DocumentLinkParams): Promise<DocumentLink[] | null> {
-        const simpleFileContext = this.getSimplFileContext(params.textDocument.uri);
+        const simpleFileContext = this.getSimpleFileContext(params.textDocument.uri);
         return new DocumentLinkInfo(simpleFileContext, params.textDocument.uri, this.cmakeInfo).links;
     }
 
@@ -538,7 +493,7 @@ export class CMakeLanguageServer {
         return textDocument.getText(lineRange);
     }
 
-    private getFileContext(uri: string): FileContext {
+    public getFileContext(uri: string): FileContext {
         if (this.fileContexts.has(uri)) {
             return this.fileContexts.get(uri);
         }
@@ -553,7 +508,7 @@ export class CMakeLanguageServer {
         return fileContext;
     }
 
-    private getTokenStream(uri: string): CommonTokenStream {
+    public getTokenStream(uri: string): CommonTokenStream {
         if (this.tokenStreams.has(uri)) {
             return this.tokenStreams.get(uri);
         }
@@ -561,12 +516,11 @@ export class CMakeLanguageServer {
         return this.tokenStreams.get(uri);
     }
 
-    private getSimplFileContext(uri: string): cmsp.FileContext {
+    public getSimpleFileContext(uri: string): cmsp.FileContext {
         if (this.simpleFileContexts.has(uri)) {
             return this.simpleFileContexts.get(uri);
         }
 
-        const document = this.documents.get(uri);
         const input = CharStreams.fromString(getFileContent(this.documents, URI.parse(uri)));
         const lexer = new CMakeSimpleLexer(input);
         const tokenStream = new CommonTokenStream(lexer);
@@ -577,11 +531,11 @@ export class CMakeLanguageServer {
         return fileContext;
     }
 
-    private getSimpleTokenStream(uri: string): CommonTokenStream {
+    public getSimpleTokenStream(uri: string): CommonTokenStream {
         if (this.simpleTokenStreams.has(uri)) {
             return this.simpleTokenStreams.get(uri);
         }
-        this.getSimplFileContext(uri);
+        this.getSimpleFileContext(uri);
         return this.simpleTokenStreams.get(uri);
     }
 
