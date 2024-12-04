@@ -21,7 +21,6 @@ import CMakeSimpleParser, * as cmsp from './generated/CMakeSimpleParser';
 import localize from './localize';
 import { Logger, createLogger } from './logging';
 import { SemanticListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
-import ExtensionSettings from './settings';
 import { getFileContent } from './utils';
 
 type Word = {
@@ -29,6 +28,13 @@ type Word = {
     line: number,
     col: number
 };
+
+export interface ExtensionSettings {
+    loggingLevel: string;
+    cmakePath: string;
+    cmakeModulePath: string;
+    cmdCaseDiagnostics: boolean;
+}
 
 export let logger: Logger;
 export let initializationOptions: any;
@@ -58,9 +64,8 @@ export class CMakeLanguageServer {
     private initParams: InitializeParams;
     private connection = createConnection(ProposedFeatures.all);
     private documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
-    private extSettings = new ExtensionSettings();
+    private extSettings: ExtensionSettings;
     private cmakeInfo: CMakeInfo;
-    private completion: Completion;
     private disposables: Disposable[] = [];
     private fileContexts: Map<string, FileContext> = new Map();
     private tokenStreams: Map<string, CommonTokenStream> = new Map();
@@ -102,7 +107,8 @@ export class CMakeLanguageServer {
     private async onInitialize(params: InitializeParams): Promise<InitializeResult> {
         this.initParams = params;
         initializationOptions = params.initializationOptions;
-        this.cmakeInfo = new CMakeInfo(initializationOptions.cmakePath, this.connection);
+        this.extSettings = initializationOptions.extSettings;
+        this.cmakeInfo = new CMakeInfo(this.extSettings.cmakePath, this.extSettings.cmakeModulePath, this.connection);
         await this.cmakeInfo.init();
         logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
 
@@ -147,7 +153,6 @@ export class CMakeLanguageServer {
 
     private async onInitialized(params: InitializedParams) {
         this.connection.client.register(DidChangeConfigurationNotification.type, undefined);
-        await this.extSettings.getSettings(this.connection);
     }
 
     private async onHover(params: HoverParams): Promise<Hover | null> {
@@ -247,11 +252,10 @@ export class CMakeLanguageServer {
     }
 
     private async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
-        if (!this.completion) {
-            this.completion = new Completion(this.initParams, this.connection, this.documents, this.extSettings, this.cmakeInfo);
-        }
-
-        return this.completion.onCompletion(params, this.getSimpleFileContext(params.textDocument.uri), this.getSimpleTokenStream(params.textDocument.uri));
+        const completion = new Completion(this.initParams, this.connection, this.documents, this.cmakeInfo);
+        const fileContext = this.getSimpleFileContext(params.textDocument.uri);
+        const simpleTokenStream = this.getSimpleTokenStream(params.textDocument.uri);
+        return completion.onCompletion(params, fileContext, simpleTokenStream);
     }
 
     private onSignatureHelp(params: SignatureHelpParams) {
@@ -449,7 +453,14 @@ export class CMakeLanguageServer {
      * https://github.com/microsoft/vscode-languageserver-node/issues/380
      */
     private async onDidChangeConfiguration(params: DidChangeConfigurationParams) {
-        await this.extSettings.getSettings(this.connection);
+        const extSettings = await this.getExtSettings();
+        if (extSettings.cmakeModulePath !== this.extSettings.cmakeModulePath ||
+            extSettings.cmakePath !== this.extSettings.cmakePath
+        ) {
+            this.cmakeInfo = new CMakeInfo(extSettings.cmakePath, extSettings.cmakeModulePath, this.connection);
+            await this.cmakeInfo.init();
+        }
+        this.extSettings = extSettings;
     }
 
     // The content of a text document has changed. This event is emitted
@@ -503,6 +514,27 @@ export class CMakeLanguageServer {
 
     private onDidClose(event: TextDocumentChangeEvent<TextDocument>) {
         tokenBuilders.delete(event.document.uri);
+    }
+
+    private async getExtSettings(): Promise<ExtensionSettings> {
+        const [
+            cmakePath,
+            loggingLevel,
+            cmdCaseDiagnostics,
+            cmakeModulePath,
+        ] = await this.connection.workspace.getConfiguration([
+            { section: 'cmakeIntelliSence.cmakePath' },
+            { section: 'cmakeIntelliSence.loggingLevel' },
+            { section: 'cmakeIntelliSence.cmdCaseDiagnostics' },
+            { section: 'cmakeIntelliSence.cmakeModulePath' },
+        ]);
+
+        return {
+            cmakePath,
+            loggingLevel,
+            cmdCaseDiagnostics,
+            cmakeModulePath,
+        };
     }
 
     private getLineAtPosition(textDocument: TextDocument, position: Position): string {
@@ -573,4 +605,4 @@ export class CMakeLanguageServer {
     }
 }
 
-const server = new CMakeLanguageServer();
+new CMakeLanguageServer();

@@ -10,6 +10,13 @@ export const SERVER_NAME = 'CMake Language Server';
 
 let client: LanguageClient;
 
+interface ExtensionSettings {
+    loggingLevel: string;
+    cmakePath: string;
+    cmakeModulePath: string;
+    cmdCaseDiagnostics: boolean;
+}
+
 export async function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration(SERVER_ID);
     const logger = new Logger();
@@ -64,6 +71,16 @@ function startLanguageServer(serverModule: string, logger: Logger, context: vsco
         }
     };
 
+    function getExtensionSettings(): ExtensionSettings {
+        const config = vscode.workspace.getConfiguration(SERVER_ID);
+        return {
+            loggingLevel: config.get<string>('loggingLevel'),
+            cmakePath: config.get<string>('cmakePath'),
+            cmakeModulePath: config.get<string>('cmakeModulePath'),
+            cmdCaseDiagnostics: config.get<boolean>('cmdCaseDiagnostics'),
+        };
+    }
+
     // Options to control the language client
     const clientOptions: LanguageClientOptions = {
         documentSelector: [
@@ -74,7 +91,7 @@ function startLanguageServer(serverModule: string, logger: Logger, context: vsco
         initializationOptions: {
             language: vscode.env.language,
             extensionPath: context.extensionPath,
-            cmakePath: vscode.workspace.getConfiguration(SERVER_ID).get<string>('cmakePath'),
+            extSettings: getExtensionSettings(),
         }
     };
 

@@ -7,7 +7,6 @@ import { CMakeInfo } from "./cmakeInfo";
 import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
 import * as cmsp from "./generated/CMakeSimpleParser";
 import { builtinCmds, getWordAtPosition } from "./server";
-import ExtensionSettings from "./settings";
 import { getCmdKeyWords } from "./utils";
 import path = require("path");
 
@@ -110,9 +109,6 @@ export default class Completion {
         private initParams: InitializeParams,
         private connection: Connection,
         private documents: TextDocuments<TextDocument>,
-        // private simpleTokenStream: CommonTokenStream,
-        // private simpleFileContext: cmsp.FileContext,
-        private extSettings: ExtensionSettings,
         private cmakeInfo: CMakeInfo,
         private completionParams?: CompletionParams,
     ) { }

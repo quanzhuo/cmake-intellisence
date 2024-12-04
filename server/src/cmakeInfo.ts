@@ -22,9 +22,12 @@ export class CMakeInfo {
     public variables: string[] = [];
     public properties: string[] = [];
     public commands: string[] = [];
-    public systemModulePath?: string;
 
-    constructor(public cmakePath: string, private connection: Connection) { }
+    constructor(
+        public cmakePath: string,
+        public cmakeModulePath: string,
+        private connection: Connection,
+    ) { }
 
     public async init() {
         const absPath: string | null = which.sync(this.cmakePath, { nothrow: true });
@@ -55,20 +58,22 @@ export class CMakeInfo {
         }
         this.variables = langVariables;
 
-        try {
-            for (const dir of ['cmake', `cmake-${this.major}.${this.minor}`]) {
-                const module = path.join(path.dirname(this.cmakePath), '..', 'share', dir, 'Modules');
-                console.log(`module: ${module}`);
-                if (fs.existsSync(path.join(module, 'FindQt.cmake'))) {
-                    this.systemModulePath = path.normalize(module);
-                    break;
+        if (!fs.existsSync(this.cmakeModulePath)) {
+            try {
+                for (const dir of ['cmake', `cmake-${this.major}.${this.minor}`]) {
+                    const module = path.join(path.dirname(this.cmakePath), '..', 'share', dir, 'Modules');
+                    console.log(`module: ${module}`);
+                    if (fs.existsSync(path.join(module, 'FindQt.cmake'))) {
+                        this.cmakeModulePath = path.normalize(module);
+                        break;
+                    }
                 }
+            } catch (error) {
+                this.connection.window.showInformationMessage(`CMakeInfo.init, error: ${error}`);
             }
-        } catch (error) {
-            this.connection.window.showInformationMessage(`CMakeInfo.init, error: ${error}`);
         }
 
-        if (!this.systemModulePath) {
+        if (!fs.existsSync(this.cmakeModulePath)) {
             this.connection.window.showInformationMessage("CMake system module path not found.");
         }
     }

@@ -131,11 +131,11 @@ export class DocumentLinkInfo {
 
     private includeSystemModule(arg: cmsp.ArgumentContext): DocumentLink[] {
         const moduleName = arg.getText();
-        if (!this.cmakeInfo.systemModulePath) {
+        if (!this.cmakeInfo.cmakeModulePath) {
             return [];
         }
 
-        const modulePath = path.join(this.cmakeInfo.systemModulePath, `${moduleName}.cmake`);
+        const modulePath = path.join(this.cmakeInfo.cmakeModulePath, `${moduleName}.cmake`);
         if (fs.existsSync(modulePath)) {
             return [{
                 range: Range.create(arg.start.line - 1, arg.start.column, arg.stop.line - 1, arg.stop.column + moduleName.length),
