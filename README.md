@@ -8,7 +8,7 @@ This extension is still under development, you may encounter bugs or missing fea
 
 ## Requirements
 
-This extension is written in TypeScript, no other runtime dependencies are required. You should have [CMake](https://cmake.org/download/) installed. 
+This extension is written in TypeScript, no other runtime dependencies are required. You should have [CMake](https://cmake.org/download/) installed.
 
 ## Features
 
@@ -23,4 +23,8 @@ This extension is written in TypeScript, no other runtime dependencies are requi
 
 ![demo](https://github.com/quanzhuo/cmake-intellisence/raw/main/images/demo.gif)
 
+## Todo
 
++ Add more LSP features
++ Performance optimization
++ Unit/Integeation tests
