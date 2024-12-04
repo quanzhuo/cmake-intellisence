@@ -68,13 +68,13 @@ export class CMakeInfo {
                         break;
                     }
                 }
+
+                if (!fs.existsSync(this.cmakeModulePath)) {
+                    this.connection.window.showInformationMessage("CMake system module path not found.");
+                }
             } catch (error) {
                 this.connection.window.showInformationMessage(`CMakeInfo.init, error: ${error}`);
             }
-        }
-
-        if (!fs.existsSync(this.cmakeModulePath)) {
-            this.connection.window.showInformationMessage("CMake system module path not found.");
         }
     }
 

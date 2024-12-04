@@ -36,17 +36,6 @@ export function getFileContent(documents: TextDocuments<TextDocument>, uri: URI)
     }
 }
 
-export function getSubCMakeListsUri(baseDir: URI, subDir: string): URI | null {
-    const subCMakeListsUri: URI = Utils.joinPath(baseDir, subDir, 'CMakeLists.txt');
-    if (existsSync(subCMakeListsUri.fsPath)) {
-        return subCMakeListsUri;
-    } else {
-        logger.error('getSubCMakeListsUri:', subCMakeListsUri.fsPath, 'not exist');
-    }
-
-    return null;
-}
-
 export function getIncludeFileUri(cmakeInfo: CMakeInfo, baseDir: URI, includeFileName: string): URI | null {
     const incFileUri: URI = Utils.joinPath(baseDir, includeFileName);
     if (existsSync(incFileUri.fsPath)) {
