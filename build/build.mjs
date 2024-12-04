@@ -66,7 +66,6 @@ class KylinIdePackage extends PackageStep {
             "KylinIdeDevCPlusPlus",
             "KylinIdeDevOtherLanguages"
         ];
-        this.packageJsonData.description = "CMake IntelliSence for Kylin-IDE";
     }
 
     renameVsix() {
@@ -108,7 +107,6 @@ class VSCodePackage extends PackageStep {
             "C++",
             "development",
         ];
-        this.packageJsonData.description = "CMake IntelliSence for Visual Studio Code";
     }
 
     renameVsix() {

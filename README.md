@@ -23,6 +23,14 @@ This extension is written in TypeScript, no other runtime dependencies are requi
 
 ![demo](https://github.com/quanzhuo/cmake-intellisence/raw/main/images/demo.gif)
 
+## Development
+
+1. Clone the repository and open it in Visual Studio Code
+2. Run `npm install` to install dependencies
+3. Run `npm run develop` to compile the source code
+4. Select `Client + Server` in the debug panel and press `F5` to start the extension
+
+
 ## Todo
 
 + Add more LSP features

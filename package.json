@@ -1,7 +1,7 @@
 {
   "name": "cmake-intellisence",
   "displayName": "CMake IntelliSence",
-  "description": "CMake IntelliSence for Visual Studio Code",
+  "description": "CMake format, completion, go to definition, document link, semantic tokens, and more...",
   "author": "quanzhuo",
   "version": "0.2.1",
   "engines": {
