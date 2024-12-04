@@ -200,23 +200,50 @@ export class CMakeLanguageServer {
                 arg = '--help-property ';
             }
 
-            if (arg.length !== 0) {
-                const command = 'cmake ' + arg + word;
-                return new Promise((resolve, rejects) => {
+            function execPromise(command: string): Promise<{ stdout: string, stderr: string }> {
+                return new Promise((resolve, reject) => {
                     exec(command, (error, stdout, stderr) => {
                         if (error) {
-                            rejects(error);
+                            reject({ error, stderr });
+                        } else {
+                            resolve({ stdout, stderr });
                         }
-                        resolve({
-                            contents: {
-                                kind: 'plaintext',
-                                value: stdout
-                            }
-                        });
                     });
                 });
             }
+
+            if (arg.length !== 0) {
+                const command = 'cmake ' + arg + word;
+                try {
+                    const { stdout } = await execPromise(command);
+                    return {
+                        contents: {
+                            kind: 'plaintext',
+                            value: stdout
+                        }
+                    };
+                } catch (error) {
+                    const pattern = /_(CXX|C)(_)?$/;
+                    if (pattern.test(word)) {
+                        const modifiedWord = word.replace(pattern, '_<LANG>$2');
+                        const modifiedCommand = `cmake ${arg} "${modifiedWord}"`;
+                        try {
+                            const { stdout: modifiedStdout } = await execPromise(modifiedCommand);
+                            return {
+                                contents: {
+                                    kind: 'plaintext',
+                                    value: modifiedStdout
+                                }
+                            };
+                        } catch (modifiedError) {
+                            return null;
+                        }
+                    }
+                    return null;
+                }
+            }
         }
+        return null;
     }
 
     private async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
