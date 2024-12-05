@@ -1,8 +1,8 @@
 import { CharStreams, CommonTokenStream, ParseTreeWalker, Token } from 'antlr4';
 import { exec } from 'child_process';
-import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams, SignatureHelpTriggerKind } from 'vscode-languageserver-protocol';
-import { Range, TextDocument } from 'vscode-languageserver-textdocument';
-import { CompletionItem, CompletionList, DocumentLink, Hover, Location, LocationLink, Position } from 'vscode-languageserver-types';
+import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams } from 'vscode-languageserver-protocol';
+import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocument';
+import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, createConnection } from 'vscode-languageserver/node';
 import { URI } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
@@ -117,7 +117,8 @@ export class CMakeLanguageServer {
                 textDocumentSync: TextDocumentSyncKind.Incremental,
                 hoverProvider: true,
                 signatureHelpProvider: {
-                    triggerCharacters: ['(']
+                    triggerCharacters: ['('],
+                    retriggerCharacters: [' '],
                 },
                 completionProvider: {
                     triggerCharacters: ['/', '(', ' ']
@@ -151,7 +152,7 @@ export class CMakeLanguageServer {
         return result;
     }
 
-    private async onInitialized(params: InitializedParams) {
+    private onInitialized(params: InitializedParams) {
         this.connection.client.register(DidChangeConfigurationNotification.type, undefined);
     }
 
@@ -251,84 +252,80 @@ export class CMakeLanguageServer {
         return null;
     }
 
-    private async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
+    private onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
         const completion = new Completion(this.initParams, this.connection, this.documents, this.cmakeInfo);
         const fileContext = this.getSimpleFileContext(params.textDocument.uri);
         const simpleTokenStream = this.getSimpleTokenStream(params.textDocument.uri);
         return completion.onCompletion(params, fileContext, simpleTokenStream);
     }
 
-    private onSignatureHelp(params: SignatureHelpParams) {
-        return new Promise((resolve, reject) => {
-            const document = this.documents.get(params.textDocument.uri);
-            if (params.context.triggerKind === SignatureHelpTriggerKind.TriggerCharacter) {
-                if (params.context.triggerCharacter === "(") {
-                    const posBeforeLParen: Position = {
-                        line: params.position.line,
-                        character: params.position.character - 1
-                    };
+    private onSignatureHelp(params: SignatureHelpParams): Promise<SignatureHelp | null> {
+        const pos = params.position;
+        const uri = params.textDocument.uri;
+        const simpleFileContext = this.getSimpleFileContext(uri);
+        const commands: cmsp.CommandContext[] = simpleFileContext.command_list();
+        const command = findCommandAtPosition(commands, pos);
+        if (!command) {
+            return Promise.resolve(null);
+        }
 
-                    const word: string = getWordAtPosition(document, posBeforeLParen).text;
-                    if (word.length === 0 || !(word in builtinCmds)) {
-                        resolve(null);
-                        return;
+        const commandName = command.ID().getText().toLowerCase();
+        if (!(commandName in builtinCmds)) {
+            return Promise.resolve(null);
+        }
+
+        const sigsStrArr: string[] = builtinCmds[commandName]['sig'];
+        if (sigsStrArr.length === 1) {
+            return Promise.resolve({
+                signatures: [
+                    {
+                        label: sigsStrArr[0]
                     }
+                ],
+                activeSignature: 0,
+                activeParameter: 0
+            });
+        }
 
-                    const sigsStrArr: string[] = builtinCmds[word]['sig'];
-                    const signatures = sigsStrArr.map((value, index, arr) => {
-                        return {
-                            label: value
-                        };
-                    });
+        function findActiveSignature(command: cmsp.CommandContext, sigs: string[]): number {
+            const args = command.argument_list();
+            const argsText: string[] = args.map(arg => arg.getText());
 
-                    resolve({
-                        signatures: signatures,
-                        activeSignature: 0,
-                        activeParameter: 0
-                    });
+            let ret = 0;
+            let maxMatched = 0;
+
+            sigs.forEach((sig, index) => {
+                const keywords = new Set<string>();
+                const matches = sig.match(/[A-Z][A-Z_]*[A-Z]/g);
+                if (matches) {
+                    matches.forEach(keyword => keywords.add(keyword));
                 }
-            } else if (params.context.triggerKind === SignatureHelpTriggerKind.ContentChange) {
-                const line: string = this.getLineAtPosition(document, params.position);
-                const word: string = getWordAtPosition(document, params.position).text;
-                if (word.length === 0) {
-                    if (line[params.position.character - 1] === ')') {
-                        return resolve(null);
+
+                let matched = 0;
+                argsText.forEach(arg => {
+                    if (keywords.has(arg)) {
+                        matched++;
                     }
-                }
-                const firstSig: string = params.context.activeSignatureHelp?.signatures[0].label;
-                const leftParenIndex = firstSig.indexOf('(');
-                const command = firstSig.slice(0, leftParenIndex);
-                if (!command) {
-                    return resolve(null);
-                }
-                const sigsStrArr: string[] = builtinCmds[command]['sig'];
-                const signatures = sigsStrArr.map((value, index, arr) => {
-                    return {
-                        label: value
-                    };
                 });
 
-                const activeSignature: number = (() => {
-                    let i = 0;
-                    for (let j = 0; j < signatures.length; ++j) {
-                        if (signatures[j].label.includes(word)) {
-                            i = j;
-                            break;
-                        }
-                    }
-                    return i;
-                })();
+                if (matched > maxMatched) {
+                    maxMatched = matched;
+                    ret = index;
+                }
+            });
 
-                resolve({
-                    signatures: signatures,
-                    activeSignature: activeSignature,
-                    activeParameter: 0
-                });
-            }
+            return ret;
+        }
+
+        const activeSigIndex = findActiveSignature(command, sigsStrArr);
+        return Promise.resolve({
+            signatures: sigsStrArr.map(sig => { return { label: sig }; }),
+            activeSignature: activeSigIndex,
+            activeParameter: 0
         });
     }
 
-    private onDocumentFormatting(params: DocumentFormattingParams) {
+    private onDocumentFormatting(params: DocumentFormattingParams): Promise<TextEdit[] | null> {
         const tabSize = params.options.tabSize;
         const document = this.documents.get(params.textDocument.uri);
         const range: Range = {
@@ -348,7 +345,7 @@ export class CMakeLanguageServer {
         });
     }
 
-    private onDocumentSymbol(params: DocumentSymbolParams) {
+    private onDocumentSymbol(params: DocumentSymbolParams): Promise<DocumentSymbol[] | SymbolInformation[] | null> {
         return new Promise((resolve, reject) => {
             const symbolListener = new SymbolListener();
             ParseTreeWalker.DEFAULT.walk(symbolListener, this.getFileContext(params.textDocument.uri));
@@ -376,23 +373,23 @@ export class CMakeLanguageServer {
         return resolver.resolve(params);
     }
 
-    private async onSemanticTokens(params: SemanticTokensParams) {
+    private onSemanticTokens(params: SemanticTokensParams): Promise<SemanticTokens | null> {
         const document = this.documents.get(params.textDocument.uri);
         if (document === undefined) {
-            return { data: [] };
+            return Promise.resolve({ data: [] });
         }
         const docUri: URI = URI.parse(params.textDocument.uri);
         const semanticListener = new SemanticListener(docUri, this.cmakeInfo);
         ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(params.textDocument.uri));
-        return semanticListener.getSemanticTokens();
+        return Promise.resolve(semanticListener.getSemanticTokens());
     }
 
-    private onSemanticTokensDelta(params: SemanticTokensDeltaParams) {
+    private onSemanticTokensDelta(params: SemanticTokensDeltaParams): Promise<SemanticTokens | SemanticTokensDelta | null> {
         const document = this.documents.get(params.textDocument.uri);
         if (document === undefined) {
-            return {
+            return Promise.resolve({
                 edits: []
-            };
+            });
         }
 
         const builder = getTokenBuilder(document.uri);
@@ -400,16 +397,16 @@ export class CMakeLanguageServer {
         const docUri: URI = URI.parse(document.uri);
         const semanticListener = new SemanticListener(docUri, this.cmakeInfo);
         ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(document.uri));
-        return semanticListener.buildEdits();
+        return Promise.resolve(semanticListener.buildEdits());
     }
 
-    private onSemanticTokensRange(params: SemanticTokensRangeParams) {
-        return {
+    private onSemanticTokensRange(params: SemanticTokensRangeParams): Promise<SemanticTokens | null> {
+        return Promise.resolve({
             data: []
-        };
+        });
     }
 
-    private onCodeAction(params: CodeActionParams) {
+    private onCodeAction(params: CodeActionParams): (Command | CodeAction)[] | null {
         const isCmdCaseProblem = params.context.diagnostics.some(value => { return value.code === DIAG_CODE_CMD_CASE; });
         if (isCmdCaseProblem) {
             const cmdName: string = this.documents.get(params.textDocument.uri).getText(params.range);
@@ -507,9 +504,10 @@ export class CMakeLanguageServer {
         this.connection.sendDiagnostics(diagnostics);
     }
 
-    private async onDocumentLinks(params: DocumentLinkParams): Promise<DocumentLink[] | null> {
+    private onDocumentLinks(params: DocumentLinkParams): Promise<DocumentLink[] | null> {
         const simpleFileContext = this.getSimpleFileContext(params.textDocument.uri);
-        return new DocumentLinkInfo(simpleFileContext, params.textDocument.uri, this.cmakeInfo).links;
+        const linkInfo = new DocumentLinkInfo(simpleFileContext, params.textDocument.uri, this.cmakeInfo);
+        return Promise.resolve(linkInfo.links);
     }
 
     private onDidClose(event: TextDocumentChangeEvent<TextDocument>) {
