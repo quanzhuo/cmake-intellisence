@@ -181,7 +181,7 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
 
     private findPackage(ctx: cmsp.CommandContext): void {
         const args = ctx.argument_list();
-        if (args.length < 0) {
+        if (args.length <= 0) {
             return;
         }
 
