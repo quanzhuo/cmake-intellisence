@@ -370,18 +370,33 @@ export default class Completion {
         return suggestions;
     }
 
+    private getTargetsSuggestion(info: CMakeCompletionInfo): CompletionItem[] | undefined {
+        if (info.index === 0) {
+            const targets = [...this.projectInfo.executables ?? [], ...this.projectInfo.libraries ?? []];
+            if (targets.length > 0) {
+                return targets.map((target) => {
+                    return {
+                        label: target,
+                        kind: CompletionItemKind.Variable,
+                    };
+                });
+            }
+        }
+    }
+
     private async getArgumentSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
         if (!(info.command in builtinCmds)) {
             return null;
         }
 
         switch (info.command) {
-            case 'find_package':
+            case 'find_package': {
                 if (info.index === 0) {
                     return this.getModuleSuggestions(info, word);
                 }
                 break;
-            case 'cmake_policy':
+            }
+            case 'cmake_policy': {
                 if (info.index === 1) {
                     const firstArg = info.context.argument(0).ID().getText();
                     if (firstArg === 'GET' || firstArg === 'SET') {
@@ -389,6 +404,45 @@ export default class Completion {
                     }
                 }
                 break;
+            }
+            case 'target_compile_definitions':
+            case 'target_compile_features':
+            case 'target_compile_options':
+            case 'target_include_directories':
+            case 'target_link_directories':
+            case 'target_link_options':
+            case 'target_precompile_headers':
+            case 'target_sources': {
+                const targets = this.getTargetsSuggestion(info);
+                if (targets) {
+                    return targets;
+                }
+                break;
+            }
+            case 'target_link_libraries': {
+                const targets = this.getTargetsSuggestion(info);
+                if (targets) {
+                    return targets;
+                } else {
+                    const items = [
+                        ...this.projectInfo.executables ?? [],
+                        ...this.projectInfo.libraries ?? [],
+                        'PRIVATE', 'PUBLIC', 'INTERFACE',
+                        'LINK_INTERFACE_LIBRARIES',
+                        'LINK_PRIVATE',
+                        'LINK_PUBLIC',
+                    ];
+                    if (items.length > 0) {
+                        return items.map((lib) => {
+                            return {
+                                label: lib,
+                                kind: CompletionItemKind.Variable,
+                            };
+                        });
+                    }
+                }
+                break;
+            }
             default:
                 break;
         }
