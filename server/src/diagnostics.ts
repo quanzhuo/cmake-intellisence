@@ -1,5 +1,6 @@
 import { ErrorListener } from "antlr4";
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver";
+import { CMakeInfo } from "./cmakeInfo";
 import { DIAG_CODE_CMD_CASE } from "./consts";
 import { BreakCmdContext, ContinueCmdContext, LoopContext } from "./generated/CMakeParser";
 import CMakeListener from "./generated/CMakeParserListener";
@@ -91,8 +92,6 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
         this.checkBreakAndContinueCmd(ctx);
     };
 
-
-
     getSemanticDiagnostics(): Diagnostic[] {
         return this.diagnostics;
     }
@@ -100,20 +99,24 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
 
 export class CommandCaseChecker extends CMakeSimpleParserListener {
     private diagnostics: Diagnostic[] = [];
+    private commands: Set<string>;
+
+    constructor(
+        cmakeInfo: CMakeInfo,
+    ) {
+        super();
+        this.commands = new Set<string>(cmakeInfo.commands);
+    }
 
     enterCommand?: (ctx: csp.CommandContext) => void = (ctx: csp.CommandContext) => {
         const token = ctx.start;
-        const text: string = token.text;
+        const command: string = token.text;
+        const lowerCaseCommand = command.toLowerCase();
+        if (!this.commands.has(lowerCaseCommand)) {
+            return;
+        }
         const line: number = token.line, column: number = token.column;
-        const isLowerCase = ((cmdText: string) => {
-            for (const ch of cmdText) {
-                if (ch.toLowerCase() !== ch) {
-                    return false;
-                }
-            }
-            return true;
-        })(text);
-
+        const isLowerCase = lowerCaseCommand === command;
         if (!isLowerCase) {
             this.diagnostics.push({
                 range: {
@@ -123,7 +126,7 @@ export class CommandCaseChecker extends CMakeSimpleParserListener {
                     },
                     end: {
                         line: line - 1,
-                        character: column + text.length
+                        character: column + command.length
                     }
                 },
                 severity: DiagnosticSeverity.Information,

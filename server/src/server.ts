@@ -4,10 +4,10 @@ import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParam
 import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocument';
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, createConnection } from 'vscode-languageserver/node';
-import { URI } from 'vscode-uri';
+import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
-import { CMakeInfo } from './cmakeInfo';
-import Completion, { findCommandAtPosition, inComments } from './completion';
+import { CMakeInfo, ProjectInfoListener } from './cmakeInfo';
+import Completion, { findCommandAtPosition, inComments, ProjectInfo } from './completion';
 import { DIAG_CODE_CMD_CASE } from './consts';
 import { DefinitionResolver } from './defination';
 import SemanticDiagnosticsListener, { CommandCaseChecker, SyntaxErrorListener } from './diagnostics';
@@ -22,6 +22,7 @@ import localize from './localize';
 import { Logger, createLogger } from './logging';
 import { SemanticListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
 import { getFileContent } from './utils';
+import * as fs from 'fs';
 
 type Word = {
     text: string,
@@ -71,6 +72,12 @@ export class CMakeLanguageServer {
     private tokenStreams: Map<string, CommonTokenStream> = new Map();
     private simpleTokenStreams: Map<string, CommonTokenStream> = new Map();
     private simpleFileContexts: Map<string, cmsp.FileContext> = new Map();
+    private projectInfo?: ProjectInfo;
+
+    /**
+     * Files whose ProjectInfo is already parsed
+     */
+    private parsedFiles = new Set<string>();
 
     constructor() {
         this.initialize();
@@ -253,7 +260,7 @@ export class CMakeLanguageServer {
     }
 
     private onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
-        const completion = new Completion(this.initParams, this.connection, this.documents, this.cmakeInfo);
+        const completion = new Completion(this.initParams, this.connection, this.documents, this.cmakeInfo, this.simpleFileContexts, this.projectInfo);
         const fileContext = this.getSimpleFileContext(params.textDocument.uri);
         const simpleTokenStream = this.getSimpleTokenStream(params.textDocument.uri);
         return completion.onCompletion(params, fileContext, simpleTokenStream);
@@ -460,8 +467,12 @@ export class CMakeLanguageServer {
         this.extSettings = extSettings;
     }
 
-    // The content of a text document has changed. This event is emitted
-    // when the text document first opened or when its content has changed.
+    /**
+     * The content of a text document has changed. This event is emitted
+     *  when the text document first opened or when its content has changed.
+     * 
+     * @param event 
+     */
     private onDidChangeContent(event: TextDocumentChangeEvent<TextDocument>) {
         // check syntax errors
         const input = CharStreams.fromString(event.document.getText());
@@ -471,11 +482,13 @@ export class CMakeLanguageServer {
         parser.removeErrorListeners();
         const syntaxErrorListener = new SyntaxErrorListener();
         parser.addErrorListener(syntaxErrorListener);
+
+        // FileContext
         const fileContext = parser.file();
         this.fileContexts.set(event.document.uri, fileContext);
         this.tokenStreams.set(event.document.uri, tokenStream);
 
-        // get simpleFileContext
+        // cmsp.FileContext
         input.reset();
         const simpleLexer = new CMakeSimpleLexer(input);
         const simpleTokenStream = new CommonTokenStream(simpleLexer);
@@ -496,12 +509,56 @@ export class CMakeLanguageServer {
                 ...semanticListener.getSemanticDiagnostics()
             ]
         };
+
         if (this.extSettings.cmdCaseDiagnostics) {
-            const cmdCaseChecker = new CommandCaseChecker();
+            const cmdCaseChecker = new CommandCaseChecker(this.cmakeInfo);
             ParseTreeWalker.DEFAULT.walk(cmdCaseChecker, simpleFileContext);
             diagnostics.diagnostics.push(...cmdCaseChecker.getCmdCaseDdiagnostics());
         }
         this.connection.sendDiagnostics(diagnostics);
+
+        this.buildProjectInfo(event);
+    }
+
+    /**
+     * Build project info when file changed
+     * 
+     * @param event 
+     */
+    private buildProjectInfo(event: TextDocumentChangeEvent<TextDocument>) {
+        if (!(this.initParams.workspaceFolders && this.initParams.workspaceFolders.length === 1)) {
+            return;
+        }
+
+        const workspaceFolder = URI.parse(this.initParams.workspaceFolders[0].uri);
+        let entryCMake: string = event.document.uri;
+        const projectRootCMake: URI = Utils.joinPath(workspaceFolder, 'CMakeLists.txt');
+        if (fs.existsSync(projectRootCMake.fsPath) && this.projectInfo === undefined) {
+            entryCMake = projectRootCMake.toString();
+        }
+
+        const tree = this.getSimpleFileContext(entryCMake.toString());
+        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, entryCMake.toString(), workspaceFolder.fsPath, this.simpleFileContexts, this.documents, this.parsedFiles);
+        ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
+        if (!this.projectInfo) {
+            this.projectInfo = ProjectInfoListener.projectInfo;
+        } else {
+            const newProjectInfo = ProjectInfoListener.projectInfo;
+            for (const key in newProjectInfo) {
+                if (newProjectInfo.hasOwnProperty(key)) {
+                    if (newProjectInfo[key] instanceof Set) {
+                        if (!this.projectInfo[key]) {
+                            this.projectInfo[key] = new Set();
+                        }
+                        for (const value of newProjectInfo[key]) {
+                            this.projectInfo[key].add(value);
+                        }
+                    } else {
+                        this.projectInfo[key] = newProjectInfo[key];
+                    }
+                }
+            }
+        }
     }
 
     private onDocumentLinks(params: DocumentLinkParams): Promise<DocumentLink[] | null> {
@@ -533,21 +590,6 @@ export class CMakeLanguageServer {
             cmdCaseDiagnostics,
             cmakeModulePath,
         };
-    }
-
-    private getLineAtPosition(textDocument: TextDocument, position: Position): string {
-        const lineRange: Range = {
-            start: {
-                line: position.line,
-                character: 0
-            },
-            end: {
-                line: position.line,
-                character: Number.MAX_VALUE
-            }
-        };
-
-        return textDocument.getText(lineRange);
     }
 
     public getFileContext(uri: string): FileContext {

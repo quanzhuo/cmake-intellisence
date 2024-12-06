@@ -3,8 +3,15 @@ import * as fs from 'fs';
 import { promises as fsp } from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
-import { Connection } from 'vscode-languageserver';
+import { Connection, TextDocuments } from 'vscode-languageserver';
+import { ProjectInfo } from './completion';
+import * as cmsp from './generated/CMakeSimpleParser';
+import CMakeSimpleParserListener from './generated/CMakeSimpleParserListener';
 import which = require('which');
+import { getFileContent, getSimpleFileContext } from './utils';
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import { URI } from 'vscode-uri';
+import { ParseTreeWalker } from 'antlr4';
 
 type Modules = string[];
 type Policies = string[];
@@ -103,4 +110,139 @@ export class CMakeInfo {
             tmp[4].split('\n'),
         ];
     }
+}
+
+export class ProjectInfoListener extends CMakeSimpleParserListener {
+    private commands: Set<string>;
+    constructor(
+        private cmakeInfo: CMakeInfo,
+        private currentCMake: string,
+        private baseDirectory: string,
+        private simpleFileContexts: Map<string, cmsp.FileContext>,
+        private documents: TextDocuments<TextDocument>,
+        private parsedFiles: Set<string>,
+    ) {
+        super();
+        this.commands = new Set<string>(this.cmakeInfo.commands);
+    }
+
+    static projectInfo: ProjectInfo = {};
+
+    private project(ctx: cmsp.CommandContext): void {
+        const args = ctx.argument_list();
+        if (args.length > 0) {
+            ProjectInfoListener.projectInfo.projectName = args[0].getText();
+        }
+    }
+
+    private addExecutable(ctx: cmsp.CommandContext): void {
+        const args = ctx.argument_list();
+        if (args.length > 0) {
+            ProjectInfoListener.projectInfo.executables = ProjectInfoListener.projectInfo.executables ?? new Set<string>();
+            ProjectInfoListener.projectInfo.executables.add(args[0].getText());
+        }
+    }
+
+    private addLibrary(ctx: cmsp.CommandContext): void {
+        const args = ctx.argument_list();
+        if (args.length > 0) {
+            ProjectInfoListener.projectInfo.libraries = ProjectInfoListener.projectInfo.libraries ?? new Set<string>();
+            ProjectInfoListener.projectInfo.libraries.add(args[0].getText());
+        }
+    }
+
+    private findPackage(ctx: cmsp.CommandContext): void {
+        const args = ctx.argument_list();
+        if (args.length < 0) {
+            return;
+        }
+
+        const packageName = args[0].getText();
+        // CMake builtin modules
+        let targetCMakeFile = path.join(this.cmakeInfo.cmakeModulePath, `Find${packageName}.cmake`);
+        if (!fs.existsSync(targetCMakeFile)) {
+            return;
+        }
+
+        targetCMakeFile = URI.file(targetCMakeFile).toString();
+        if (this.parsedFiles.has(targetCMakeFile)) {
+            return;
+        }
+
+        let tree: cmsp.FileContext;
+        if (this.simpleFileContexts.has(targetCMakeFile)) {
+            tree = this.simpleFileContexts.get(targetCMakeFile);
+        } else {
+            tree = getSimpleFileContext(getFileContent(this.documents, URI.parse(targetCMakeFile)));
+            this.simpleFileContexts.set(targetCMakeFile, tree);
+        }
+        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.simpleFileContexts, this.documents, this.parsedFiles);
+        ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
+    }
+
+    private include(ctx: cmsp.CommandContext): void {
+        const args = ctx.argument_list();
+        if (args.length !== 1) {
+            return;
+        }
+        const includeFile = args[0].getText();
+        let targetCMakeFile = path.join(this.baseDirectory, includeFile);
+        if (!fs.existsSync(targetCMakeFile)) {
+            targetCMakeFile = path.join(this.cmakeInfo.cmakeModulePath, `${includeFile}.cmake`);
+            if (!fs.existsSync(targetCMakeFile)) {
+                return;
+            }
+        }
+
+        targetCMakeFile = URI.file(targetCMakeFile).toString();
+        if (this.parsedFiles.has(targetCMakeFile)) {
+            return;
+        }
+
+        let tree: cmsp.FileContext;
+        if (this.simpleFileContexts.has(targetCMakeFile)) {
+            tree = this.simpleFileContexts.get(targetCMakeFile);
+        } else {
+            tree = getSimpleFileContext(getFileContent(this.documents, URI.parse(targetCMakeFile)));
+            this.simpleFileContexts.set(targetCMakeFile, tree);
+        }
+        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.simpleFileContexts, this.documents, this.parsedFiles);
+        ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
+    }
+
+    private functionOrMacro(ctx: cmsp.CommandContext): void {
+        const args = ctx.argument_list();
+        if (args.length > 0) {
+            ProjectInfoListener.projectInfo.functions = ProjectInfoListener.projectInfo.functions ?? new Set<string>();
+            ProjectInfoListener.projectInfo.functions.add(args[0].getText());
+        }
+    }
+
+    enterCommand?: (ctx: cmsp.CommandContext) => void = (ctx: cmsp.CommandContext) => {
+        const commandToken = ctx.start;
+        const command: string = commandToken.text.toLowerCase();
+        switch (command) {
+            case 'project':
+                this.project(ctx);
+                break;
+            case 'add_executable':
+                this.addExecutable(ctx);
+                break;
+            case 'add_library':
+                this.addLibrary(ctx);
+                break;
+            case 'find_package':
+                this.findPackage(ctx);
+                break;
+            case 'include':
+                this.include(ctx);
+                break;
+            case 'function':
+            case 'macro':
+                this.functionOrMacro(ctx);
+                break;
+            default:
+                break;
+        }
+    };
 }
