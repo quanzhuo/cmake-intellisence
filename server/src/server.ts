@@ -538,7 +538,7 @@ export class CMakeLanguageServer {
         }
 
         const tree = this.getSimpleFileContext(entryCMake.toString());
-        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, entryCMake.toString(), workspaceFolder.fsPath, this.simpleFileContexts, this.documents, this.parsedFiles);
+        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, entryCMake.toString(), workspaceFolder.fsPath, this.simpleFileContexts, this.documents, this.parsedFiles, workspaceFolder.fsPath);
         ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
         if (!this.projectInfo) {
             this.projectInfo = ProjectInfoListener.projectInfo;

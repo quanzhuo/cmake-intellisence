@@ -121,6 +121,7 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
         private simpleFileContexts: Map<string, cmsp.FileContext>,
         private documents: TextDocuments<TextDocument>,
         private parsedFiles: Set<string>,
+        private workspaceFolder: string,
     ) {
         super();
         this.commands = new Set<string>(this.cmakeInfo.commands);
@@ -151,6 +152,33 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
         }
     }
 
+    private findConfigPackage(packageName: string): string | null {
+        const cmakeCacheFile = path.join(this.workspaceFolder, 'build', 'CMakeCache.txt');
+        if (!fs.existsSync(cmakeCacheFile)) {
+            return null;
+        }
+        const content = fs.readFileSync(cmakeCacheFile, 'utf-8');
+        const regex = new RegExp(`^${packageName}_DIR:PATH=(.*)$`, 'm');
+        const match = content.match(regex);
+        const packageDir = match ? match[1] : null;
+        if (!packageDir) {
+            return null;
+        }
+        const alternatives = [
+            path.join(packageDir, 'lib', 'cmake', packageName, `${packageName}Config.cmake`),
+            path.join(packageDir, 'lib', 'cmake', packageName, `${packageName.toLowerCase()}-config.cmake`),
+            path.join(packageDir, `${packageName}Config.cmake`),
+            path.join(packageDir, `${packageName.toLowerCase()}-config.cmake`),
+        ];
+
+        for (const pkgConfig of alternatives) {
+            if (fs.existsSync(pkgConfig)) {
+                return pkgConfig;
+            }
+        }
+        return null;
+    }
+
     private findPackage(ctx: cmsp.CommandContext): void {
         const args = ctx.argument_list();
         if (args.length < 0) {
@@ -161,7 +189,10 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
         // CMake builtin modules
         let targetCMakeFile = path.join(this.cmakeInfo.cmakeModulePath, `Find${packageName}.cmake`);
         if (!fs.existsSync(targetCMakeFile)) {
-            return;
+            targetCMakeFile = this.findConfigPackage(packageName);
+            if (!targetCMakeFile) {
+                return;
+            }
         }
 
         targetCMakeFile = URI.file(targetCMakeFile).toString();
@@ -176,7 +207,7 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
             tree = getSimpleFileContext(getFileContent(this.documents, URI.parse(targetCMakeFile)));
             this.simpleFileContexts.set(targetCMakeFile, tree);
         }
-        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.simpleFileContexts, this.documents, this.parsedFiles);
+        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.simpleFileContexts, this.documents, this.parsedFiles, this.workspaceFolder);
         ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
     }
 
@@ -206,7 +237,7 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
             tree = getSimpleFileContext(getFileContent(this.documents, URI.parse(targetCMakeFile)));
             this.simpleFileContexts.set(targetCMakeFile, tree);
         }
-        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.simpleFileContexts, this.documents, this.parsedFiles);
+        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.simpleFileContexts, this.documents, this.parsedFiles, this.workspaceFolder);
         ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
     }
 
