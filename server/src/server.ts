@@ -1,8 +1,8 @@
 import { CharStreams, CommonTokenStream, ParseTreeWalker, Token } from 'antlr4';
 import { exec } from 'child_process';
-import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams } from 'vscode-languageserver-protocol';
+import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams, SelectionRangeParams } from 'vscode-languageserver-protocol';
 import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocument';
-import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
+import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SelectionRange, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
@@ -97,6 +97,7 @@ export class CMakeLanguageServer {
             this.connection.onDidChangeConfiguration(this.onDidChangeConfiguration.bind(this)),
             this.connection.onDocumentLinks(this.onDocumentLinks.bind(this)),
             this.connection.onShutdown(this.onShutdown.bind(this)),
+            this.connection.onSelectionRanges(this.onSelectionRange.bind(this)),
             this.connection.languages.semanticTokens.on(this.onSemanticTokens.bind(this)),
             this.connection.languages.semanticTokens.onDelta(this.onSemanticTokensDelta.bind(this)),
             this.connection.languages.semanticTokens.onRange(this.onSemanticTokensRange.bind(this)),
@@ -149,6 +150,7 @@ export class CMakeLanguageServer {
                     ]
                 },
                 documentLinkProvider: {},
+                selectionRangeProvider: true,
             },
             serverInfo: {
                 name: 'cmakels',
@@ -161,6 +163,11 @@ export class CMakeLanguageServer {
 
     private onInitialized(params: InitializedParams) {
         this.connection.client.register(DidChangeConfigurationNotification.type, undefined);
+    }
+
+    private onSelectionRange(params: SelectionRangeParams): Promise<SelectionRange[] | null> {
+        let tree: FileContext = this.getFileContext(params.textDocument.uri);
+        return null;
     }
 
     private async onHover(params: HoverParams): Promise<Hover | null> {
