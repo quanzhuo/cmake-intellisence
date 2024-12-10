@@ -371,17 +371,30 @@ export default class Completion {
     }
 
     private getTargetsSuggestion(info: CMakeCompletionInfo): CompletionItem[] | undefined {
-        if (info.index === 0) {
-            const targets = [...this.projectInfo.executables ?? [], ...this.projectInfo.libraries ?? []];
-            if (targets.length > 0) {
-                return targets.map((target) => {
-                    return {
-                        label: target,
-                        kind: CompletionItemKind.Variable,
-                    };
-                });
-            }
+        const targets = [...this.projectInfo.executables ?? [], ...this.projectInfo.libraries ?? []];
+        if (targets.length > 0) {
+            return targets.map((target) => {
+                return {
+                    label: target,
+                    kind: CompletionItemKind.Variable,
+                };
+            });
         }
+    }
+
+    private getPropertySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
+        let similar = this.cmakeInfo.properties.filter(candidate => {
+            return candidate.includes(word);
+        });
+
+        const suggestions: CompletionItem[] = similar.map((value, index, array) => {
+            return {
+                label: value,
+                kind: CompletionItemKind.Property,
+            };
+        });
+
+        return suggestions;
     }
 
     private async getArgumentSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
@@ -413,16 +426,20 @@ export default class Completion {
             case 'target_link_options':
             case 'target_precompile_headers':
             case 'target_sources': {
-                const targets = this.getTargetsSuggestion(info);
-                if (targets) {
-                    return targets;
+                if (info.index === 0) {
+                    const targets = this.getTargetsSuggestion(info);
+                    if (targets) {
+                        return targets;
+                    }
                 }
                 break;
             }
             case 'target_link_libraries': {
-                const targets = this.getTargetsSuggestion(info);
-                if (targets) {
-                    return targets;
+                if (info.index === 0) {
+                    const targets = this.getTargetsSuggestion(info);
+                    if (targets) {
+                        return targets;
+                    }
                 } else {
                     const items = [
                         ...this.projectInfo.executables ?? [],
@@ -440,6 +457,36 @@ export default class Completion {
                             };
                         });
                     }
+                }
+                break;
+            }
+            case 'get_property':
+            case 'set_property':
+            case 'define_property': {
+                if (info.index > 1) {
+                    const preArg = info.context.argument(info.index - 1).getText();
+                    if (preArg === 'PROPERTY') {
+                        return this.getPropertySuggestions(info, word);
+                    }
+                }
+                break;
+            }
+            case 'get_target_property': {
+                if (info.index === 1) {
+                    const targets = this.getTargetsSuggestion(info);
+                    if (targets) {
+                        return targets;
+                    }
+                } else if (info.index === 2) {
+                    return this.getPropertySuggestions(info, word);
+                }
+                break;
+            }
+            case 'get_cmake_property':
+            case 'get_test_property': {
+
+                if (info.index === 1) {
+                    return this.getPropertySuggestions(info, word);
                 }
                 break;
             }
