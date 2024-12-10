@@ -20,7 +20,7 @@ import CMakeSimpleLexer from './generated/CMakeSimpleLexer';
 import CMakeSimpleParser, * as cmsp from './generated/CMakeSimpleParser';
 import localize from './localize';
 import { Logger, createLogger } from './logging';
-import { SemanticListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
+import { SemanticTokenListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
 import { getFileContent } from './utils';
 import * as fs from 'fs';
 
@@ -386,7 +386,7 @@ export class CMakeLanguageServer {
             return Promise.resolve({ data: [] });
         }
         const docUri: URI = URI.parse(params.textDocument.uri);
-        const semanticListener = new SemanticListener(docUri, this.cmakeInfo);
+        const semanticListener = new SemanticTokenListener(docUri, this.cmakeInfo);
         ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(params.textDocument.uri));
         return Promise.resolve(semanticListener.getSemanticTokens());
     }
@@ -402,7 +402,7 @@ export class CMakeLanguageServer {
         const builder = getTokenBuilder(document.uri);
         builder.previousResult(params.previousResultId);
         const docUri: URI = URI.parse(document.uri);
-        const semanticListener = new SemanticListener(docUri, this.cmakeInfo);
+        const semanticListener = new SemanticTokenListener(docUri, this.cmakeInfo);
         ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(document.uri));
         return Promise.resolve(semanticListener.buildEdits());
     }

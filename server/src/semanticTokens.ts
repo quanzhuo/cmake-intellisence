@@ -4,11 +4,13 @@ import { URI } from "vscode-uri";
 import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from "./cmakeInfo";
 import { AddSubDirectoryCmdContext, ArgumentContext, ElseIfCmdContext, ForeachCmdContext, FunctionCmdContext, IfCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext, WhileCmdContext } from "./generated/CMakeParser";
-import CMakeListener from "./generated/CMakeParserListener";
+import CMakeParserListener from "./generated/CMakeParserListener";
 import { getCmdKeyWords } from "./utils";
 
 let tokenTypes = [
+    'namespace',
     'type',
+    'class',
     'enum',
     'parameter',
     'variable',
@@ -21,7 +23,7 @@ let tokenTypes = [
     'string',
     'number',
     'regexp',
-    'operator'
+    'operator',
 ];
 
 let tokenModifiers = [
@@ -29,7 +31,7 @@ let tokenModifiers = [
     'definition',
     'readonly',
     'deprecated',
-    'documentation'
+    'documentation',
 ];
 
 enum TokenModifiers {
@@ -41,7 +43,9 @@ enum TokenModifiers {
 };
 
 enum TokenTypes {
+    namespace = 'namespace',
     type = 'type',
+    class = 'class',
     enum = 'enum',
     parameter = 'parameter',
     variable = 'variable',
@@ -83,20 +87,20 @@ export function getTokenModifiers(initParams: InitializeParams): string[] {
     return tokenModifiers;
 }
 
-export class SemanticListener extends CMakeListener {
+export class SemanticTokenListener extends CMakeParserListener {
     // private _data: number[] = [];
     private _builder: SemanticTokensBuilder;
     private _uri: URI;
     private cmakeInfo: CMakeInfo;
 
-    private _operator: string[] = [
+    private _operator: Set<string> = new Set([
         'EXISTS', 'COMMAND', 'DEFINED',
         'EQUAL', 'LESS', 'LESS_EQUAL', 'GREATER', 'GREATER_EAUAL', 'STREQUAL',
         'STRLESS', 'STRLESS_EQUAL', 'STRGREATER', 'STRGREATER_EQUAL',
         'VERSION_EQUAL', 'VERSION_LESS', 'VERSION_LESS_EQUAL', 'VERSION_GREATER',
         'VERSION_GREATER_EQUAL', 'PATH_EQUAL', 'MATCHES',
         'AND', 'NOT', 'OR'
-    ];
+    ]);
 
     constructor(uri: URI, cmakeInfo: CMakeInfo) {
         super();
@@ -106,7 +110,7 @@ export class SemanticListener extends CMakeListener {
     }
 
     private isOperator(token: string): boolean {
-        return this._operator.includes(token);
+        return this._operator.has(token);
     }
 
     private isVariable(token: string): boolean {
@@ -156,16 +160,32 @@ export class SemanticListener extends CMakeListener {
         });
     }
 
-    private tokenInFunction(context: FunctionCmdContext | MacroCmdContext): void {
-        const argCount = context.argument_list().length;
-        if (argCount > 1) {
-            context.argument_list().slice(1).forEach(argCtx => {
-                if (argCtx.getChildCount() === 1) {
-                    const argToken: Token = argCtx.start;
-                    this._builder.push(argToken.line - 1, argToken.column, argToken.text.length,
-                        tokenTypes.indexOf(TokenTypes.parameter), this.getModifiers([]));
-                }
-            });
+    private tokenInFunctionOrMacro(ctx: FunctionCmdContext | MacroCmdContext, tokenType: string): void {
+        const argCount = ctx.argument_list().length;
+        if (argCount > 0) {
+            const varCtx = ctx.argument(0);
+            const varToken: Token = varCtx.start;
+            this._builder.push(
+                varToken.line - 1,
+                varToken.column,
+                varToken.text.length,
+                tokenTypes.indexOf(tokenType),
+                this.getModifiers([TokenModifiers.declaration, TokenModifiers.definition])
+            );
+            if (argCount > 1) {
+                ctx.argument_list().slice(1).forEach(argCtx => {
+                    if (argCtx.getChildCount() === 1) {
+                        const argToken: Token = argCtx.start;
+                        this._builder.push(
+                            argToken.line - 1,
+                            argToken.column,
+                            argToken.text.length,
+                            tokenTypes.indexOf(TokenTypes.parameter),
+                            this.getModifiers([])
+                        );
+                    }
+                });
+            }
         }
     }
 
@@ -181,17 +201,16 @@ export class SemanticListener extends CMakeListener {
 
     };
 
-
     enterWhileCmd = (ctx: WhileCmdContext): void => {
         this.tokenInConditional(ctx);
     };
 
     enterFunctionCmd = (ctx: FunctionCmdContext): void => {
-        this.tokenInFunction(ctx);
+        this.tokenInFunctionOrMacro(ctx, TokenTypes.function);
     };
 
     enterMacroCmd = (ctx: MacroCmdContext): void => {
-        this.tokenInFunction(ctx);
+        this.tokenInFunctionOrMacro(ctx, TokenTypes.macro);
     };
 
     enterSetCmd = (ctx: SetCmdContext): void => {
@@ -220,6 +239,39 @@ export class SemanticListener extends CMakeListener {
     enterOtherCmd = (ctx: OtherCmdContext): void => {
         const commandToken: Token = ctx.ID().symbol;
         const cmdNameLower: string = commandToken.text.toLowerCase();
+
+        switch (cmdNameLower) {
+            case 'add_executable':
+            case 'add_library':
+            case 'target_compile_definitions':
+            case 'target_compile_features':
+            case 'target_compile_options':
+            case 'target_include_directories':
+            case 'target_link_directories':
+            case 'target_link_libraries':
+            case 'target_link_options':
+            case 'target_precompile_headers':
+            case 'target_sources':
+            case 'find_package':
+            case 'project':
+                {
+                    const args: ArgumentContext[] = ctx.argument_list();
+                    if (args.length > 0) {
+                        const targetToken: Token = args[0].start;
+                        this._builder.push(
+                            targetToken.line - 1,
+                            targetToken.column,
+                            targetToken.text.length,
+                            tokenTypes.indexOf(TokenTypes.string),
+                            this.getModifiers([TokenModifiers.declaration, TokenModifiers.definition])
+                        );
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+
         if (cmdNameLower in builtinCmds) {
             const sigs: string[] = builtinCmds[cmdNameLower]['sig'];
             const keywords = getCmdKeyWords(sigs);
