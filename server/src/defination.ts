@@ -79,7 +79,7 @@ export class DefinitionResolver {
             ParseTreeWalker.DEFAULT.walk(listener, tree);
         } catch (e) {
             if (e instanceof EarlyExitException) {
-                return (listener as FunctionDefinationListener | VariableDefinationListener).symbols;
+                return e.symbols;
                 // } else if (e instanceof TypeError) {
                 //     logger.error('TypeError', e.message);
             } else {
@@ -91,9 +91,21 @@ export class DefinitionResolver {
 }
 
 class EarlyExitException extends Error {
-    constructor(message: string) {
+    private _foundSymbols: Symbol[];
+    constructor(message: string, foundSymbols: Symbol[] = []) {
         super(message);
         this.name = 'EarlyExitException';
+        this._foundSymbols = foundSymbols;
+    }
+
+    get symbols(): Promise<Location | Location[] | LocationLink[] | null> {
+        return new Promise((resolve, reject) => {
+            if (this._foundSymbols.length === 0) {
+                resolve(null);
+            } else {
+                resolve(this._foundSymbols.map(sym => sym.getLocation()));
+            }
+        });
     }
 }
 
@@ -164,14 +176,7 @@ class BaseDefinationListener extends CMakeParserListener {
         }
 
         const definationListener = new FunctionDefinationListener(this.symbolToFind, this.currentScope, incUri, this.curDir, this.cmakeInfo, this.documents, this.fileContexts);
-        try {
-            ParseTreeWalker.DEFAULT.walk(definationListener, tree);
-        } catch (e) {
-            if (e instanceof EarlyExitException) {
-                this.foundSymbols.push(...definationListener.foundSymbols);
-            }
-            throw e;
-        }
+        ParseTreeWalker.DEFAULT.walk(definationListener, tree);
     };
 
     enterAddSubDirectoryCmd = (ctx: AddSubDirectoryCmdContext): void => {
@@ -198,14 +203,7 @@ class BaseDefinationListener extends CMakeParserListener {
         const subDirScope: Scope = new FileScope(this.currentScope);
         const subBaseDir = Utils.joinPath(this.curDir, subDir);
         const definationListener = new FunctionDefinationListener(this.symbolToFind, subDirScope, subCMakeListsUri, subBaseDir, this.cmakeInfo, this.documents, this.fileContexts);
-        try {
-            ParseTreeWalker.DEFAULT.walk(definationListener, tree);
-        } catch (e) {
-            if (e instanceof EarlyExitException) {
-                this.foundSymbols.push(...definationListener.foundSymbols);
-            }
-            throw e;
-        }
+        ParseTreeWalker.DEFAULT.walk(definationListener, tree);
     };
 }
 
@@ -219,7 +217,7 @@ class FunctionDefinationListener extends BaseDefinationListener {
             if (sym !== null) {
                 this.foundSymbols.push(sym);
             }
-            throw new EarlyExitException('found');
+            throw new EarlyExitException('found', this.foundSymbols);
         }
     };
 }
@@ -255,7 +253,7 @@ class VariableDefinationListener extends BaseDefinationListener {
             if (sym !== null) {
                 this.foundSymbols.push(sym);
             }
-            throw new EarlyExitException('found');
+            throw new EarlyExitException('found', this.foundSymbols);
         }
     };
 }
