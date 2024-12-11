@@ -40,6 +40,9 @@ export class DocumentLinkInfo {
                 case 'include':
                     links = this.include(cmd);
                     break;
+                case 'find_package':
+                    links = this.findPackage(cmd);
+                    break;
                 case 'configure_file':
                     links = this.configureFile(cmd);
                     break;
@@ -120,6 +123,17 @@ export class DocumentLinkInfo {
         return this.getLinksFromArguments([firstArg], this.uri);
     }
 
+    private findPackage(cmd: cmsp.CommandContext): DocumentLink[] {
+        const args = cmd.argument_list();
+        if (args.length < 1) {
+            return [];
+        }
+
+        const firstArg: cmsp.ArgumentContext = args[0];
+        const argName = firstArg.getText();
+        return this.builtinModule(firstArg, `Find${argName}.cmake`);
+    }
+
     private configureFile(cmd: cmsp.CommandContext): DocumentLink[] {
         const args = cmd.argument_list();
         if (args.length < 2) {
@@ -130,20 +144,24 @@ export class DocumentLinkInfo {
     }
 
     private includeSystemModule(arg: cmsp.ArgumentContext): DocumentLink[] {
-        const moduleName = arg.getText();
+        const argName = arg.getText();
+        return this.builtinModule(arg, `${argName}.cmake`);
+    }
+
+    private builtinModule(arg: cmsp.ArgumentContext, moduleName: string): DocumentLink[] {
+        const argName = arg.getText();
         if (!this.cmakeInfo.cmakeModulePath) {
             return [];
         }
 
-        const modulePath = path.join(this.cmakeInfo.cmakeModulePath, `${moduleName}.cmake`);
+        const modulePath = path.join(this.cmakeInfo.cmakeModulePath, moduleName);
         if (fs.existsSync(modulePath)) {
             return [{
-                range: Range.create(arg.start.line - 1, arg.start.column, arg.stop.line - 1, arg.stop.column + moduleName.length),
+                range: Range.create(arg.start.line - 1, arg.start.column, arg.stop.line - 1, arg.stop.column + argName.length),
                 target: URI.file(modulePath).toString(),
                 tooltip: modulePath,
             }];
         } else {
-
             return [];
         }
     }
