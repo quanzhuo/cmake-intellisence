@@ -397,11 +397,28 @@ export default class Completion {
         return suggestions;
     }
 
-    private async getArgumentSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
-        if (!(info.command in builtinCmds)) {
-            return null;
+    private pkgCheckModulesSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
+        if (info.index === 0) {
+            return [];
         }
 
+        const keywords = ['REQUIRED', 'QUIET', 'NO_CMAKE_PATH', 'NO_CMAKE_ENVIRONMENT_PATH', 'IMPORTED_TARGET', 'GLOBAL',];
+        const pkgConfigModules = this.cmakeInfo.pkgConfigModules.keys();
+        const items = [...keywords, ...pkgConfigModules];
+        const similar = items.filter(candidate => {
+            return candidate.includes(word);
+        });
+
+        const suggestions: CompletionItem[] = similar.map((value, index, array) => {
+            return {
+                label: value,
+                kind: CompletionItemKind.Unit,
+            };
+        });
+        return suggestions;
+    }
+
+    private async getArgumentSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
         switch (info.command) {
             case 'find_package': {
                 if (info.index === 0) {
@@ -490,12 +507,19 @@ export default class Completion {
                 }
                 break;
             }
+            case 'pkg_check_modules': {
+                return this.pkgCheckModulesSuggestions(info, word);
+            }
             default:
                 break;
         }
 
         if (word.startsWith('./') || word.startsWith('../')) {
             return this.getFileSuggestions(info, word);
+        }
+
+        if (!(info.command in builtinCmds)) {
+            return null;
         }
 
         const sigs: string[] = builtinCmds[info.command]['sig'];

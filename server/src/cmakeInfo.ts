@@ -29,6 +29,7 @@ export class CMakeInfo {
     public variables: string[] = [];
     public properties: string[] = [];
     public commands: string[] = [];
+    public pkgConfigModules: Map<string, string> = new Map<string, string>();
 
     constructor(
         public cmakePath: string,
@@ -83,6 +84,8 @@ export class CMakeInfo {
                 this.connection.window.showInformationMessage(`CMakeInfo.init, error: ${error}`);
             }
         }
+
+        await this.initPkgConfigModules();
     }
 
     private async getCMakeVersion(): Promise<[string, number, number, number]> {
@@ -109,6 +112,26 @@ export class CMakeInfo {
             tmp[3].split('\n'),
             tmp[4].split('\n'),
         ];
+    }
+
+    private async initPkgConfigModules(): Promise<void> {
+        const pkgConfig = which.sync('pkg-config', { nothrow: true });
+        if (pkgConfig === null) {
+            return;
+        }
+
+        const command = `"${pkgConfig}" --list-all`;
+        const { stdout, stderr } = await promisify(cp.exec)(command);
+        if (stdout.trim().length === 0) {
+            return;
+        }
+        const lines = stdout.split('\n');
+        for (const line of lines) {
+            const firstSpace = line.indexOf(' ');
+            const pkgName = line.substring(0, firstSpace);
+            const description = line.substring(firstSpace).trimStart();
+            this.pkgConfigModules.set(pkgName, description);
+        }
     }
 }
 
