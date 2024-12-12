@@ -228,8 +228,7 @@ export class CMakeLanguageServer {
             }
 
             if (arg.length !== 0) {
-                // FIXME: use this.cmakeInfo.cmakePath
-                const command = 'cmake ' + arg + word;
+                const command = `${this.cmakeInfo.cmakePath} ${arg} "${word}"`;
                 try {
                     const { stdout } = await execPromise(command);
                     return {
@@ -242,7 +241,7 @@ export class CMakeLanguageServer {
                     const pattern = /_(CXX|C)(_)?$/;
                     if (pattern.test(word)) {
                         const modifiedWord = word.replace(pattern, '_<LANG>$2');
-                        const modifiedCommand = `cmake ${arg} "${modifiedWord}"`;
+                        const modifiedCommand = `${this.cmakeInfo.cmakePath} ${arg} "${modifiedWord}"`;
                         try {
                             const { stdout: modifiedStdout } = await execPromise(modifiedCommand);
                             return {
