@@ -19,6 +19,18 @@ enum CMakeCompletionType {
     Argument,
 }
 
+export enum CompletionItemType {
+    BuiltInCommand,
+    BuiltInModule,
+    BuiltInPolicy,
+    BuiltInProperty,
+    BuiltInVariable,
+
+    UserDefinedCommand,
+    UserDefinedVariable,
+    PkgConfigModules,
+}
+
 interface CMakeCompletionInfo {
     type: CMakeCompletionType,
 
@@ -207,29 +219,31 @@ export default class Completion {
     private getCommandSuggestions(word: string): Promise<CompletionItem[]> {
         return new Promise((resolve, rejects) => {
             const allCommands = [
-                ...this.cmakeInfo.commands,
-                ...(this.projectInfo.functions ?? []),
-                ...(this.projectInfo.macros ?? []),
+                ...this.cmakeInfo.commands.map(value => { return { name: value, type: CompletionItemType.BuiltInCommand }; }),
+                ...Array.from(this.projectInfo.functions ?? new Set<string>()).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
+                ...Array.from(this.projectInfo.macros ?? new Set<string>()).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
             ];
-            const similarCmds = allCommands.filter(cmd => { return cmd.includes(word.toLowerCase()); });
-            const suggestedCommands: CompletionItem[] = similarCmds.map((commandName, index, array) => {
+            const similarCmds = allCommands.filter(cmd => { return cmd.name.includes(word.toLowerCase()); });
+            const similarNames = similarCmds.map(cmd => cmd.name);
+            const suggestedCommands: CompletionItem[] = similarCmds.map((command, index, array) => {
                 let item: CompletionItem = {
-                    label: `${commandName}`,
+                    label: `${command.name}`,
                     kind: CompletionItemKind.Function,
-                    insertText: `${commandName}($0)`,
+                    insertText: `${command.name}($0)`,
                     insertTextFormat: InsertTextFormat.Snippet,
+                    data: command.type,
                 };
 
-                if (commandName in builtinCmds) {
-                    item.documentation = builtinCmds[commandName]['doc'];
-                    if ("deprecated" in builtinCmds[commandName]) {
+                if (command.name in builtinCmds) {
+                    // item.documentation = builtinCmds[command.name]['doc'];
+                    if ("deprecated" in builtinCmds[command.name]) {
                         item.tags = [CompletionItemTag.Deprecated];
                     }
                 }
                 return item;
             });
 
-            if (similarCmds.includes('block')) {
+            if (similarNames.includes('block')) {
                 suggestedCommands.push({
                     label: 'block ... endblock',
                     kind: CompletionItemKind.Snippet,
@@ -238,7 +252,7 @@ export default class Completion {
                 });
             }
 
-            if (similarCmds.includes('if')) {
+            if (similarNames.includes('if')) {
                 suggestedCommands.push({
                     label: 'if ... endif',
                     kind: CompletionItemKind.Snippet,
@@ -247,7 +261,7 @@ export default class Completion {
                 });
             }
 
-            if (similarCmds.includes('foreach')) {
+            if (similarNames.includes('foreach')) {
                 suggestedCommands.push({
                     label: 'foreach ... endforeach',
                     kind: CompletionItemKind.Snippet,
@@ -256,7 +270,7 @@ export default class Completion {
                 });
             }
 
-            if (similarCmds.includes('while')) {
+            if (similarNames.includes('while')) {
                 suggestedCommands.push({
                     label: 'while ... endwhile',
                     kind: CompletionItemKind.Snippet,
@@ -265,7 +279,7 @@ export default class Completion {
                 });
             }
 
-            if (similarCmds.includes('function')) {
+            if (similarNames.includes('function')) {
                 suggestedCommands.push({
                     label: 'function ... endfunction',
                     kind: CompletionItemKind.Snippet,
@@ -274,7 +288,7 @@ export default class Completion {
                 });
             }
 
-            if (similarCmds.includes('macro')) {
+            if (similarNames.includes('macro')) {
                 suggestedCommands.push({
                     label: 'macro ... endmacro',
                     kind: CompletionItemKind.Snippet,
@@ -287,23 +301,6 @@ export default class Completion {
         });
     }
 
-    private async getSuggestions(word: string, kind: CompletionItemKind, dataSource: string[]): Promise<CompletionItem[]> {
-        return new Promise((resolve, rejects) => {
-            const similar = dataSource.filter(candidate => {
-                return candidate.includes(word);
-            });
-
-            const proposals: CompletionItem[] = similar.map((value, index, array) => {
-                return {
-                    label: value,
-                    kind: kind
-                };
-            });
-
-            resolve(proposals);
-        });
-    }
-
     private getModuleSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
         const similar = this.cmakeInfo.modules.filter(candidate => {
             return candidate.includes(word);
@@ -313,6 +310,7 @@ export default class Completion {
             return {
                 label: value.startsWith('Find') ? value.substring(4) : value,
                 kind: CompletionItemKind.Module,
+                data: CompletionItemType.BuiltInModule,
             };
         });
 
@@ -364,6 +362,7 @@ export default class Completion {
             return {
                 label: value,
                 kind: CompletionItemKind.Variable,
+                data: CompletionItemType.BuiltInVariable,
             };
         });
 
@@ -391,6 +390,7 @@ export default class Completion {
             return {
                 label: value,
                 kind: CompletionItemKind.Property,
+                data: CompletionItemType.BuiltInProperty,
             };
         });
 
@@ -413,6 +413,7 @@ export default class Completion {
             return {
                 label: value,
                 kind: CompletionItemKind.Unit,
+                data: CompletionItemType.PkgConfigModules,
             };
         });
         return suggestions;
@@ -542,6 +543,7 @@ export default class Completion {
             return {
                 label: value,
                 kind: CompletionItemKind.Constant,
+                data: CompletionItemType.BuiltInPolicy,
             };
         });
 
@@ -564,14 +566,6 @@ export default class Completion {
         } else if (info.type === CMakeCompletionType.Argument) {
             return this.getArgumentSuggestions(info, word);
         }
-
-        const results = await Promise.all([
-            this.getCommandSuggestions(word),
-            this.getSuggestions(word, CompletionItemKind.Module, this.cmakeInfo.modules),
-            this.getSuggestions(word, CompletionItemKind.Constant, this.cmakeInfo.policies),
-            this.getSuggestions(word, CompletionItemKind.Variable, this.cmakeInfo.variables),
-            this.getSuggestions(word, CompletionItemKind.Property, this.cmakeInfo.properties)
-        ]);
-        return results.flat();
+        throw new Error('Unknown completion type');
     }
 }

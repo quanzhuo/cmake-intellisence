@@ -7,7 +7,7 @@ import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, D
 import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo, ProjectInfoListener } from './cmakeInfo';
-import Completion, { findCommandAtPosition, inComments, ProjectInfo } from './completion';
+import Completion, { CompletionItemType, findCommandAtPosition, inComments, ProjectInfo } from './completion';
 import { DIAG_CODE_CMD_CASE } from './consts';
 import { DefinitionResolver } from './defination';
 import SemanticDiagnosticsListener, { CommandCaseChecker, SyntaxErrorListener } from './diagnostics';
@@ -89,6 +89,7 @@ export class CMakeLanguageServer {
             this.connection.onInitialized(this.onInitialized.bind(this)),
             this.connection.onHover(this.onHover.bind(this)),
             this.connection.onCompletion(this.onCompletion.bind(this)),
+            this.connection.onCompletionResolve(this.onCompletionResolve.bind(this)),
             this.connection.onSignatureHelp(this.onSignatureHelp.bind(this)),
             this.connection.onDocumentFormatting(this.onDocumentFormatting.bind(this)),
             this.connection.onDocumentSymbol(this.onDocumentSymbol.bind(this)),
@@ -128,7 +129,8 @@ export class CMakeLanguageServer {
                     retriggerCharacters: [' '],
                 },
                 completionProvider: {
-                    triggerCharacters: ['/', '(', ' ']
+                    triggerCharacters: ['/', '(', ' '],
+                    resolveProvider: true,
                 },
                 documentFormattingProvider: true,
                 documentSymbolProvider: true,
@@ -226,6 +228,7 @@ export class CMakeLanguageServer {
             }
 
             if (arg.length !== 0) {
+                // FIXME: use this.cmakeInfo.cmakePath
                 const command = 'cmake ' + arg + word;
                 try {
                     const { stdout } = await execPromise(command);
@@ -264,6 +267,50 @@ export class CMakeLanguageServer {
         const fileContext = this.getSimpleFileContext(params.textDocument.uri);
         const simpleTokenStream = this.getSimpleTokenStream(params.textDocument.uri);
         return completion.onCompletion(params, fileContext, simpleTokenStream);
+    }
+
+    private onCompletionResolve(item: CompletionItem): Promise<CompletionItem> {
+        // item.data can be BuintInCommand, which is 0, so we need to check if it is undefined
+        if (item.data === undefined) {
+            return Promise.resolve(item);
+        }
+
+        if (item.data === CompletionItemType.PkgConfigModules) {
+            item.documentation = this.cmakeInfo.pkgConfigModules.get(item.label);
+            return Promise.resolve(item);
+        }
+
+        let helpArg = '';
+        switch (item.data) {
+            case CompletionItemType.BuiltInCommand:
+                helpArg = '--help-command';
+                break;
+            case CompletionItemType.BuiltInModule:
+                helpArg = '--help-module';
+                break;
+            case CompletionItemType.BuiltInPolicy:
+                helpArg = '--help-policy';
+                break;
+            case CompletionItemType.BuiltInVariable:
+                helpArg = '--help-variable';
+                break;
+            case CompletionItemType.BuiltInProperty:
+                helpArg = '--help-property';
+                break;
+            default:
+                return Promise.resolve(item);
+        }
+        const command = `${this.cmakeInfo.cmakePath} ${helpArg} "${item.label}"`;
+        return new Promise((resolve, reject) => {
+            exec(command, (error, stdout, stderr) => {
+                if (error) {
+                    logger.error(`Failed to get help for ${item.label}: ${stderr}`);
+                } else {
+                    item.documentation = stdout;
+                }
+                resolve(item);
+            });
+        });
     }
 
     private onSignatureHelp(params: SignatureHelpParams): Promise<SignatureHelp | null> {
