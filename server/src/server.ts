@@ -9,7 +9,7 @@ import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo, ProjectInfoListener } from './cmakeInfo';
 import Completion, { CompletionItemType, ProjectInfo, findCommandAtPosition, inComments } from './completion';
-import { DIAG_CODE_CMD_CASE } from './consts';
+import { CMAKE_DOC_BASE_URL, DIAG_CODE_CMD_CASE } from './consts';
 import { DefinitionResolver } from './defination';
 import SemanticDiagnosticsListener, { CommandCaseChecker, SyntaxErrorListener } from './diagnostics';
 import { DocumentLinkInfo } from './docLink';
@@ -162,6 +162,18 @@ export class CMakeLanguageServer {
         this.connection.client.register(DidChangeConfigurationNotification.type, undefined);
     }
 
+    private execPromise(command: string): Promise<{ stdout: string, stderr: string }> {
+        return new Promise((resolve, reject) => {
+            exec(command, (error, stdout, stderr) => {
+                if (error) {
+                    reject({ error, stderr });
+                } else {
+                    resolve({ stdout, stderr });
+                }
+            });
+        });
+    }
+
     private async onHover(params: HoverParams): Promise<Hover | null> {
         const simpleTokenStream = this.getSimpleTokenStream(params.textDocument.uri);
         const comments = simpleTokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
@@ -176,80 +188,71 @@ export class CMakeLanguageServer {
             return null;
         }
 
-        function execPromise(command: string): Promise<{ stdout: string, stderr: string }> {
-            return new Promise((resolve, reject) => {
-                exec(command, (error, stdout, stderr) => {
-                    if (error) {
-                        reject({ error, stderr });
-                    } else {
-                        resolve({ stdout, stderr });
-                    }
-                });
-            });
-        }
-
         const commandToken: Token = hoveredCommand.ID().symbol;
         const commandName = commandToken.text.toLowerCase();
-        // if hover on command name
-        if ((params.position.line + 1 === commandToken.line) && (params.position.character <= commandToken.column + commandToken.text.length)) {
-            if (this.cmakeInfo.commands.includes(commandName)) {
-                const { stdout } = await execPromise(`"${this.cmakeInfo.cmakePath}" --help-command ${commandName}`);
+        const document = this.documents.get(params.textDocument.uri);
+        let word = getWordAtPosition(document, params.position).text;
+        if (word.length === 0) {
+            return null;
+        }
+
+        let arg = '', category = '';
+        if ((params.position.line + 1 === commandToken.line) &&
+            (params.position.character <= commandToken.column + commandToken.text.length) &&
+            this.cmakeInfo.commands.includes(commandName)) {
+            arg = '--help-command ';
+            category = 'command';
+            word = commandName;
+        } else if (commandName === 'include' && this.cmakeInfo.modules.includes(word)) {
+            arg = '--help-module ';
+            category = 'module';
+        } else if (commandName === 'cmake_policy' && this.cmakeInfo.policies.includes(word)) {
+            arg = '--help-policy ';
+            category = 'policy';
+        } else if (this.cmakeInfo.variables.includes(word)) {
+            arg = '--help-variable ';
+            category = 'variable';
+        } else if (this.cmakeInfo.properties.includes(word)) {
+            arg = '--help-property ';
+            category = 'property';
+        }
+
+        if (arg.length !== 0) {
+            const command = `"${this.cmakeInfo.cmakePath}" ${arg} "${word}"`;
+            try {
+                const { stdout } = await this.execPromise(command);
+                let value: string;
+                if (category === 'property') {
+                    value = stdout;
+                } else {
+                    value = `${CMAKE_DOC_BASE_URL}/${category}/${word}.html\n\n${stdout}`;
+                }
+
                 return {
                     contents: {
-                        kind: 'plaintext',
-                        value: stdout
+                        kind: 'markdown',
+                        value,
                     }
                 };
-            }
-        }
-        // hover on arguments
-        else {
-            const document = this.documents.get(params.textDocument.uri);
-            const word = getWordAtPosition(document, params.position).text;
-            if (word.length === 0) {
-                return null;
-            }
 
-            let arg = '';
-            if (commandName === 'include' && this.cmakeInfo.modules.includes(word)) {
-                arg = '--help-module ';
-            } else if (commandName === 'cmake_policy' && this.cmakeInfo.policies.includes(word)) {
-                arg = '--help-policy ';
-            } else if (this.cmakeInfo.variables.includes(word)) {
-                arg = '--help-variable ';
-            } else if (this.cmakeInfo.properties.includes(word)) {
-                arg = '--help-property ';
-            }
-
-            if (arg.length !== 0) {
-                const command = `"${this.cmakeInfo.cmakePath}" ${arg} "${word}"`;
-                try {
-                    const { stdout } = await execPromise(command);
-                    return {
-                        contents: {
-                            kind: 'plaintext',
-                            value: stdout
-                        }
-                    };
-                } catch (error) {
-                    const pattern = /_(CXX|C)(_)?$/;
-                    if (pattern.test(word)) {
-                        const modifiedWord = word.replace(pattern, '_<LANG>$2');
-                        const modifiedCommand = `"${this.cmakeInfo.cmakePath}" ${arg} "${modifiedWord}"`;
-                        try {
-                            const { stdout: modifiedStdout } = await execPromise(modifiedCommand);
-                            return {
-                                contents: {
-                                    kind: 'plaintext',
-                                    value: modifiedStdout
-                                }
-                            };
-                        } catch (modifiedError) {
-                            return null;
-                        }
+            } catch (error) {
+                const pattern = /_(CXX|C)(_)?$/;
+                if (pattern.test(word)) {
+                    const modifiedWord = word.replace(pattern, '_<LANG>$2');
+                    const modifiedCommand = `"${this.cmakeInfo.cmakePath}" ${arg} "${modifiedWord}"`;
+                    try {
+                        const { stdout: modifiedStdout } = await this.execPromise(modifiedCommand);
+                        return {
+                            contents: {
+                                kind: 'markdown',
+                                value: modifiedStdout,
+                            }
+                        };
+                    } catch (modifiedError) {
+                        return null;
                     }
-                    return null;
                 }
+                return null;
             }
         }
         return null;
@@ -299,7 +302,10 @@ export class CMakeLanguageServer {
                 if (error) {
                     logger.error(`Failed to get help for ${item.label}: ${stderr}`);
                 } else {
-                    item.documentation = stdout;
+                    item.documentation = {
+                        kind: 'markdown',
+                        value: stdout,
+                    };
                 }
                 resolve(item);
             });
