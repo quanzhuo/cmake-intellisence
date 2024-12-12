@@ -34,6 +34,7 @@ export interface ExtensionSettings {
     loggingLevel: string;
     cmakePath: string;
     cmakeModulePath: string;
+    pkgConfigPath: string;
     cmdCaseDiagnostics: boolean;
 }
 
@@ -112,7 +113,7 @@ export class CMakeLanguageServer {
         this.initParams = params;
         initializationOptions = params.initializationOptions;
         this.extSettings = initializationOptions.extSettings;
-        this.cmakeInfo = new CMakeInfo(this.extSettings.cmakePath, this.extSettings.cmakeModulePath, this.connection);
+        this.cmakeInfo = new CMakeInfo(this.extSettings, this.connection);
         await this.cmakeInfo.init();
         logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
 
@@ -192,7 +193,7 @@ export class CMakeLanguageServer {
         // if hover on command name
         if ((params.position.line + 1 === commandToken.line) && (params.position.character <= commandToken.column + commandToken.text.length)) {
             if (this.cmakeInfo.commands.includes(commandName)) {
-                const { stdout } = await execPromise(`${this.cmakeInfo.cmakePath} --help-command ${commandName}`);
+                const { stdout } = await execPromise(`"${this.cmakeInfo.cmakePath}" --help-command ${commandName}`);
                 return {
                     contents: {
                         kind: 'plaintext',
@@ -221,7 +222,7 @@ export class CMakeLanguageServer {
             }
 
             if (arg.length !== 0) {
-                const command = `${this.cmakeInfo.cmakePath} ${arg} "${word}"`;
+                const command = `"${this.cmakeInfo.cmakePath}" ${arg} "${word}"`;
                 try {
                     const { stdout } = await execPromise(command);
                     return {
@@ -234,7 +235,7 @@ export class CMakeLanguageServer {
                     const pattern = /_(CXX|C)(_)?$/;
                     if (pattern.test(word)) {
                         const modifiedWord = word.replace(pattern, '_<LANG>$2');
-                        const modifiedCommand = `${this.cmakeInfo.cmakePath} ${arg} "${modifiedWord}"`;
+                        const modifiedCommand = `"${this.cmakeInfo.cmakePath}" ${arg} "${modifiedWord}"`;
                         try {
                             const { stdout: modifiedStdout } = await execPromise(modifiedCommand);
                             return {
@@ -292,7 +293,7 @@ export class CMakeLanguageServer {
             default:
                 return Promise.resolve(item);
         }
-        const command = `${this.cmakeInfo.cmakePath} ${helpArg} "${item.label}"`;
+        const command = `"${this.cmakeInfo.cmakePath}" ${helpArg} "${item.label}"`;
         return new Promise((resolve, reject) => {
             exec(command, (error, stdout, stderr) => {
                 if (error) {
@@ -500,7 +501,7 @@ export class CMakeLanguageServer {
         if (extSettings.cmakeModulePath !== this.extSettings.cmakeModulePath ||
             extSettings.cmakePath !== this.extSettings.cmakePath
         ) {
-            this.cmakeInfo = new CMakeInfo(extSettings.cmakePath, extSettings.cmakeModulePath, this.connection);
+            this.cmakeInfo = new CMakeInfo(extSettings, this.connection);
             await this.cmakeInfo.init();
         }
         this.extSettings = extSettings;
@@ -616,11 +617,13 @@ export class CMakeLanguageServer {
             loggingLevel,
             cmdCaseDiagnostics,
             cmakeModulePath,
+            pkgConfigPath,
         ] = await this.connection.workspace.getConfiguration([
             { section: 'cmakeIntelliSence.cmakePath' },
             { section: 'cmakeIntelliSence.loggingLevel' },
             { section: 'cmakeIntelliSence.cmdCaseDiagnostics' },
             { section: 'cmakeIntelliSence.cmakeModulePath' },
+            { section: 'cmakeIntelliSence.pkgConfigPath' },
         ]);
 
         return {
@@ -628,6 +631,7 @@ export class CMakeLanguageServer {
             loggingLevel,
             cmdCaseDiagnostics,
             cmakeModulePath,
+            pkgConfigPath,
         };
     }
 

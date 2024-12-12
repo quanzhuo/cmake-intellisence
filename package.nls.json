@@ -7,5 +7,6 @@
     "loggingLevel": "Control the logging level",
     "diagnostics.breakContinue": "The command '{0}' can only be used within loops",
     "diagnostics.cmdCase": "It is recommended to use lowercase CMake commands",
-    "codeAction.cmdCase": "Change command '{0}' to lowercase"
+    "codeAction.cmdCase": "Change command '{0}' to lowercase",
+    "pkgConfigPath": "Set the path to the pkg-config command, used to provide module completion in the pkg_check_modules command"
 }

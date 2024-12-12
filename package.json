@@ -93,6 +93,11 @@
             "default": "",
             "description": "%cmakeModulePath%"
           },
+          "cmakeIntelliSence.pkgConfigPath": {
+            "type": "string",
+            "default": "pkg-config",
+            "description": "%pkgConfigPath%"
+          },
           "cmakeIntelliSence.cmdCaseDiagnostics": {
             "type": "boolean",
             "description": "%cmdCaseDiagnostics%",

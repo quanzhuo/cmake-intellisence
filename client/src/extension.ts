@@ -14,6 +14,7 @@ interface ExtensionSettings {
     loggingLevel: string;
     cmakePath: string;
     cmakeModulePath: string;
+    pkgConfigPath: string;
     cmdCaseDiagnostics: boolean;
 }
 
@@ -77,6 +78,7 @@ function startLanguageServer(serverModule: string, logger: Logger, context: vsco
             loggingLevel: config.get<string>('loggingLevel'),
             cmakePath: config.get<string>('cmakePath'),
             cmakeModulePath: config.get<string>('cmakeModulePath'),
+            pkgConfigPath: config.get<string>('pkgConfigPath'),
             cmdCaseDiagnostics: config.get<boolean>('cmdCaseDiagnostics'),
         };
     }

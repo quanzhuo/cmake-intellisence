@@ -12,6 +12,7 @@ import { getFileContent, getSimpleFileContext } from './utils';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
 import { ParseTreeWalker } from 'antlr4';
+import { ExtensionSettings } from './server';
 
 type Modules = string[];
 type Policies = string[];
@@ -30,12 +31,17 @@ export class CMakeInfo {
     public properties: string[] = [];
     public commands: string[] = [];
     public pkgConfigModules: Map<string, string> = new Map<string, string>();
+    public cmakePath: string;
+    public cmakeModulePath: string;
+    public pkgConfigPath: string;
+    private connection: Connection;
 
-    constructor(
-        public cmakePath: string,
-        public cmakeModulePath: string,
-        private connection: Connection,
-    ) { }
+    constructor(extSettings: ExtensionSettings, connection: Connection,) {
+        this.cmakePath = extSettings.cmakePath;
+        this.cmakeModulePath = extSettings.cmakeModulePath;
+        this.pkgConfigPath = extSettings.pkgConfigPath;
+        this.connection = connection;
+    }
 
     public async init() {
         const absPath: string | null = which.sync(this.cmakePath, { nothrow: true });
@@ -115,7 +121,7 @@ export class CMakeInfo {
     }
 
     private async initPkgConfigModules(): Promise<void> {
-        const pkgConfig = which.sync('pkg-config', { nothrow: true });
+        const pkgConfig = which.sync(this.pkgConfigPath, { nothrow: true });
         if (pkgConfig === null) {
             return;
         }

@@ -7,5 +7,6 @@
     "loggingLevel": "控制日志级别",
     "diagnostics.breakContinue": "命令 '{0}' 只能在循环中使用",
     "diagnostics.cmdCase": "建议使用小写形式的 CMake 命令",
-    "codeAction.cmdCase": "将命令 '{0}' 改为小写形式"
+    "codeAction.cmdCase": "将命令 '{0}' 改为小写形式",
+    "pkgConfigPath": "设置 pkg-config 命令的路径, 用于在命令 pkg_check_modules 提供模块补全"
 }
