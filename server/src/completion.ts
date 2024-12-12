@@ -235,7 +235,6 @@ export default class Completion {
                 };
 
                 if (command.name in builtinCmds) {
-                    // item.documentation = builtinCmds[command.name]['doc'];
                     if ("deprecated" in builtinCmds[command.name]) {
                         item.tags = [CompletionItemTag.Deprecated];
                     }

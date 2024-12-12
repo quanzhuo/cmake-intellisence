@@ -1,5 +1,6 @@
 import { CharStreams, CommonTokenStream, ParseTreeWalker, Token } from 'antlr4';
 import { exec } from 'child_process';
+import * as fs from 'fs';
 import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams } from 'vscode-languageserver-protocol';
 import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocument';
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
@@ -7,7 +8,7 @@ import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, D
 import { URI, Utils } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo, ProjectInfoListener } from './cmakeInfo';
-import Completion, { CompletionItemType, findCommandAtPosition, inComments, ProjectInfo } from './completion';
+import Completion, { CompletionItemType, ProjectInfo, findCommandAtPosition, inComments } from './completion';
 import { DIAG_CODE_CMD_CASE } from './consts';
 import { DefinitionResolver } from './defination';
 import SemanticDiagnosticsListener, { CommandCaseChecker, SyntaxErrorListener } from './diagnostics';
@@ -22,7 +23,6 @@ import localize from './localize';
 import { Logger, createLogger } from './logging';
 import { SemanticTokenListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
 import { getFileContent } from './utils';
-import * as fs from 'fs';
 
 type Word = {
     text: string,
@@ -80,10 +80,6 @@ export class CMakeLanguageServer {
     private parsedFiles = new Set<string>();
 
     constructor() {
-        this.initialize();
-    }
-
-    private initialize() {
         this.disposables.push(
             this.connection.onInitialize(this.onInitialize.bind(this)),
             this.connection.onInitialized(this.onInitialized.bind(this)),
@@ -179,19 +175,28 @@ export class CMakeLanguageServer {
             return null;
         }
 
+        function execPromise(command: string): Promise<{ stdout: string, stderr: string }> {
+            return new Promise((resolve, reject) => {
+                exec(command, (error, stdout, stderr) => {
+                    if (error) {
+                        reject({ error, stderr });
+                    } else {
+                        resolve({ stdout, stderr });
+                    }
+                });
+            });
+        }
+
         const commandToken: Token = hoveredCommand.ID().symbol;
         const commandName = commandToken.text.toLowerCase();
         // if hover on command name
         if ((params.position.line + 1 === commandToken.line) && (params.position.character <= commandToken.column + commandToken.text.length)) {
-            if (commandName.toLowerCase() in builtinCmds) {
-                const sigs = '```cmdsignature\n'
-                    + builtinCmds[commandName]['sig'].join('\n')
-                    + '\n```';
-                const cmdHelp: string = builtinCmds[commandName]['doc'] + '\n' + sigs;
+            if (this.cmakeInfo.commands.includes(commandName)) {
+                const { stdout } = await execPromise(`${this.cmakeInfo.cmakePath} --help-command ${commandName}`);
                 return {
                     contents: {
-                        kind: 'markdown',
-                        value: cmdHelp
+                        kind: 'plaintext',
+                        value: stdout
                     }
                 };
             }
@@ -213,18 +218,6 @@ export class CMakeLanguageServer {
                 arg = '--help-variable ';
             } else if (this.cmakeInfo.properties.includes(word)) {
                 arg = '--help-property ';
-            }
-
-            function execPromise(command: string): Promise<{ stdout: string, stderr: string }> {
-                return new Promise((resolve, reject) => {
-                    exec(command, (error, stdout, stderr) => {
-                        if (error) {
-                            reject({ error, stderr });
-                        } else {
-                            resolve({ stdout, stderr });
-                        }
-                    });
-                });
             }
 
             if (arg.length !== 0) {
