@@ -1,5 +1,15 @@
 # Change Log
 
+## v0.3.0 (2024-12-13)
+
+* 补全支持用户定义命令， 目标，属性
+* add 'completionItem/resolve' support
+* support pkg_check_modules completion
+* show complete documentation for command when hover
+* Add a setting to set path to pkg-config command
+* use markdown format in Hover
+* Fix #2: Unquoted arguments can contain quotes
+
 ## v0.2.2 (2024-12-05)
 
 * 参数补全支持 CMake 内置变量
