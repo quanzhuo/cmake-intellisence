@@ -1,0 +1,6 @@
+{
+    "ui": "tdd",
+    "color": true,
+    "spec": "./server/out/test",
+    "recursive": true
+}

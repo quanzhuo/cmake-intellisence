@@ -2,7 +2,7 @@ import { ErrorListener } from "antlr4";
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver";
 import { CMakeInfo } from "./cmakeInfo";
 import { DIAG_CODE_CMD_CASE } from "./consts";
-import { BreakCmdContext, ContinueCmdContext, LoopContext } from "./generated/CMakeParser";
+import { BreakCmdContext, ContinueCmdContext, ForeachLoopContext, WhileLoopContext } from "./generated/CMakeParser";
 import CMakeListener from "./generated/CMakeParserListener";
 import * as csp from './generated/CMakeSimpleParser';
 import CMakeSimpleParserListener from "./generated/CMakeSimpleParserListener";
@@ -54,7 +54,7 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
         let inLoop = false;
         let node = ctx.parentCtx;
         while (node) {
-            if (node instanceof LoopContext) {
+            if (node instanceof WhileLoopContext || node instanceof ForeachLoopContext) {
                 inLoop = true;
                 break;
             }

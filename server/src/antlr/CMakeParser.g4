@@ -4,19 +4,17 @@ options {
 	tokenVocab = CMakeLexer;
 }
 
-file: (command | conditional | loop | macroOrFuncDef)? commandGroup EOF;
+file: (command | conditional | foreachLoop | whileLoop | macroDefinition | functionDefinition)? body EOF;
 
-conditional:
-	ifCmd commandGroup (NL elseIfCmd commandGroup)* (NL elseCmd commandGroup)? NL endIfCmd;
-loop: foreachLoop | whileLoop;
-macroOrFuncDef: macroDefinition | functionDefinition;
+conditional: ifCmd body (NL elseIfCmd body)* (NL elseCmd body)? NL endIfCmd;
 
-foreachLoop: foreachCmd commandGroup NL endForeachCmd;
-whileLoop: whileCmd commandGroup NL endWhileCmd;
-macroDefinition: macroCmd commandGroup NL endMacroCmd;
-functionDefinition: functionCmd commandGroup NL endFunctionCmd;
+foreachLoop: foreachCmd body NL endForeachCmd;
+whileLoop: whileCmd body NL endWhileCmd;
 
-commandGroup: (NL command | NL conditional | NL loop | NL macroOrFuncDef | NL)*;
+macroDefinition: macroCmd body NL endMacroCmd;
+functionDefinition: functionCmd body NL endFunctionCmd;
+
+body: (NL command | NL conditional | NL foreachLoop | NL whileLoop | NL macroDefinition | NL functionDefinition | NL)*;
 
 ifCmd: If LP argument* RP;
 elseIfCmd: ElseIf LP argument* RP;
