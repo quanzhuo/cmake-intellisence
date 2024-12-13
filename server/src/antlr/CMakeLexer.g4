@@ -60,4 +60,7 @@ fragment EscapeEncoded: '\\t' | '\\r' | '\\n';
 fragment EscapeSemicolon: '\\;';
 fragment BracketNested: '=' BracketNested '=' | '[' .*? ']';
 fragment QuotedElement: ~[\\"] | EscapeSequence | '\\' NL;
-fragment UnquotedElement: ~[ \t\r\n()#"\\] | EscapeSequence;
+
+// Fix #2: Unquoted arguments can contain quotes, eg: add_definitions(-DLOG_DIR="${LOG_DIR}")
+// https://github.com/quanzhuo/cmake-intellisence/issues/2
+fragment UnquotedElement: ~[ \t\r\n()#\\] | EscapeSequence;

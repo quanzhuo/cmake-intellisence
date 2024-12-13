@@ -93,7 +93,14 @@ export class Formatter extends CMakeSimpleParserListener {
 
         // command terminator
         this._formatted += '\n';
-        const newLineIndex = rParenIndex + 1;
+        let terminatorIndex = rParenIndex + 1;
+        while (terminatorIndex < this._tokenStream.tokens.length) {
+            const token = this._tokenStream.get(terminatorIndex);
+            if (token.type === CMakeSimpleLexer.NL && token.channel === 0) {
+                break;
+            }
+            ++terminatorIndex;
+        }
 
         // consider increase or decrease indent level
         if (this.isCommandGroupCmd(cmd)) {
@@ -101,7 +108,7 @@ export class Formatter extends CMakeSimpleParserListener {
         }
 
         // get all comments and newlines after command terminator
-        this._formatted += this.getHiddenTextOnRight(newLineIndex, this.getIndent());
+        this._formatted += this.getHiddenTextOnRight(terminatorIndex, this.getIndent());
     };
 
     private getIndent(): number {
