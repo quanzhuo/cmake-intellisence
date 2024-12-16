@@ -25,6 +25,12 @@
             "problemMatcher": [],
             "label": "webpack: compile",
             "detail": "npm run grammar && npm run webpack"
+        },
+        {
+            "type": "npm",
+            "script": "compile",
+            "label": "npm: compile",
+            "detail": "npm run compile"
         }
     ]
 }

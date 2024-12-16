@@ -1,6 +1,6 @@
 # Description
 
-CMake IntelliSense is a Visual Studio Code extension that support CMake language. It provides features such as syntax highlighting, semantic tokens, and code completion for CMake scripts. 
+CMake IntelliSense is a Visual Studio Code extension that support CMake language. It provides features such as syntax highlighting, semantic tokens, document format, and code completion for CMake scripts. 
 
 ## Feedback
 

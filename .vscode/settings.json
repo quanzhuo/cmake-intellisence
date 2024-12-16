@@ -7,5 +7,8 @@
         "out": true // set this to false to include "out" folder in search results
     },
     // Turn off tsc task auto detection since we have the necessary tasks as npm scripts
-    "typescript.tsc.autoDetect": "off"
+    "typescript.tsc.autoDetect": "off",
+    "mochaExplorer.files": "server/out/test/**/*.js",
+    "mochaExplorer.require": "source-map-support/register",
+    "mochaExplorer.watch": "server/out/test/**/*.js",
 }

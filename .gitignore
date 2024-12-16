@@ -11,3 +11,4 @@ server/src/*.d.ts
 *.tokens
 npmlist.json
 server/src/generated/
+*.cmake

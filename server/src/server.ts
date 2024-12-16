@@ -388,7 +388,11 @@ export class CMakeLanguageServer {
 
         return new Promise((resolve, rejects) => {
             const formatListener = new Formatter(tabSize, this.getSimpleTokenStream(params.textDocument.uri));
-            ParseTreeWalker.DEFAULT.walk(formatListener, this.getSimpleFileContext(params.textDocument.uri));
+            try {
+                ParseTreeWalker.DEFAULT.walk(formatListener, this.getSimpleFileContext(params.textDocument.uri));
+            } catch (error) {
+                logger.error(`Failed to format document: ${error}`);
+            }
             resolve([
                 {
                     range: range,
@@ -673,6 +677,7 @@ export class CMakeLanguageServer {
         const lexer = new CMakeSimpleLexer(input);
         const tokenStream = new CommonTokenStream(lexer);
         const parser = new CMakeSimpleParser(tokenStream);
+        parser.removeErrorListeners();
         const fileContext = parser.file();
         this.simpleFileContexts.set(uri, fileContext);
         this.simpleTokenStreams.set(uri, tokenStream);

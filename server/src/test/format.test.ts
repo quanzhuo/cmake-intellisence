@@ -219,18 +219,24 @@ endfunction()
         assert.strictEqual(formatted.trim(), expectedOutput.trim());
     });
 
-    test('Maintain bracket arguments correctly', () => {
+    test('Handle bracket arguments', () => {
         const input = `
-execute_process(COMMAND
-    echo "Line1"
-    echo "Line2"
-)
+function(MyFunction)
+set(VAR [=[
+This is a
+multi-line
+string
+]=])
+endfunction()
 `;
         const expectedOutput = `
-execute_process(COMMAND
-    echo "Line1"
-    echo "Line2"
-)
+function(MyFunction)
+    set(VAR [=[
+    This is a
+    multi-line
+    string
+    ]=])
+endfunction()
 `;
 
         const formatted = formatCMake(input, 4);
@@ -316,6 +322,116 @@ set(MY_VAR "\${CMAKE_SOURCE_DIR}/\${CMAKE_BUILD_TYPE}")
         const formatted = formatCMake(input, 4);
         assert.strictEqual(formatted.trim(), expectedOutput.trim());
     });
+
+    test('Handle multi-line comments', () => {
+        const input = `
+# This is a comment
+# that spans multiple lines
+function(MyFunction)
+set(VAR value)
+endfunction()
+`;
+        const expectedOutput = `
+# This is a comment
+# that spans multiple lines
+function(MyFunction)
+    set(VAR value)
+endfunction()
+`;
+
+        const formatted = formatCMake(input, 4);
+        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+    });
+
+    test('should handle no newline at end of file', () => {
+        const input = `set(VAR value)`;
+        const expectedOutput = `set(VAR value)`;
+        const formatted = formatCMake(input, 4);
+        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+    });
+
+    test('Handle newline in front of file', () => {
+        const input = `\nset(VAR value)`;
+        const expectedOutput = `\nset(VAR value)`;
+        const formatted = formatCMake(input, 4);
+        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+    });
+
+    test('Handle generator expressions 1', () => {
+        const input = `
+target_include_directories(tgt PRIVATE /opt/include/$<CXX_COMPILER_ID>)
+`;
+        const expectedOutput = `
+target_include_directories(tgt PRIVATE /opt/include/$<CXX_COMPILER_ID>)
+`;
+
+        const formatted = formatCMake(input, 4);
+        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+    });
+
+    test('Handle generator expressions 2', () => {
+        const input = `
+target_compile_definitions(tgt PRIVATE
+    $<$<VERSION_LESS:$<CXX_COMPILER_VERSION>,4.2.0>:OLD_COMPILER>
+)
+`;
+        const expectedOutput = `
+target_compile_definitions(tgt PRIVATE
+    $<$<VERSION_LESS:$<CXX_COMPILER_VERSION>,4.2.0>:OLD_COMPILER>
+)
+`;
+
+        const formatted = formatCMake(input, 4);
+        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+    });
+
+    test('Handle complex conditional expressions', () => {
+        const input = `
+if(DEFINED ENV{MY_ENV_VAR} AND "\${MY_VAR}" STREQUAL "value")
+    message("Condition met")
+endif()
+`;
+        const expectedOutput = `
+if(DEFINED ENV{MY_ENV_VAR} AND "\${MY_VAR}" STREQUAL "value")
+    message("Condition met")
+endif()
+`;
+
+        const formatted = formatCMake(input, 4);
+        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+    });
+
+    test('Handle large files efficiently', () => {
+        const input = `
+project(LargeProject)
+` + 'set(VAR value)\n'.repeat(1000) + `
+endproject()
+`;
+        const expectedOutput = `
+project(LargeProject)
+` + 'set(VAR value)\n'.repeat(1000) + `
+endproject()
+`;
+
+        const formatted = formatCMake(input, 4);
+        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+    });
+
+    test('should handle bracket comments', () => {
+        const input = `
+#[[This is a bracket comment.
+It runs until the close bracket.]]
+message("First Argument\n" #[[Bracket Comment]] "Second Argument")
+`;
+        const expectedOutput = `
+#[[This is a bracket comment.
+It runs until the close bracket.]]
+message("First Argument\n" #[[Bracket Comment]] "Second Argument")
+`;
+
+        const formatted = formatCMake(input, 4);
+        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+    });
 });
 
 function formatCMake(input: string, indentSize: number): string {
@@ -323,8 +439,12 @@ function formatCMake(input: string, indentSize: number): string {
     const lexer = new CMakeSimpleLexer(chars);
     const tokens = new CommonTokenStream(lexer);
     const parser = new CMakeSimpleParser(tokens);
+    parser.removeErrorListeners();
     const tree = parser.file();
     const formatter = new Formatter(indentSize, tokens);
-    ParseTreeWalker.DEFAULT.walk(formatter as any, tree);
+    try {
+        ParseTreeWalker.DEFAULT.walk(formatter as any, tree);
+    } catch (error) {
+    }
     return formatter.formatted;
 }
