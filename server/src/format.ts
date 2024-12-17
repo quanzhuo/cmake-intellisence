@@ -1,4 +1,4 @@
-import { CommonTokenStream } from "antlr4";
+import { CommonTokenStream, Token } from "antlr4";
 import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
 import { CommandContext, FileContext } from "./generated/CMakeSimpleParser";
 import CMakeSimpleParserListener from "./generated/CMakeSimpleParserListener";
@@ -10,6 +10,7 @@ export class Formatter extends CMakeSimpleParserListener {
     private _formatted: string;
     private hiddenChannel = CMakeSimpleLexer.channelNames.indexOf("HIDDEN");
     private commentsChannel = CMakeSimpleLexer.channelNames.indexOf("COMMENTS");
+    private defaultChannel = CMakeSimpleLexer.channelNames.indexOf("DEFAULT_TOKEN_CHANNEL");
 
     constructor(_indent: number, tokenStream: any) {
         super();
@@ -83,32 +84,29 @@ export class Formatter extends CMakeSimpleParserListener {
         const rParenToken = ctx.RParen().symbol;
         const rParenIndex = rParenToken.tokenIndex;
         const prevToken = this._tokenStream.get(rParenIndex - 1);
-        if (rParenToken.line !== prevToken.line) {
+        if (rParenToken.line !== this.getTokenEndLine(prevToken)) {
             this._formatted += ' '.repeat(this.getIndent());
         }
         this._formatted += ')';
 
         // get comment on right of command
-        this._formatted += this.getHiddenTextOnRight(rParenIndex, this.getIndent());
+        const comment = this.getHiddenTextOnRight(rParenIndex, this.getIndent());
+        this._formatted += comment;
 
-        // command terminator
-        this._formatted += '\n';
-        let terminatorIndex = rParenIndex + 1;
-        while (terminatorIndex < this._tokenStream.tokens.length) {
-            const token = this._tokenStream.get(terminatorIndex);
-            if (token.type === CMakeSimpleLexer.NL && token.channel === 0) {
-                break;
+        const nextToken = comment === '' ? this._tokenStream.get(rParenIndex + 1) : this._tokenStream.get(rParenIndex + 2);
+        if (nextToken.type === CMakeSimpleLexer.EOF) {
+            this._formatted += '\n';
+            return;
+        } else if (nextToken.type === CMakeSimpleLexer.NL && nextToken.channel === this.defaultChannel) {
+            this._formatted += '\n';
+            // consider increase or decrease indent level
+            if (this.isCommandGroupCmd(cmd)) {
+                ++this._indentLevel;
             }
-            ++terminatorIndex;
-        }
 
-        // consider increase or decrease indent level
-        if (this.isCommandGroupCmd(cmd)) {
-            ++this._indentLevel;
+            // get all comments and newlines after command terminator
+            this._formatted += this.getHiddenTextOnRight(nextToken.tokenIndex, this.getIndent());
         }
-
-        // get all comments and newlines after command terminator
-        this._formatted += this.getHiddenTextOnRight(terminatorIndex, this.getIndent());
     };
 
     private getIndent(): number {
@@ -134,16 +132,14 @@ export class Formatter extends CMakeSimpleParserListener {
         }
 
         if ((hiddenTokens.length > 0) &&
-            (hiddenTokens[0].type === CMakeSimpleLexer.LineComment || hiddenTokens[0].type === CMakeSimpleLexer.BracketComment) &&
-            hiddenTokens[0].line === token.line) {
+            (hiddenTokens[0].type === CMakeSimpleLexer.Comment) && hiddenTokens[0].line === token.line) {
             result += ' ';
         }
 
         let prevLineNo: number = token.line;
         hiddenTokens.forEach((t, index) => {
             const curLineNo: number = t.line;
-            if ((curLineNo !== prevLineNo) &&
-                (t.type === CMakeSimpleLexer.LineComment || t.type === CMakeSimpleLexer.BracketComment)) {
+            if ((curLineNo !== prevLineNo) && (t.type === CMakeSimpleLexer.Comment)) {
                 result += ' '.repeat(indent);
             }
 
@@ -191,5 +187,9 @@ export class Formatter extends CMakeSimpleParserListener {
         }
 
         return result;
+    }
+
+    private getTokenEndLine(token: Token): number {
+        return token.line + token.text.split('\n').length - 1;
     }
 }

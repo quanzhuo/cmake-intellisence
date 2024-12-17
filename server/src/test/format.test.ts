@@ -3,6 +3,7 @@ import * as assert from 'assert';
 import { Formatter } from '../format';
 import CMakeSimpleLexer from '../generated/CMakeSimpleLexer';
 import CMakeSimpleParser from '../generated/CMakeSimpleParser';
+import { SyntaxErrorListener } from './cmakeSimple.test';
 
 suite('Formatter Tests', () => {
     test('Format simple commands', () => {
@@ -10,13 +11,9 @@ suite('Formatter Tests', () => {
 set(VAR value)
 message("Hello World")
 `;
-        const expectedOutput = `
-set(VAR value)
-message("Hello World")
-`;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 
     test('Format with indentation', () => {
@@ -31,8 +28,9 @@ function(MyFunction)
 endfunction()
 `;
 
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle nested functions and macros', () => {
@@ -51,8 +49,9 @@ function(OuterFunction)
 endfunction()
 `;
 
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle if-elseif-else-endif blocks', () => {
@@ -75,8 +74,9 @@ else()
 endif()
 `;
 
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
     test('Preserve comments and newlines', () => {
@@ -97,8 +97,9 @@ endfunction() # Function end
 # Another comment
 `;
 
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle commands without arguments', () => {
@@ -106,13 +107,9 @@ endfunction() # Function end
 project(MyProject)
 enable_testing()
 `;
-        const expectedOutput = `
-project(MyProject)
-enable_testing()
-`;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle complex expressions and variables', () => {
@@ -126,9 +123,9 @@ if(EXISTS "\${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt")
     add_subdirectory("\${CMAKE_CURRENT_SOURCE_DIR}/subdir")
 endif()
 `;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
     test('Format arguments spanning multiple lines', () => {
@@ -145,16 +142,17 @@ set(VAR
 )
 `;
 
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle empty files gracefully', () => {
         const input = ``;
-        const expectedOutput = ``;
 
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted, expectedOutput);
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle comments inline with code', () => {
@@ -170,9 +168,9 @@ if(VAR)
     message("Variable is set") # Message output
 endif()
 `;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle mixed indentation', () => {
@@ -190,9 +188,9 @@ function(MyFunction)
     endif()
 endfunction()
 `;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle complex nesting', () => {
@@ -215,8 +213,9 @@ function(OuterFunction)
 endfunction()
 `;
 
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle bracket arguments', () => {
@@ -232,15 +231,26 @@ endfunction()
         const expectedOutput = `
 function(MyFunction)
     set(VAR [=[
-    This is a
-    multi-line
-    string
-    ]=])
+This is a
+multi-line
+string
+]=])
 endfunction()
 `;
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
+    });
 
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+    test('should handle bracket comments', () => {
+        const input = String.raw`
+#[[This is a bracket comment.
+It runs until the close bracket.]]
+message("First Argument\n" #[[Bracket Comment]] "Second Argument")
+`;
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle complex command arguments', () => {
@@ -248,13 +258,9 @@ endfunction()
 add_definitions(-DLOG_DIR="\${LOG_DIR}")
 add_definitions(-DVERSION="1.0.0")
 `;
-        const expectedOutput = `
-add_definitions(-DLOG_DIR="\${LOG_DIR}")
-add_definitions(-DVERSION="1.0.0")
-`;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle commands with multiple complex arguments', () => {
@@ -262,13 +268,9 @@ add_definitions(-DVERSION="1.0.0")
 add_executable(MyApp main.cpp utils.cpp)
 target_include_directories(MyApp PRIVATE \${CMAKE_SOURCE_DIR}/include)
 `;
-        const expectedOutput = `
-add_executable(MyApp main.cpp utils.cpp)
-target_include_directories(MyApp PRIVATE \${CMAKE_SOURCE_DIR}/include)
-`;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle nested if-else with complex conditions', () => {
@@ -279,16 +281,9 @@ else()
     add_definitions(-DNO_CONFIG)
 endif()
 `;
-        const expectedOutput = `
-if(EXISTS "\${CMAKE_SOURCE_DIR}/config.h")
-    add_definitions(-DHAS_CONFIG)
-else()
-    add_definitions(-DNO_CONFIG)
-endif()
-`;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle commands with multiple line arguments', () => {
@@ -307,20 +302,18 @@ set(SOURCES
 )
 `;
 
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle commands with nested variables', () => {
         const input = `
 set(MY_VAR "\${CMAKE_SOURCE_DIR}/\${CMAKE_BUILD_TYPE}")
 `;
-        const expectedOutput = `
-set(MY_VAR "\${CMAKE_SOURCE_DIR}/\${CMAKE_BUILD_TYPE}")
-`;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle multi-line comments', () => {
@@ -338,35 +331,34 @@ function(MyFunction)
     set(VAR value)
 endfunction()
 `;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
-    test('should handle no newline at end of file', () => {
+    test('should add newline at end of file', () => {
         const input = `set(VAR value)`;
-        const expectedOutput = `set(VAR value)`;
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const expectedOutput = `set(VAR value)\n`;
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle newline in front of file', () => {
         const input = `\nset(VAR value)`;
-        const expectedOutput = `\nset(VAR value)`;
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const expectedOutput = `\nset(VAR value)\n`;
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle generator expressions 1', () => {
         const input = `
 target_include_directories(tgt PRIVATE /opt/include/$<CXX_COMPILER_ID>)
 `;
-        const expectedOutput = `
-target_include_directories(tgt PRIVATE /opt/include/$<CXX_COMPILER_ID>)
-`;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle generator expressions 2', () => {
@@ -375,14 +367,9 @@ target_compile_definitions(tgt PRIVATE
     $<$<VERSION_LESS:$<CXX_COMPILER_VERSION>,4.2.0>:OLD_COMPILER>
 )
 `;
-        const expectedOutput = `
-target_compile_definitions(tgt PRIVATE
-    $<$<VERSION_LESS:$<CXX_COMPILER_VERSION>,4.2.0>:OLD_COMPILER>
-)
-`;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle complex conditional expressions', () => {
@@ -391,14 +378,9 @@ if(DEFINED ENV{MY_ENV_VAR} AND "\${MY_VAR}" STREQUAL "value")
     message("Condition met")
 endif()
 `;
-        const expectedOutput = `
-if(DEFINED ENV{MY_ENV_VAR} AND "\${MY_VAR}" STREQUAL "value")
-    message("Condition met")
-endif()
-`;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 
     test('Handle large files efficiently', () => {
@@ -407,44 +389,41 @@ project(LargeProject)
 ` + 'set(VAR value)\n'.repeat(1000) + `
 endproject()
 `;
-        const expectedOutput = `
-project(LargeProject)
-` + 'set(VAR value)\n'.repeat(1000) + `
-endproject()
-`;
-
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 
-    test('should handle bracket comments', () => {
+    test('should handle file with only comment in it', () => {
         const input = `
-#[[This is a bracket comment.
-It runs until the close bracket.]]
-message("First Argument\n" #[[Bracket Comment]] "Second Argument")
-`;
-        const expectedOutput = `
-#[[This is a bracket comment.
-It runs until the close bracket.]]
-message("First Argument\n" #[[Bracket Comment]] "Second Argument")
-`;
+# This is a comment
+#[[This is comment Too]]`;
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
+    });
 
-        const formatted = formatCMake(input, 4);
-        assert.strictEqual(formatted.trim(), expectedOutput.trim());
+    test('should handle file with only newlines', () => {
+        const input = `
+
+
+`;
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, input);
+        assert.strictEqual(errs, 0);
     });
 });
 
-function formatCMake(input: string, indentSize: number): string {
+function formatCMake(input: string, indentSize: number): [string, number] {
     const chars = CharStreams.fromString(input);
     const lexer = new CMakeSimpleLexer(chars);
     const tokens = new CommonTokenStream(lexer);
     const parser = new CMakeSimpleParser(tokens);
     parser.removeErrorListeners();
+    const syntaxErrorListener = new SyntaxErrorListener();
+    parser.addErrorListener(syntaxErrorListener);
     const tree = parser.file();
     const formatter = new Formatter(indentSize, tokens);
-    try {
-        ParseTreeWalker.DEFAULT.walk(formatter as any, tree);
-    } catch (error) {
-    }
-    return formatter.formatted;
+    ParseTreeWalker.DEFAULT.walk(formatter, tree);
+    return [formatter.formatted, syntaxErrorListener.errorCount];
 }
