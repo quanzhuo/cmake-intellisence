@@ -25,13 +25,13 @@ lexer grammar CMakeLexer;
     read_long_string(cs: CharStream, sep: number) {
         let done = false;
         cs.consume();
-        for (; ;) {
+        while (!done) {
             let c = cs.LA(1);
             switch (c) {
                 case -1:
                     done = true;
-                    //                    let listener = this.getErrorListenerDispatch();
-                    //                    listener.syntaxError(this, null, this.start_line, this.start_col, "unfinished long comment", null);
+                    // let listener = this.getErrorListenerDispatch();
+                    // listener.syntaxError(this, null, this.start_line, this.start_col, "unfinished long comment", null);
                     break;
                 case 93: /* ']' */
                     if (this.skip_sep(cs) === sep) {
@@ -39,16 +39,14 @@ lexer grammar CMakeLexer;
                         done = true;
                     }
                     break;
-                default:
-                    if (cs.LA(1) === -1) {
-                        done = true;
-                        break;
-                    }
+                case 10: /* '\n' */
+                    this.line++;
+                    this.column = 0;
                     cs.consume();
                     break;
-            }
-            if (done) {
-                break;
+                default:
+                    cs.consume();
+                    break;
             }
         }
     }

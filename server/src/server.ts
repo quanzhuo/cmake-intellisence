@@ -6,9 +6,8 @@ import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocumen
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
-import * as builtinCmds from './builtin-cmds.json';
-import { CMakeInfo, ProjectInfoListener } from './cmakeInfo';
-import Completion, { CompletionItemType, ProjectInfo, findCommandAtPosition, inComments } from './completion';
+import { CMakeInfo, ExtensionSettings, ProjectInfoListener } from './cmakeInfo';
+import Completion, { CompletionItemType, ProjectInfo, builtinCmds, findCommandAtPosition, inComments } from './completion';
 import { CMAKE_DOC_BASE_URL, DIAG_CODE_CMD_CASE } from './consts';
 import { DefinitionResolver } from './defination';
 import SemanticDiagnosticsListener, { CommandCaseChecker, SyntaxErrorListener } from './diagnostics';
@@ -30,17 +29,8 @@ type Word = {
     col: number
 };
 
-export interface ExtensionSettings {
-    loggingLevel: string;
-    cmakePath: string;
-    cmakeModulePath: string;
-    pkgConfigPath: string;
-    cmdCaseDiagnostics: boolean;
-}
-
 export let logger: Logger;
 export let initializationOptions: any;
-export { builtinCmds };
 
 export function getWordAtPosition(textDocument: TextDocument, position: Position): Word {
     const lineRange: Range = {
@@ -259,10 +249,9 @@ export class CMakeLanguageServer {
     }
 
     private onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
-        const completion = new Completion(this.initParams, this.connection, this.documents, this.cmakeInfo, this.simpleFileContexts, this.projectInfo);
-        const fileContext = this.getSimpleFileContext(params.textDocument.uri);
-        const simpleTokenStream = this.getSimpleTokenStream(params.textDocument.uri);
-        return completion.onCompletion(params, fileContext, simpleTokenStream);
+        const word = getWordAtPosition(this.documents.get(params.textDocument.uri), params.position).text;
+        const completion = new Completion(this.cmakeInfo, this.simpleFileContexts, this.simpleTokenStreams, this.projectInfo, word);
+        return completion.onCompletion(params);
     }
 
     private onCompletionResolve(item: CompletionItem): Promise<CompletionItem> {

@@ -1,24 +1,31 @@
+import { ParseTreeWalker } from 'antlr4';
 import * as cp from 'child_process';
 import * as fs from 'fs';
 import { promises as fsp } from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import { Connection, TextDocuments } from 'vscode-languageserver';
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import { URI } from 'vscode-uri';
 import { ProjectInfo } from './completion';
 import * as cmsp from './generated/CMakeSimpleParser';
 import CMakeSimpleParserListener from './generated/CMakeSimpleParserListener';
-import which = require('which');
 import { getFileContent, getSimpleFileContext } from './utils';
-import { TextDocument } from 'vscode-languageserver-textdocument';
-import { URI } from 'vscode-uri';
-import { ParseTreeWalker } from 'antlr4';
-import { ExtensionSettings } from './server';
+import * as which from 'which';
 
 type Modules = string[];
 type Policies = string[];
 type Variables = string[];
 type Properties = string[];
 type Commands = string[];
+
+export interface ExtensionSettings {
+    loggingLevel: string;
+    cmakePath: string;
+    cmakeModulePath: string;
+    pkgConfigPath: string;
+    cmdCaseDiagnostics: boolean;
+}
 
 export class CMakeInfo {
     public version: string;

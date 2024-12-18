@@ -9,7 +9,6 @@ import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
 import CMakeSimpleLexer from './generated/CMakeSimpleLexer';
 import CMakeSimpleParser, * as cmsp from './generated/CMakeSimpleParser';
-import { logger } from './server';
 
 export function getSimpleFileContext(text: string): cmsp.FileContext {
     const input: CharStream = CharStreams.fromString(text);
@@ -40,15 +39,11 @@ export function getIncludeFileUri(cmakeInfo: CMakeInfo, baseDir: URI, includeFil
     const incFileUri: URI = Utils.joinPath(baseDir, includeFileName);
     if (existsSync(incFileUri.fsPath)) {
         return incFileUri;
-    } else {
-        logger.error('getIncludeFileUri:', incFileUri.fsPath, 'not exist');
     }
 
     const resPath = path.join(cmakeInfo.cmakeModulePath, `${includeFileName}.cmake`);
     if (existsSync(resPath)) {
         return URI.file(resPath);
-    } else {
-        logger.error('getIncludeFileUri:', resPath, 'not exist');
     }
 
     return null;

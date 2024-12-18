@@ -8,9 +8,10 @@ import { CMakeInfo } from "./cmakeInfo";
 import { AddSubDirectoryCmdContext, ArgumentContext, FileContext, FunctionCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext } from "./generated/CMakeParser";
 import CMakeParserListener from "./generated/CMakeParserListener";
 import * as cmsp from "./generated/CMakeSimpleParser";
-import { builtinCmds, getWordAtPosition, logger } from "./server";
+import { getWordAtPosition, logger } from "./server";
 import { FileScope, Scope, Symbol, SymbolKind } from "./symbolTable";
 import { getFileContent, getFileContext, getIncludeFileUri } from "./utils";
+import { builtinCmds } from "./completion";
 
 export enum DestinationType {
     Command,

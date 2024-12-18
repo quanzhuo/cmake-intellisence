@@ -1,14 +1,15 @@
 import { CommonTokenStream, Token } from "antlr4";
 import * as fs from 'fs';
-import { CompletionItem, CompletionItemKind, CompletionItemTag, CompletionList, CompletionParams, Connection, InitializeParams, InsertTextFormat, Position, TextDocuments } from "vscode-languageserver";
-import { TextDocument } from "vscode-languageserver-textdocument";
+import * as path from 'path';
+import { CompletionItem, CompletionItemKind, CompletionItemTag, CompletionList, CompletionParams, InsertTextFormat, Position } from "vscode-languageserver";
 import { URI } from "vscode-uri";
+import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from "./cmakeInfo";
 import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
 import * as cmsp from "./generated/CMakeSimpleParser";
-import { builtinCmds, getWordAtPosition } from "./server";
 import { getCmdKeyWords } from "./utils";
-import path = require("path");
+
+export { builtinCmds };
 
 enum CMakeCompletionType {
     Command,
@@ -145,12 +146,11 @@ export default class Completion {
     private completionParams: CompletionParams;
 
     constructor(
-        private initParams: InitializeParams,
-        private connection: Connection,
-        private documents: TextDocuments<TextDocument>,
         private cmakeInfo: CMakeInfo,
         private simpleFileContexts: Map<string, cmsp.FileContext>,
+        private simpleTokenStreams: Map<string, CommonTokenStream>,
         private projectInfo: ProjectInfo = {},
+        private word: string,
     ) { }
 
     private isCursorWithinParentheses(position: Position, lParenLine: number, lParenColumn: number, rParenLine: number, rParenColumn: number): boolean {
@@ -216,6 +216,37 @@ export default class Completion {
 
     }
 
+    private getCommandSuggestion(commandName: string, type: CompletionItemType): CompletionItem {
+        let item: CompletionItem;
+        switch (commandName) {
+            case 'cmake_minimum_required': {
+                item = {
+                    label: 'cmake_minimum_required',
+                    kind: CompletionItemKind.Function,
+                    insertText: 'cmake_minimum_required(VERSION ${1:3.16})',
+                    insertTextFormat: InsertTextFormat.Snippet,
+                    data: type,
+                };
+                break;
+            }
+            default:
+                item = {
+                    label: commandName,
+                    kind: CompletionItemKind.Function,
+                    insertText: `${commandName}($0)`,
+                    insertTextFormat: InsertTextFormat.Snippet,
+                    data: type,
+                };
+                break;
+        }
+        if (commandName in builtinCmds) {
+            if ("deprecated" in builtinCmds[commandName]) {
+                item.tags = [CompletionItemTag.Deprecated];
+            }
+        }
+        return item;
+    }
+
     private getCommandSuggestions(word: string): Promise<CompletionItem[]> {
         return new Promise((resolve, rejects) => {
             const allCommands = [
@@ -226,20 +257,7 @@ export default class Completion {
             const similarCmds = allCommands.filter(cmd => { return cmd.name.includes(word.toLowerCase()); });
             const similarNames = similarCmds.map(cmd => cmd.name);
             const suggestedCommands: CompletionItem[] = similarCmds.map((command, index, array) => {
-                let item: CompletionItem = {
-                    label: `${command.name}`,
-                    kind: CompletionItemKind.Function,
-                    insertText: `${command.name}($0)`,
-                    insertTextFormat: InsertTextFormat.Snippet,
-                    data: command.type,
-                };
-
-                if (command.name in builtinCmds) {
-                    if ("deprecated" in builtinCmds[command.name]) {
-                        item.tags = [CompletionItemTag.Deprecated];
-                    }
-                }
-                return item;
+                return this.getCommandSuggestion(command.name, command.type);
             });
 
             if (similarNames.includes('block')) {
@@ -549,8 +567,9 @@ export default class Completion {
         return suggestions;
     }
 
-    public async onCompletion(params: CompletionParams, simpleFileContext: cmsp.FileContext, simpleTokenStream: CommonTokenStream): Promise<CompletionItem[] | CompletionList | null> {
+    public async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
         this.completionParams = params;
+        const simpleTokenStream = this.simpleTokenStreams.get(params.textDocument.uri);
         const comments = simpleTokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
 
         // if the cursor is in comments, return null
@@ -558,12 +577,12 @@ export default class Completion {
             return null;
         }
 
+        const simpleFileContext = this.simpleFileContexts.get(params.textDocument.uri);
         const info = this.getCompletionInfoAtCursor(simpleFileContext, params.position);
-        const word = getWordAtPosition(this.documents.get(params.textDocument.uri), params.position).text;
         if (info.type === CMakeCompletionType.Command) {
-            return this.getCommandSuggestions(word);
+            return this.getCommandSuggestions(this.word);
         } else if (info.type === CMakeCompletionType.Argument) {
-            return this.getArgumentSuggestions(info, word);
+            return this.getArgumentSuggestions(info, this.word);
         }
         throw new Error('Unknown completion type');
     }

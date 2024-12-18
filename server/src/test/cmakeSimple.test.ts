@@ -309,4 +309,24 @@ message("First Argument\n" # This is a line comment :)
         assert.strictEqual(lineComment3.type, CMakeSimpleLexer.Comment);
         assert.strictEqual(errs, 0);
     });
+
+    test('should parse bracket comment and bracket argument with correct line number', () => {
+        const input = `#[[This is a bracket comment.
+It runs until the close bracket.]]
+set(VAR [=[This is a
+multi-line argument]=])
+message("\${VAR}")
+`;
+        const [tokens, tree, errs] = parseInput(input);
+        const commands = tree.command_list();
+        assert.strictEqual(commands.length, 2);
+        assert.strictEqual(tokens.tokens.length, 14);
+        const bracketComment = tokens.get(0);
+        assert.strictEqual(bracketComment.type, CMakeSimpleLexer.Comment);
+        const setCommand = commands[0];
+        const setToken = setCommand.ID().symbol;
+        assert.strictEqual(setToken.line, 3);
+        const messageToken = commands[1].ID().symbol;
+        assert.strictEqual(messageToken.line, 5);
+    });
 });
