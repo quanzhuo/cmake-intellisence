@@ -11,7 +11,7 @@ import { getCmdKeyWords } from "./utils";
 
 export { builtinCmds };
 
-enum CMakeCompletionType {
+export enum CMakeCompletionType {
     Command,
     Module,
     Policy,
@@ -32,7 +32,7 @@ export enum CompletionItemType {
     PkgConfigModules,
 }
 
-interface CMakeCompletionInfo {
+export interface CMakeCompletionInfo {
     type: CMakeCompletionType,
 
     /**
@@ -142,6 +142,88 @@ export function findCommandAtPosition(contexts: cmsp.CommandContext[], position:
     return null;
 }
 
+/**
+ * Checks if the cursor position is within the parentheses defined by the given positions.
+ *
+ * @param position - The current cursor position.
+ * @param lParenLine - The line number of the left parenthesis.
+ * @param lParenColumn - The column number of the left parenthesis.
+ * @param rParenLine - The line number of the right parenthesis.
+ * @param rParenColumn - The column number of the right parenthesis.
+ * @returns `true` if the cursor is within the parentheses, otherwise `false`.
+ */
+export function isCursorWithinParentheses(position: Position, lParenLine: number, lParenColumn: number, rParenLine: number, rParenColumn: number): boolean {
+    if (position.line < lParenLine || position.line > rParenLine) {
+        return false;
+    }
+    if (position.line === lParenLine && position.character <= lParenColumn) {
+        return false;
+    }
+    if (position.line === rParenLine && position.character > rParenColumn) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Retrieves completion information at the given cursor position within a CMake file context.
+ *
+ * @param tree - The CMake file context containing the command list.
+ * @param pos - The cursor position for which to retrieve completion information.
+ * @returns An object containing the type of completion (command or argument) and additional context if applicable.
+ *
+ * The function determines if the cursor is within a command's parentheses and identifies the current argument index if so.
+ * If the cursor is not within any command's parentheses, it returns a completion type of `Command`.
+ */
+export function getCompletionInfoAtCursor(tree: cmsp.FileContext, pos: Position): CMakeCompletionInfo {
+    const commands: cmsp.CommandContext[] = tree.command_list();
+    const currentCommand = findCommandAtPosition(commands, pos);
+    if (currentCommand === null) {
+        return { type: CMakeCompletionType.Command };
+    }
+
+    const lParen = currentCommand.LParen();
+    const rParen = currentCommand.RParen();
+    if (lParen === null || rParen === null) {
+        return { type: CMakeCompletionType.Command };
+    }
+    // line is 1-based, column is 0-based in antlr4
+    const lParenLine = lParen.symbol.line - 1;
+    const rParenLine = rParen.symbol.line - 1;
+    const lParenColumn = lParen.symbol.column;
+    const rParenColumn = rParen.symbol.column;
+
+    // Check if the cursor is within the parentheses
+    if (isCursorWithinParentheses(pos, lParenLine, lParenColumn, rParenLine, rParenColumn)) {
+        // Get the current argument index
+        const args = currentCommand.argument_list();
+        let index = 0;
+        for (let i = 0; i < args.length; i++) {
+            const arg = args[i];
+            const argStart = arg.start;
+
+            // Check if the cursor is within the current argument
+            if (pos.line === argStart.line - 1 && pos.character >= argStart.column && pos.character <= argStart.column + argStart.text.length) {
+                index = i;
+                break;
+            }
+            // Check if the cursor is before the current argument
+            else if (pos.line < argStart.line - 1 || (pos.line === argStart.line - 1 && pos.character < argStart.column)) {
+                index = i;
+                break;
+            }
+            // If the cursor is after the current argument
+            else {
+                index = i + 1;
+            }
+        }
+        // console.log(`index: ${index}`);
+        return { type: CMakeCompletionType.Argument, context: currentCommand, command: currentCommand.ID().symbol.text, index: index };
+    } else {
+        return { type: CMakeCompletionType.Command };
+    }
+}
+
 export default class Completion {
     private completionParams: CompletionParams;
 
@@ -153,69 +235,6 @@ export default class Completion {
         private word: string,
     ) { }
 
-    private isCursorWithinParentheses(position: Position, lParenLine: number, lParenColumn: number, rParenLine: number, rParenColumn: number): boolean {
-        if (position.line < lParenLine || position.line > rParenLine) {
-            return false;
-        }
-        if (position.line === lParenLine && position.character <= lParenColumn) {
-            return false;
-        }
-        if (position.line === rParenLine && position.character > rParenColumn) {
-            return false;
-        }
-        return true;
-    }
-
-    private getCompletionInfoAtCursor(tree: cmsp.FileContext, pos: Position): CMakeCompletionInfo {
-        const commands: cmsp.CommandContext[] = tree.command_list();
-        const currentCommand = findCommandAtPosition(commands, pos);
-        if (currentCommand === null) {
-            return { type: CMakeCompletionType.Command };
-        }
-
-        const lParen = currentCommand.LParen();
-        const rParen = currentCommand.RParen();
-        if (lParen === null || rParen === null) {
-            return { type: CMakeCompletionType.Command };
-        }
-        // line is 1-based, column is 0-based in antlr4
-        const lParenLine = lParen.symbol.line - 1;
-        const rParenLine = rParen.symbol.line - 1;
-        const lParenColumn = lParen.symbol.column;
-        const rParenColumn = rParen.symbol.column;
-
-        // Check if the cursor is within the parentheses
-        if (this.isCursorWithinParentheses(pos, lParenLine, lParenColumn, rParenLine, rParenColumn)) {
-            // Get the current argument index
-            const args = currentCommand.argument_list();
-            let index = 0;
-            for (let i = 0; i < args.length; i++) {
-                const arg = args[i];
-                const argStart = arg.start;
-
-                // Check if the cursor is within the current argument
-                if (pos.line === argStart.line - 1 && pos.character >= argStart.column && pos.character <= argStart.column + argStart.text.length) {
-                    index = i;
-                    break;
-                }
-                // Check if the cursor is before the current argument
-                else if (pos.line < argStart.line - 1 || (pos.line === argStart.line - 1 && pos.character < argStart.column)) {
-                    index = i;
-                    break;
-                }
-                // If the cursor is after the current argument
-                else {
-                    index = i + 1;
-                }
-            }
-            // console.log(`index: ${index}`);
-            return { type: CMakeCompletionType.Argument, context: currentCommand, command: currentCommand.ID().symbol.text, index: index };
-        } else {
-            return { type: CMakeCompletionType.Command };
-        }
-
-    }
-
     private getCommandSuggestion(commandName: string, type: CompletionItemType): CompletionItem {
         let item: CompletionItem;
         switch (commandName) {
@@ -224,6 +243,76 @@ export default class Completion {
                     label: 'cmake_minimum_required',
                     kind: CompletionItemKind.Function,
                     insertText: 'cmake_minimum_required(VERSION ${1:3.16})',
+                    insertTextFormat: InsertTextFormat.Snippet,
+                    data: type,
+                };
+                break;
+            }
+            case 'cmake_host_system_information': {
+                item = {
+                    label: 'cmake_host_system_information',
+                    kind: CompletionItemKind.Function,
+                    insertText: 'cmake_host_system_information(RESULT ${1:variable} QUERY ${2:key})',
+                    insertTextFormat: InsertTextFormat.Snippet,
+                    data: type,
+                };
+                break;
+            }
+            case 'cmake_pkg_config': {
+                item = {
+                    label: 'cmake_pkg_config',
+                    kind: CompletionItemKind.Function,
+                    insertText: 'cmake_pkg_config(EXTRACT ${1:package})',
+                    insertTextFormat: InsertTextFormat.Snippet,
+                    data: type,
+                };
+                break;
+            }
+            case 'execute_process': {
+                item = {
+                    label: 'execute_process',
+                    kind: CompletionItemKind.Function,
+                    insertText: 'execute_process(COMMAND ${1:command} ${2:args})',
+                    insertTextFormat: InsertTextFormat.Snippet,
+                    data: type,
+                };
+                break;
+            }
+            case 'set_directory_properties': {
+                item = {
+                    label: 'set_directory_properties',
+                    kind: CompletionItemKind.Function,
+                    insertText: 'set_directory_properties(PROPERTIES ${1:prop1} ${2:value1})',
+                    insertTextFormat: InsertTextFormat.Snippet,
+                    data: type,
+                };
+                break;
+            }
+            case 'get_cmake_property': {
+                item = {
+                    label: 'get_cmake_property',
+                    kind: CompletionItemKind.Function,
+                    insertText: 'get_cmake_property(${1:variable} ${2:property})',
+                    insertTextFormat: InsertTextFormat.Snippet,
+                    data: type,
+                };
+                break;
+            }
+            case 'add_test': {
+                item = {
+                    label: 'add_test',
+                    kind: CompletionItemKind.Function,
+                    insertText: 'add_test(NAME ${1:name} COMMAND ${2:command} ${3:args})',
+                    insertTextFormat: InsertTextFormat.Snippet,
+                    data: type,
+                };
+                break;
+            }
+            case 'cmake_file_api': {
+                item = {
+                    label: 'cmake_file_api',
+                    kind: CompletionItemKind.Function,
+                    insertText: 'cmake_file_api(QUERY API_VERSION ${1:version})',
                     insertTextFormat: InsertTextFormat.Snippet,
                     data: type,
                 };
@@ -578,7 +667,7 @@ export default class Completion {
         }
 
         const simpleFileContext = this.simpleFileContexts.get(params.textDocument.uri);
-        const info = this.getCompletionInfoAtCursor(simpleFileContext, params.position);
+        const info = getCompletionInfoAtCursor(simpleFileContext, params.position);
         if (info.type === CMakeCompletionType.Command) {
             return this.getCommandSuggestions(this.word);
         } else if (info.type === CMakeCompletionType.Argument) {
