@@ -204,6 +204,13 @@ export function getCompletionInfoAtCursor(tree: cmsp.FileContext, pos: Position)
 
             // Check if the cursor is within the current argument
             if (pos.line === argStart.line - 1 && pos.character >= argStart.column && pos.character <= argStart.column + argStart.text.length) {
+                // Check if the cursor is within ${}
+                const argText = argStart.text;
+                const dollarIndex = argText.indexOf('${');
+                const closingBraceIndex = argText.indexOf('}', dollarIndex);
+                if (dollarIndex !== -1 && closingBraceIndex !== -1 && pos.character >= argStart.column + dollarIndex && pos.character <= argStart.column + closingBraceIndex) {
+                    return { type: CMakeCompletionType.Variable };
+                }
                 index = i;
                 break;
             }
@@ -217,7 +224,6 @@ export function getCompletionInfoAtCursor(tree: cmsp.FileContext, pos: Position)
                 index = i + 1;
             }
         }
-        // console.log(`index: ${index}`);
         return { type: CMakeCompletionType.Argument, context: currentCommand, command: currentCommand.ID().symbol.text, index: index };
     } else {
         return { type: CMakeCompletionType.Command };
@@ -425,11 +431,10 @@ export default class Completion {
 
     private async getFileSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
         const uri: URI = URI.parse(this.completionParams.textDocument.uri);
-        const fsPath: string = uri.fsPath;
-
+        const curDir = path.dirname(uri.fsPath);
         // Get the directory part and the filter part from the word
         const lastSlashIndex = word.lastIndexOf('/');
-        const dir = path.join(path.dirname(fsPath), word.substring(0, lastSlashIndex + 1));
+        const dir = path.join(curDir, word.substring(0, lastSlashIndex + 1));
         const filter = word.substring(lastSlashIndex + 1);
 
         // Read the directory contents
@@ -464,6 +469,10 @@ export default class Completion {
             return candidate.includes(word);
         });
 
+        let similarEnv = process.env ? Object.keys(process.env).filter(candidate => {
+            return candidate.includes(word);
+        }) : [];
+
         const suggestions: CompletionItem[] = similar.map((value, index, array) => {
             return {
                 label: value,
@@ -472,7 +481,14 @@ export default class Completion {
             };
         });
 
-        return suggestions;
+        const envVariables: CompletionItem[] = similarEnv.map((value, index, array) => {
+            return {
+                label: `ENV{${value}}`,
+                kind: CompletionItemKind.Variable,
+            };
+        });
+
+        return [...suggestions, ...envVariables];
     }
 
     private getTargetsSuggestion(info: CMakeCompletionInfo): CompletionItem[] | undefined {
@@ -617,12 +633,14 @@ export default class Completion {
             case 'pkg_check_modules': {
                 return this.pkgCheckModulesSuggestions(info, word);
             }
+            case 'set': {
+                if (info.index === 0) {
+                    return this.getVariableSuggestions(info, word);
+                }
+                break;
+            }
             default:
                 break;
-        }
-
-        if (word.startsWith('./') || word.startsWith('../')) {
-            return this.getFileSuggestions(info, word);
         }
 
         if (!(info.command in builtinCmds)) {
@@ -637,7 +655,7 @@ export default class Completion {
                 kind: CompletionItemKind.Keyword,
             };
         });
-        return [...this.getVariableSuggestions(info, word), ...argsCompletions];
+        return [...argsCompletions, ...(await this.getFileSuggestions(info, word) ?? [])];
     }
 
     private getPolicySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
@@ -672,6 +690,8 @@ export default class Completion {
             return this.getCommandSuggestions(this.word);
         } else if (info.type === CMakeCompletionType.Argument) {
             return this.getArgumentSuggestions(info, this.word);
+        } else if (info.type === CMakeCompletionType.Variable) {
+            return this.getVariableSuggestions(info, this.word);
         }
         throw new Error('Unknown completion type');
     }

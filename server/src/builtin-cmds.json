@@ -11,7 +11,7 @@
   },
   "add_custom_command": {
     "sig": [
-      "add_custom_command(OUTPUT output1 [output2 ...] COMMAND command1 [ARGS] [args1...] [COMMAND command2 [ARGS] [args2...] ...] [MAIN_DEPENDENCY depend] [DEPENDS [depends...]] [BYPRODUCTS [files...]] [IMPLICIT_DEPENDS <lang1> depend1 [<lang2> depend2] ...] [WORKING_DIRECTORY dir] [COMMENT comment] [DEPFILE depfile] [JOB_POOL job_pool] [VERBATIM] [APPEND] [USES_TERMINAL] [COMMAND_EXPAND_LISTS])",
+      "add_custom_command(OUTPUT output1 [output2 ...] COMMAND command1 [ARGS] [args1...] [COMMAND command2 [ARGS] [args2...] ...] [MAIN_DEPENDENCY depend] [DEPENDS [depends...]] [BYPRODUCTS [files...]] [IMPLICIT_DEPENDS <lang1> depend1 [<lang2> depend2] ...] [WORKING_DIRECTORY dir] [COMMENT comment] [DEPFILE depfile] [JOB_POOL job_pool] [VERBATIM] [APPEND] [USES_TERMINAL] [COMMAND_EXPAND_LISTS] [DEPENDS_EXPLICIT_ONLY])",
       "add_custom_command(TARGET <target> PRE_BUILD | PRE_LINK | POST_BUILD COMMAND command1 [ARGS] [args1...] [COMMAND command2 [ARGS] [args2...] ...] [BYPRODUCTS [files...]] [WORKING_DIRECTORY dir] [COMMENT comment] [VERBATIM] [USES_TERMINAL] [COMMAND_EXPAND_LISTS])"
     ]
   },
@@ -41,10 +41,8 @@
     "sig": [
       "add_library(<name> [STATIC | SHARED | MODULE] [EXCLUDE_FROM_ALL] [<source>...])",
       "add_library(<name> OBJECT [<source>...])",
-      "add_library(... $<TARGET_OBJECTS:objlib> ...)",
-      "add_library(<name> INTERFACE)",
       "add_library(<name> INTERFACE [<source>...] [EXCLUDE_FROM_ALL])",
-      "add_library(<name> <type> IMPORTED [GLOBAL])",
+      "add_library(<name> { STATIC | SHARED | MODULE | UNKNOWN | OBJECT | INTERFACE } IMPORTED [GLOBAL])",
       "add_library(<name> ALIAS <target>)"
     ]
   },
@@ -55,7 +53,7 @@
   },
   "add_subdirectory": {
     "sig": [
-      "add_subdirectory(source_dir [binary_dir] [EXCLUDE_FROM_ALL])"
+      "add_subdirectory(source_dir [binary_dir] [EXCLUDE_FROM_ALL] [SYSTEM])"
     ]
   },
   "add_test": {
@@ -72,7 +70,9 @@
   "block": {
     "sig": [
       "block([SCOPE_FOR [POLICIES] [VARIABLES] ] [PROPAGATE <var-name>...])",
-      "block(SCOPE_FOR VARIABLES POLICIES)"
+      "block(SCOPE_FOR VARIABLES POLICIES)",
+      "block(PROPAGATE var1 var2)",
+      "block()"
     ]
   },
   "break": {
@@ -82,7 +82,7 @@
   },
   "build_command": {
     "sig": [
-      "build_command(<variable> [CONFIGURATION <config>] [PARALLEL_LEVEL <parallel>] [TARGET <target>] [PROJECT_NAME <projname>] # legacy, causes warning)",
+      "build_command(<variable> [CONFIGURATION <config>] [PARALLEL_LEVEL <parallel>] [TARGET <target>] [PROJECT_NAME <projname>])",
       "build_command(<cachevariable> <makecommand>)"
     ]
   },
@@ -99,19 +99,20 @@
   },
   "cmake_host_system_information": {
     "sig": [
-      "cmake_host_system_information(RESULT <variable> QUERY <key> ...)",
-      "cmake_host_system_information(RESULT <variable> QUERY WINDOWS_REGISTRY <key> [VALUE_NAMES|SUBKEYS|VALUE <name>] [VIEW (64|32|64_32|32_64|HOST|TARGET|BOTH)] [SEPARATOR <separator>] [ERROR_VARIABLE <result>])"
+      "cmake_host_system_information(RESULT <variable> QUERY { NUMBER_OF_LOGICAL_CORES | NUMBER_OF_PHYSICAL_CORES | HOSTNAME | FQDN | TOTAL_VIRTUAL_MEMORY | AVAILABLE_VIRTUAL_MEMORY | TOTAL_PHYSICAL_MEMORY | AVAILABLE_PHYSICAL_MEMORY | IS_64BIT | HAS_FPU | HAS_MMX | HAS_MMX_PLUS | HAS_SSE | HAS_SSE2 | HAS_SSE_FP | HAS_SSE_MMX | HAS_AMD_3DNOW | HAS_AMD_3DNOW_PLUS | HAS_IA64 | HAS_SERIAL_NUMBER | PROCESSOR_SERIAL_NUMBER | PROCESSOR_NAME | PROCESSOR_DESCRIPTION | OS_NAME | OS_RELEASE | OS_VERSION | OS_PLATFORM | MSYSTEM_PREFIX | DISTRIB_INFO } ...)",
+      "cmake_host_system_information(RESULT <variable> QUERY WINDOWS_REGISTRY <key> [VALUE_NAMES|SUBKEYS|VALUE <name>] [VIEW { 64 | 32 | 64_32 | 32_64 | HOST | TARGET | BOTH }] [SEPARATOR <separator>] [ERROR_VARIABLE <result>])"
     ]
   },
   "cmake_language": {
     "sig": [
       "cmake_language(CALL <command> [<arg>...])",
       "cmake_language(EVAL CODE <code>...)",
-      "cmake_language(DEFER <options>... CALL <command> [<arg>...])",
+      "cmake_language(DEFER { DIRECTORY <dir> | ID <id> | ID_VAR <var> } ... CALL <command> [<arg>...])",
       "cmake_language(DEFER [DIRECTORY <dir>] GET_CALL_IDS <var>)",
       "cmake_language(DEFER [DIRECTORY <dir>] GET_CALL <id> <var>)",
       "cmake_language(DEFER [DIRECTORY <dir>] CANCEL_CALL <id>...)",
-      "cmake_language(SET_DEPENDENCY_PROVIDER <command> SUPPORTED_METHODS <methods>...)"
+      "cmake_language(SET_DEPENDENCY_PROVIDER <command> SUPPORTED_METHODS { FIND_PACKAGE | FETCHCONTENT_MAKEAVAILABLE_SERIAL } ...)",
+      "cmake_language(GET_MESSAGE_LOG_LEVEL <out-var>)"
     ]
   },
   "cmake_minimum_required": {
@@ -277,7 +278,7 @@
       "elseif(<condition>)",
       "elseif(<constant>)",
       "elseif(<variable|string>)",
-      "elseif(NOT <condition>)",
+      "elseif([NOT] <condition> { <variable> | COMMAND <command-name> | POLICY <policy-id> | TARGET <target_name> | TEST <test-name>})",
       "elseif(<cond1> AND <cond2>)",
       "elseif(<cond1> OR <cond2>)",
       "elseif(DEFINED <name>|CACHE{<name>}|ENV{<name>})",
@@ -298,13 +299,12 @@
       "elseif(<variable|string> VERSION_EQUAL <variable|string>)",
       "elseif(<variable|string> VERSION_LESS_EQUAL <variable|string>)",
       "elseif(<variable|string> VERSION_GREATER_EQUAL <variable|string>)",
-      "elseif(var1)",
-      "elseif(var2)"
+      "elseif(var1)"
     ]
   },
   "enable_language": {
     "sig": [
-      "enable_language(<lang> [OPTIONAL] )"
+      "enable_language({CXX|C|CUDA|OBJC|OBJCXX|`Fortran`|HIP|ISPC|ASM} [OPTIONAL] )"
     ]
   },
   "enable_testing": {
@@ -356,9 +356,10 @@
   "export": {
     "sig": [
       "export(EXPORT <export-name> [NAMESPACE <namespace>] [FILE <filename>])",
-      "export(TARGETS [target1 [target2 [...]]] [NAMESPACE <namespace>] [APPEND] FILE <filename> [EXPORT_LINK_INTERFACE_LIBRARIES])",
+      "export(TARGETS [target1 [target2 [...]]] [NAMESPACE <namespace>] [APPEND] FILE <filename> [EXPORT_LINK_INTERFACE_LIBRARIES] [CXX_MODULES_DIRECTORY <directory>])",
       "export(PACKAGE <PackageName>)",
-      "export(TARGETS [target1 [target2 [...]]] [ANDROID_MK <filename>])"
+      "export(TARGETS [target1 [target2 [...]]] [ANDROID_MK <filename>])",
+      "export(<export-name> [PACKAGE_DEPENDENCY <dep> [ENABLED { TRUE | FALSE | AUTO }] [EXTRA_ARGS <args>...]] [...] [TARGET <target> [XCFRAMEWORK_LOCATION <location>]] [...])"
     ]
   },
   "export_library_dependencies": {
@@ -476,8 +477,8 @@
   },
   "get_filename_component": {
     "sig": [
-      "get_filename_component(<var> <FileName> <mode> [CACHE])",
-      "get_filename_component(<var> <FileName> <mode> [BASE_DIR <dir>] [CACHE])",
+      "get_filename_component(<var> <FileName> { DIRECTORY | NAME | EXT | NAME_WE | LAST_EXT | NAME_WLE | PATH } [CACHE])",
+      "get_filename_component(<var> <FileName> { ABSOLUTE | REALPATH } [BASE_DIR <dir>] [CACHE])",
       "get_filename_component(<var> <FileName> PROGRAM [PROGRAM_ARGS <arg_var>] [CACHE])"
     ]
   },
@@ -498,7 +499,7 @@
   },
   "get_test_property": {
     "sig": [
-      "get_test_property(test property VAR)"
+      "get_test_property(<test> <property> [DIRECTORY <dir>] <variable>)"
     ]
   },
   "if": {
@@ -506,7 +507,7 @@
       "if(<condition>)",
       "if(<constant>)",
       "if(<variable|string>)",
-      "if(NOT <condition>)",
+      "if([NOT] <condition> { <variable> | COMMAND <command-name> | POLICY <policy-id> | TARGET <target_name> | TEST <test-name>})",
       "if(<cond1> AND <cond2>)",
       "if(<cond1> OR <cond2>)",
       "if((condition)",
@@ -577,7 +578,7 @@
       "install(CODE <code> [...])",
       "install(EXPORT <export-name> [...])",
       "install(RUNTIME_DEPENDENCY_SET <set-name> [...])",
-      "install(TARGETS targets... [EXPORT <export-name>] [RUNTIME_DEPENDENCIES args...|RUNTIME_DEPENDENCY_SET <set-name>] [[ARCHIVE|LIBRARY|RUNTIME|OBJECTS|FRAMEWORK|BUNDLE| PRIVATE_HEADER|PUBLIC_HEADER|RESOURCE] [DESTINATION <dir>] [PERMISSIONS permissions...] [CONFIGURATIONS [Debug|Release|...]] [COMPONENT <component>] [NAMELINK_COMPONENT <component>] [OPTIONAL] [EXCLUDE_FROM_ALL] [NAMELINK_ONLY|NAMELINK_SKIP] ] [...] [INCLUDES DESTINATION [<dir> ...]])",
+      "install(TARGETS targets... [EXPORT <export-name>] [RUNTIME_DEPENDENCIES args...|RUNTIME_DEPENDENCY_SET <set-name>] [[ARCHIVE|LIBRARY|RUNTIME|OBJECTS|FRAMEWORK|BUNDLE| PRIVATE_HEADER|PUBLIC_HEADER|RESOURCE] [DESTINATION <dir>] [PERMISSIONS {OWNER_READ | OWNER_WRITE | OWNER_EXECUTE | GROUP_READ | GROUP_WRITE | GROUP_EXECUTE | WORLD_READ | WORLD_WRITE | WORLD_EXECUTE | SETUID | SETGID}] [CONFIGURATIONS [Debug|Release|...]] [COMPONENT <component>] [NAMELINK_COMPONENT <component>] [OPTIONAL] [EXCLUDE_FROM_ALL] [NAMELINK_ONLY|NAMELINK_SKIP] ] [...] [INCLUDES DESTINATION [<dir> ...]])",
       "install(RUNTIME_DEPENDENCY_SET)",
       "install(IMPORTED_RUNTIME_ARTIFACTS targets... [RUNTIME_DEPENDENCY_SET <set-name>] [[LIBRARY|RUNTIME|FRAMEWORK|BUNDLE] [DESTINATION <dir>] [PERMISSIONS permissions...] [CONFIGURATIONS [Debug|Release|...]] [COMPONENT <component>] [OPTIONAL] [EXCLUDE_FROM_ALL] ] [...])",
       "install(<FILES|PROGRAMS> files... TYPE <type> | DESTINATION <dir> [PERMISSIONS permissions...] [CONFIGURATIONS [Debug|Release|...]] [COMPONENT <component>] [RENAME <name>] [OPTIONAL] [EXCLUDE_FROM_ALL])",
@@ -637,6 +638,11 @@
       "list(REMOVE_AT <list> <index> [<index> ...])",
       "list(REMOVE_DUPLICATES <list>)",
       "list(TRANSFORM <list> <ACTION> [<SELECTOR>] [OUTPUT_VARIABLE <output variable>])",
+      "list(TRANSFORM <list> (APPEND|PREPEND) <value> ...)",
+      "list(TRANSFORM <list> (TOLOWER|TOUPPER) ...)",
+      "list(TRANSFORM <list> STRIP ...)",
+      "list(TRANSFORM <list> GENEX_STRIP ...)",
+      "list(TRANSFORM <list> REPLACE <regular_expression> <replace_expression> ...)",
       "list(REVERSE <list>)",
       "list(SORT <list> [COMPARE <compare>] [CASE <case>] [ORDER <order>])"
     ]
@@ -671,13 +677,14 @@
   },
   "math": {
     "sig": [
-      "math(EXPR <variable> \"<expression>\" [OUTPUT_FORMAT <format>])"
+      "math(EXPR <variable> \"<expression>\" [OUTPUT_FORMAT {DECIMAL | HEXADECIMAL}])"
     ]
   },
   "message": {
     "sig": [
-      "message([<mode>] \"message text\" ...)",
-      "message(<checkState> \"message\" ...)"
+      "message([ FATAL_ERROR | SEND_ERROR | WARNING | AUTHOR_WARNING | DEPRECATION | NOTICE | STATUS | VERBOSE | DEBUG | TRACE ] \"message text\" ...)",
+      "message(<checkState> { CHECK_FAIL | CHECK_START | CHECK_PASS } \"message\" ...)",
+      "message(CONFIGURE_LOG <text> ...)"
     ]
   },
   "option": {
@@ -693,8 +700,8 @@
   },
   "project": {
     "sig": [
-      "project(<project-name> [<language-name>...])",
-      "project(<project-name> [VERSION <major>[.<minor>[.<patch>[.<tweak>]]]] [DESCRIPTION <project-description-string>] [HOMEPAGE_URL <url-string>] [LANGUAGES <language-name>...])",
+      "project(<project-name> [<language-name>... { C | CXX | CUDA | OBJC | OBJCXX | `Fortran` | HIP | ISPC | ASM | NONE }])",
+      "project(<project-name> [VERSION <major>[.<minor>[.<patch>[.<tweak>]]]] [DESCRIPTION <project-description-string>] [HOMEPAGE_URL <url-string>] [LANGUAGES { C | CXX | CUDA | OBJC | OBJCXX | `Fortran` | HIP | ISPC | ASM | NONE }...])",
       "project(Project)"
     ]
   },
@@ -712,7 +719,7 @@
   },
   "remove": {
     "sig": [
-      "remove(VAR VALUE VALUE ...)"
+      "remove(<var> <value> ...)"
     ],
     "deprecated": true
   },
@@ -723,19 +730,19 @@
   },
   "return": {
     "sig": [
-      "return()"
+      "return([PROPAGATE <var-name>...])"
     ]
   },
   "separate_arguments": {
     "sig": [
-      "separate_arguments(<variable> <mode> [PROGRAM [SEPARATE_ARGS]] <args>)",
+      "separate_arguments(<variable> { UNIX_COMMAND | WINDOWS_COMMAND | NATIVE_COMMAND } [PROGRAM [SEPARATE_ARGS]] <args>)",
       "separate_arguments(<var>)"
     ]
   },
   "set": {
     "sig": [
       "set(<variable> <value>... [PARENT_SCOPE])",
-      "set(<variable> <value>... CACHE <type> <docstring> [FORCE])",
+      "set(<variable> { ON | OFF | <value>... } CACHE { FILEPATH | PATH | STRING | INTERNAL | BOOL } <docstring> [FORCE])",
       "set(ENV{<variable>} [<value>])"
     ]
   },
@@ -881,7 +888,8 @@
   },
   "target_sources": {
     "sig": [
-      "target_sources(<target> <INTERFACE|PUBLIC|PRIVATE> [items1...] [<INTERFACE|PUBLIC|PRIVATE> [items2...] ...])"
+      "target_sources(<target> <INTERFACE|PUBLIC|PRIVATE> [items1...] [<INTERFACE|PUBLIC|PRIVATE> [items2...] ...])",
+      "target_sources(<target> [<INTERFACE|PUBLIC|PRIVATE> [FILE_SET <set> [TYPE <type>] [BASE_DIRS <dirs>...] [FILES <files>...]]... ]...)"
     ]
   },
   "try_compile": {
@@ -929,7 +937,7 @@
       "while(<condition>)",
       "while(<constant>)",
       "while(<variable|string>)",
-      "while(NOT <condition>)",
+      "while([NOT] <condition> { <variable> | COMMAND <command-name> | POLICY <policy-id> | TARGET <target_name> | TEST <test-name>})",
       "while(<cond1> AND <cond2>)",
       "while(<cond1> OR <cond2>)",
       "while(DEFINED <name>|CACHE{<name>}|ENV{<name>})",
