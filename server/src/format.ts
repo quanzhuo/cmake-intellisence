@@ -190,7 +190,7 @@ export class Formatter extends CMakeSimpleParserListener {
     }
 
     private getTokenEndLine(token: Token): number {
-        if (token.text === '\n') {
+        if (token.type === CMakeSimpleLexer.IgnoreNLBetweenArgs) {
             return token.line;
         }
         return token.line + token.text.split('\n').length - 1;
