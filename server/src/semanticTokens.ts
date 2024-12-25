@@ -5,7 +5,6 @@ import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from "./cmakeInfo";
 import { AddSubDirectoryCmdContext, ArgumentContext, ElseIfCmdContext, ForeachCmdContext, FunctionCmdContext, IfCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext, WhileCmdContext } from "./generated/CMakeParser";
 import CMakeParserListener from "./generated/CMakeParserListener";
-import { getCmdKeyWords } from "./utils";
 
 let tokenTypes = [
     'namespace',
@@ -274,7 +273,7 @@ export class SemanticTokenListener extends CMakeParserListener {
 
         if (cmdNameLower in builtinCmds) {
             const sigs: string[] = builtinCmds[cmdNameLower]['sig'];
-            const keywords = getCmdKeyWords(sigs);
+            const keywords = builtinCmds[cmdNameLower]['keyword'] ?? [];
             const args: ArgumentContext[] = ctx.argument_list();
             args.forEach(argCtx => {
                 const text = argCtx.getText();

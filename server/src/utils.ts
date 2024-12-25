@@ -52,7 +52,7 @@ export function getIncludeFileUri(cmakeInfo: CMakeInfo, baseDir: URI, includeFil
 export function getCmdKeyWords(sigs: string[]): string[] {
     const keywords = new Set<string>();
     sigs.forEach(sig => {
-        (sig.match(/[A-Z0-9][A-Z_0-9]*[A-Z0-9]/g) ?? []).forEach(keyword => keywords.add(keyword));
+        (sig.match(/[@A-Z0-9][A-Z_0-9]*[A-Z0-9]/g) ?? []).forEach(keyword => keywords.add(keyword));
     });
     return Array.from(keywords);
 }

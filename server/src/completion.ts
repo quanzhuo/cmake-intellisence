@@ -7,7 +7,6 @@ import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from "./cmakeInfo";
 import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
 import * as cmsp from "./generated/CMakeSimpleParser";
-import { getCmdKeyWords } from "./utils";
 
 export { builtinCmds };
 
@@ -648,7 +647,7 @@ export default class Completion {
         }
 
         const sigs: string[] = builtinCmds[info.command]['sig'];
-        const args: string[] = getCmdKeyWords(sigs);
+        const args: string[] = builtinCmds[info.command]['keyword'] ?? [];
         const argsCompletions = args.map((arg) => {
             return {
                 label: arg,
