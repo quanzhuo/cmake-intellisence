@@ -412,6 +412,64 @@ endproject()
         assert.strictEqual(formatted, input);
         assert.strictEqual(errs, 0);
     });
+
+    test('should indent correct if right paren is on next line 1', () => {
+        const input = `
+function(print args)
+    message(args
+)
+endfunction()
+`;
+        const expectedOutput = `
+function(print args)
+    message(args
+    )
+endfunction()
+`;
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
+    });
+
+    test('should indent correct if right paren is on next line 2', () => {
+        const input = `
+function(print args)
+if (true)
+message(args
+)
+endif()   
+endfunction()
+`;
+        const expectedOutput = `
+function(print args)
+    if(true)
+        message(args
+        )
+    endif()
+endfunction()
+`;
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
+    });
+
+    test('should preserve newlines between commands', () => {
+        const input = `
+set(VAR value)
+
+
+set(VAR2 value2)
+`;
+        const expectedOutput = `
+set(VAR value)
+
+
+set(VAR2 value2)
+`;
+        const [formatted, errs] = formatCMake(input, 4);
+        assert.strictEqual(formatted, expectedOutput);
+        assert.strictEqual(errs, 0);
+    });
 });
 
 function formatCMake(input: string, indentSize: number): [string, number] {
