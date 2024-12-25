@@ -104,6 +104,7 @@ export class DocumentLinkInfo {
         links.forEach(link => {
             const targetPath = path.join(URI.parse(link.target).fsPath, 'CMakeLists.txt');
             link.target = URI.file(targetPath).toString();
+            link.tooltip = path.join(link.tooltip, 'CMakeLists.txt');
         });
         return links;
     }
