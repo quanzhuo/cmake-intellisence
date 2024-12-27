@@ -196,4 +196,138 @@ arg2  arg3          arg4 )
             assert.strictEqual(result.index, expected.index);
         });
     });
+
+    test('getCompletionInfoAtCursor variable 1', () => {
+        const input = 'mock_command(arg1 ${})';
+        const fileContext = getSimpleFileContext(input);
+        const testCases = [
+            {
+                pos: { line: 0, character: 20 },
+                expected: { type: CMakeCompletionType.Variable, }
+            },
+
+            {
+                pos: { line: 0, character: 21 },
+                expected: { type: CMakeCompletionType.Argument, }
+            },
+            {
+                pos: { line: 0, character: 19 },
+                expected: { type: CMakeCompletionType.Argument, }
+            },
+        ];
+
+        testCases.forEach(({ pos, expected }) => {
+            const result = getCompletionInfoAtCursor(fileContext, pos);
+            assert.strictEqual(result.type, expected.type);
+        });
+    });
+
+    test('getCompletionInfoAtCursor variable 2', () => {
+        const input = "mock_command( arg1 ${CMAKE})";
+        const fileContext = getSimpleFileContext(input);
+        const testCases = [
+            {
+                pos: { line: 0, character: 21 },
+                expected: { type: CMakeCompletionType.Variable, }
+            },
+
+            {
+                pos: { line: 0, character: 22 },
+                expected: { type: CMakeCompletionType.Variable, }
+            },
+            {
+                pos: { line: 0, character: 26 },
+                expected: { type: CMakeCompletionType.Variable, }
+            },
+        ];
+
+        testCases.forEach(({ pos, expected }) => {
+            const result = getCompletionInfoAtCursor(fileContext, pos);
+            assert.strictEqual(result.type, expected.type);
+        });
+    });
+
+    test('getCompletionInfoAtCursor variable 3', () => {
+        const input = "mock_command(arg1 ${CMAKE} ${FOO})";
+        const fileContext = getSimpleFileContext(input);
+        const testCases = [
+            {
+                pos: { line: 0, character: 20 },
+                expected: { type: CMakeCompletionType.Variable, }
+            },
+            {
+                pos: { line: 0, character: 22 },
+                expected: { type: CMakeCompletionType.Variable, }
+            },
+            {
+                pos: { line: 0, character: 25 },
+                expected: { type: CMakeCompletionType.Variable, }
+            },
+            {
+                pos: { line: 0, character: 28 },
+                expected: { type: CMakeCompletionType.Argument, }
+            },
+            {
+                pos: { line: 0, character: 29 },
+                expected: { type: CMakeCompletionType.Variable, }
+            },
+            {
+                pos: { line: 0, character: 32 },
+                expected: { type: CMakeCompletionType.Variable, }
+            },
+            {
+                pos: { line: 0, character: 33 },
+                expected: { type: CMakeCompletionType.Argument, }
+            },
+        ];
+
+        testCases.forEach(({ pos, expected }) => {
+            const result = getCompletionInfoAtCursor(fileContext, pos);
+            assert.strictEqual(result.type, expected.type);
+        });
+    });
+
+    test('multi variable reference in single argument should work', () => {
+        const input = 'mock_command(arg1 ${Foo}${Bar})';
+        const fileContext = getSimpleFileContext(input);
+        const testCases = [
+            {
+                pos: { line: 0, character: 19 },
+                expected: { type: CMakeCompletionType.Argument, }
+            },
+            {
+                pos: { line: 0, character: 20 },
+                expected: { type: CMakeCompletionType.Variable, }
+            },
+            {
+                pos: { line: 0, character: 22 },
+                expected: { type: CMakeCompletionType.Variable, }
+            },
+            {
+                pos: { line: 0, character: 23 },
+                expected: { type: CMakeCompletionType.Variable, }
+            },
+            // {
+            //     pos: { line: 0, character: 26 },
+            //     expected: { type: CMakeCompletionType.Variable, }
+            // },
+            // {
+            //     pos: { line: 0, character: 27 },
+            //     expected: { type: CMakeCompletionType.Variable, }
+            // },
+            // {
+            //     pos: { line: 0, character: 29 },
+            //     expected: { type: CMakeCompletionType.Variable, }
+            // },
+            // {
+            //     pos: { line: 0, character: 30 },
+            //     expected: { type: CMakeCompletionType.Argument, }
+            // },
+        ];
+
+        testCases.forEach(({ pos, expected }) => {
+            const result = getCompletionInfoAtCursor(fileContext, pos);
+            assert.strictEqual(result.type, expected.type);
+        });
+    });
 });

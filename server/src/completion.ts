@@ -207,7 +207,7 @@ export function getCompletionInfoAtCursor(tree: cmsp.FileContext, pos: Position)
                 const argText = argStart.text;
                 const dollarIndex = argText.indexOf('${');
                 const closingBraceIndex = argText.indexOf('}', dollarIndex);
-                if (dollarIndex !== -1 && closingBraceIndex !== -1 && pos.character >= argStart.column + dollarIndex && pos.character <= argStart.column + closingBraceIndex) {
+                if (dollarIndex !== -1 && closingBraceIndex !== -1 && pos.character >= argStart.column + dollarIndex + 2 && pos.character <= argStart.column + closingBraceIndex) {
                     return { type: CMakeCompletionType.Variable };
                 }
                 index = i;
