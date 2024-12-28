@@ -181,8 +181,8 @@ export function getCompletionInfoAtCursor(tree: cmsp.FileContext, pos: Position)
         return { type: CMakeCompletionType.Command };
     }
 
-    const lParen = currentCommand.LParen();
-    const rParen = currentCommand.RParen();
+    const lParen = currentCommand.LP();
+    const rParen = currentCommand.RP();
     if (lParen === null || rParen === null) {
         return { type: CMakeCompletionType.Command };
     }

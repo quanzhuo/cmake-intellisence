@@ -52,14 +52,14 @@ export class Formatter extends CMakeSimpleParserListener {
         this._formatted += cmd + '(';
 
         // comment and newline can be placed after '('
-        this._formatted += this.getHiddenTextOnRight(ctx.LParen().symbol.tokenIndex,
+        this._formatted += this.getHiddenTextOnRight(ctx.LP().symbol.tokenIndex,
             this.getIndent() + this._indent
         );
 
         // all arguments
         const cnt: number = ctx.argument_list().length;
         const indent = (this._indentLevel + 1) * this._indent;
-        const cmdLineNo: number = ctx.LParen().symbol.line;
+        const cmdLineNo: number = ctx.LP().symbol.line;
         let prevLineNo: number = cmdLineNo;
         let curLineNo: number = -1;
         ctx.argument_list().forEach((argCtx, index, array) => {
@@ -81,7 +81,7 @@ export class Formatter extends CMakeSimpleParserListener {
         });
 
         // ')'
-        const rParenToken = ctx.RParen().symbol;
+        const rParenToken = ctx.RP().symbol;
         const rParenIndex = rParenToken.tokenIndex;
         const prevToken = this._tokenStream.get(rParenIndex - 1);
         if (rParenToken.line !== this.getTokenEndLine(prevToken)) {
@@ -158,11 +158,11 @@ export class Formatter extends CMakeSimpleParserListener {
             result += this.getHiddenTextOnRight(argCtx.stop.tokenIndex, indent);
         } else {
             result += '(';
-            const lParenIndex: number = argCtx.LParen().symbol.tokenIndex;
+            const lParenIndex: number = argCtx.LP().symbol.tokenIndex;
             result += this.getHiddenTextOnRight(lParenIndex, indent);
             const innerCnt = argCtx.argument_list().length;
             const innerIndent = indent + this._indent;
-            let prevLineNo: number = argCtx.LParen().symbol.line;
+            let prevLineNo: number = argCtx.LP().symbol.line;
             argCtx.argument_list().forEach((innerCtx, index) => {
                 const curLineNo: number = innerCtx.stop.line;
                 if (curLineNo !== prevLineNo) {
@@ -176,7 +176,7 @@ export class Formatter extends CMakeSimpleParserListener {
                 prevLineNo = curLineNo;
             });
 
-            const rParenToken = argCtx.RParen().symbol;
+            const rParenToken = argCtx.RP().symbol;
             if ((innerCnt > 0) &&
                 (argCtx.argument_list()[innerCnt - 1].stop.line !== rParenToken.line)) {
                 result += ' '.repeat(indent);

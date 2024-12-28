@@ -5,10 +5,10 @@ options {
 }
 
 file: (command NL)* command ? EOF; // every command except the last must be terminated with newline
-command: ID LParen argument* RParen;
+command: ID LP argument* RP;
 argument:
 	QuotedArgument
 	| BracketArgument
 	| UnquotedArgument
 	| ID
-	| LParen argument* RParen;
+	| LP argument* RP;

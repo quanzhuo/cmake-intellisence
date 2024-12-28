@@ -2,6 +2,7 @@ lexer grammar CMakeLexer;
 
 @lexer::members {
     private nestingLevel: number = 0;
+    private newLineCount: number = 1;
 
     private start_line: number;
     private start_col: number;
@@ -104,13 +105,16 @@ UnquotedArgument: (UnquotedElement)+;
 Comment: '#' { this.HandleComment(); } -> channel(COMMENTS);
 BracketArgument: '[' BracketNested ']';
 
-// NL should be ignored between '(' and ')'
+// NL should be ignored in the following two cases 
+// 1. NL between '(' and ')' 
+// 2. NL between command invocations
 IgnoreNLBetweenArgs: '\r'? '\n' { this.nestingLevel > 0 }? -> channel(HIDDEN);
+IgnoreExtraNLBetweenCmds: '\r'? '\n' { this.newLineCount > 0 }? -> channel(HIDDEN);
 
-NL: '\r'? '\n';
+NL: {this.newLineCount++;} '\r'? '\n';
 WS: [ \t]+ -> skip;
 LP: '(' {this.nestingLevel++;};
-RP: ')' {this.nestingLevel--;};
+RP: ')' {this.nestingLevel--; this.newLineCount = 0;};
 BracketNested: '=' BracketNested '=' | '[' .*? ']';
 
 fragment EscapeSequence: EscapeIdentity | EscapeEncoded | EscapeSemicolon;

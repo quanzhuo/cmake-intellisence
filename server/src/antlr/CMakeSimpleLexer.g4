@@ -95,8 +95,8 @@ IgnoreExtraNLBetweenCmds: '\r'? '\n' { this.newLineCount > 0 }? -> channel(HIDDE
 
 NL: {this.newLineCount++;} '\r'? '\n';
 WS: [ \t]+ -> skip;
-LParen: '(' {this.nestingLevel++;};
-RParen: ')' {this.nestingLevel--; this.newLineCount = 0;};
+LP: '(' {this.nestingLevel++;};
+RP: ')' {this.nestingLevel--; this.newLineCount = 0;};
 BracketNested: '=' BracketNested '=' | '[' .*? ']';
 
 fragment EscapeSequence: EscapeIdentity | EscapeEncoded | EscapeSemicolon;
