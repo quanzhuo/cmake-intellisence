@@ -25,6 +25,8 @@ This extension is written in TypeScript, no other runtime dependencies are requi
 
 ## Development
 
+**Note**: This section describes the development environment setup required for modifying/developing this extension. If you just want to use this extension, simply install it without any additional setup.
+
 This project use antlr4 to generate the parser and lexer for CMake language. You need to setup antlr4 command line tool before you start development.
 
 1. Install Java JDK/JRE, make sure java command is available in your terminal
