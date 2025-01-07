@@ -65,6 +65,7 @@ suite('CMakeSimple Tests', () => {
         const inputs = [
             '# This is a comment',
             '#[[This is a bracket comment]]',
+            '#[=[This is a line comment',
             '#[==[This is a bracket comment ]==]',
             '#[==[This is a actually a line comment ]=]',
             '#[=[This is a [[nested]] bracket comment ]=]',

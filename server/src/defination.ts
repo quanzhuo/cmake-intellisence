@@ -5,13 +5,14 @@ import { DefinitionParams, Location, LocationLink, TextDocuments } from "vscode-
 import { Position, TextDocument } from "vscode-languageserver-textdocument";
 import { URI, Utils } from "vscode-uri";
 import { CMakeInfo } from "./cmakeInfo";
+import { builtinCmds } from "./completion";
 import { AddSubDirectoryCmdContext, ArgumentContext, FileContext, FunctionCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext } from "./generated/CMakeParser";
 import CMakeParserListener from "./generated/CMakeParserListener";
 import * as cmsp from "./generated/CMakeSimpleParser";
-import { getWordAtPosition, logger } from "./server";
+import { Logger } from "./logging";
+import { getWordAtPosition } from "./server";
 import { FileScope, Scope, Symbol, SymbolKind } from "./symbolTable";
 import { getFileContent, getFileContext, getIncludeFileUri } from "./utils";
-import { builtinCmds } from "./completion";
 
 export enum DestinationType {
     Command,
@@ -29,6 +30,7 @@ export class DefinitionResolver {
         private workspaceFolder: string,
         private curFile: URI,
         private command: cmsp.CommandContext,
+        private logger: Logger,
     ) {
         const dir = path.dirname(curFile.fsPath);
         this.baseDir = URI.file(dir);
@@ -189,7 +191,7 @@ class BaseDefinationListener extends CMakeParserListener {
         const subDir = dirToken.text;
         const subCMakeListsUri: URI = Utils.joinPath(this.curDir, subDir, 'CMakeLists.txt');
         if (!fs.existsSync(subCMakeListsUri.fsPath)) {
-            logger.error('enterAddSubdirectoryCmd:', subCMakeListsUri.fsPath, 'not exist');
+            // this.logger.error('enterAddSubdirectoryCmd:', subCMakeListsUri.fsPath, 'not exist');
             return;
         }
 

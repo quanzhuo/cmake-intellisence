@@ -64,6 +64,7 @@ export class CMakeLanguageServer {
     private simpleTokenStreams: Map<string, CommonTokenStream> = new Map();
     private simpleFileContexts: Map<string, cmsp.FileContext> = new Map();
     private projectInfo?: ProjectInfo;
+    private logger: Logger;
 
     /**
      * Files whose ProjectInfo is already parsed
@@ -105,7 +106,7 @@ export class CMakeLanguageServer {
         this.extSettings = initializationOptions.extSettings;
         this.cmakeInfo = new CMakeInfo(this.extSettings, this.connection);
         await this.cmakeInfo.init();
-        logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
+        this.logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
 
         const result: InitializeResult = {
             capabilities: {
@@ -250,7 +251,7 @@ export class CMakeLanguageServer {
 
     private onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
         const word = getWordAtPosition(this.documents.get(params.textDocument.uri), params.position).text;
-        const completion = new Completion(this.cmakeInfo, this.simpleFileContexts, this.simpleTokenStreams, this.projectInfo, word);
+        const completion = new Completion(this.cmakeInfo, this.simpleFileContexts, this.simpleTokenStreams, this.projectInfo, word, this.logger);
         return completion.onCompletion(params);
     }
 
@@ -289,7 +290,7 @@ export class CMakeLanguageServer {
         return new Promise((resolve, reject) => {
             exec(command, (error, stdout, stderr) => {
                 if (error) {
-                    logger.error(`Failed to get help for ${item.label}: ${stderr}`);
+                    this.logger.error(`Failed to get help for ${item.label}: ${stderr}`);
                 } else {
                     item.documentation = {
                         kind: 'markdown',
@@ -380,7 +381,7 @@ export class CMakeLanguageServer {
             try {
                 ParseTreeWalker.DEFAULT.walk(formatListener, this.getSimpleFileContext(params.textDocument.uri));
             } catch (error) {
-                logger.error(`Failed to format document: ${error}`);
+                this.logger.error(`Failed to format document: ${error}`);
             }
             resolve([
                 {
@@ -415,7 +416,7 @@ export class CMakeLanguageServer {
         }
 
         const workspaceFolder = this.initParams.workspaceFolders[0].uri;
-        const resolver = new DefinitionResolver(this.fileContexts, this.documents, this.cmakeInfo, workspaceFolder, URI.parse(uri), command);
+        const resolver = new DefinitionResolver(this.fileContexts, this.documents, this.cmakeInfo, workspaceFolder, URI.parse(uri), command, this.logger);
         return resolver.resolve(params);
     }
 

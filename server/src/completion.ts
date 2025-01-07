@@ -7,6 +7,7 @@ import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from "./cmakeInfo";
 import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
 import * as cmsp from "./generated/CMakeSimpleParser";
+import { Logger } from "./logging";
 
 export { builtinCmds };
 
@@ -238,6 +239,7 @@ export default class Completion {
         private simpleTokenStreams: Map<string, CommonTokenStream>,
         private projectInfo: ProjectInfo = {},
         private word: string,
+        private logger: Logger,
     ) { }
 
     private getCommandSuggestion(commandName: string, type: CompletionItemType): CompletionItem {
@@ -440,7 +442,8 @@ export default class Completion {
         const files = await new Promise<string[]>((resolve, reject) => {
             fs.readdir(dir, (err: NodeJS.ErrnoException | null, files: string[]) => {
                 if (err) {
-                    reject(err);
+                    this.logger.error(`Error reading directory ${dir}: ${err.message}`);
+                    resolve([]);
                 } else {
                     resolve(files);
                 }

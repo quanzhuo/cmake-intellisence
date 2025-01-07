@@ -6,6 +6,7 @@ import { CMakeInfo } from "../cmakeInfo";
 import Completion, { CMakeCompletionType, getCompletionInfoAtCursor, isCursorWithinParentheses } from "../completion";
 import CMakeSimpleLexer from "../generated/CMakeSimpleLexer";
 import CMakeSimpleParser, * as cmsp from "../generated/CMakeSimpleParser";
+import { createLogger } from "../logging";
 import { getSimpleFileContext } from "../utils";
 
 suite('Completion Tests', () => {
@@ -29,7 +30,8 @@ suite('Completion Tests', () => {
         simpleFileContexts.set(fileUri, fileContext);
         simpleTokenStreams.set(fileUri, tokenStream);
         const params = { textDocument: { uri: fileUri }, position };
-        const completion = new Completion(cmakeInfo, simpleFileContexts, simpleTokenStreams, {}, word);
+        const logger = createLogger('cmake-intellisence', 'off');;
+        const completion = new Completion(cmakeInfo, simpleFileContexts, simpleTokenStreams, {}, word, logger);
         return completion.onCompletion(params);
     }
 

@@ -4,7 +4,7 @@ options {
 	tokenVocab = CMakeLexer;
 }
 
-file: (entity NL)* entity? EOF;
+file: (entity NL)* entity? EOF; // every command except the last must be terminated with newline
 entity: command | conditional | foreachLoop | whileLoop | macroDefinition | functionDefinition;
 
 conditional: ifCmd NL (entity NL)* ( elseIfCmd NL (entity NL)* )* ( elseCmd NL (entity NL)* )? endIfCmd;
