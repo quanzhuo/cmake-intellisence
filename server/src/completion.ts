@@ -649,7 +649,6 @@ export default class Completion {
             return null;
         }
 
-        const sigs: string[] = builtinCmds[info.command]['sig'];
         const args: string[] = builtinCmds[info.command]['keyword'] ?? [];
         const argsCompletions = args.map((arg) => {
             return {
@@ -657,6 +656,9 @@ export default class Completion {
                 kind: CompletionItemKind.Keyword,
             };
         });
+        if (info.command === 'if' || info.command === 'elseif' || info.command === 'while') {
+            return [...argsCompletions, ...this.getVariableSuggestions(info, word), ...(await this.getFileSuggestions(info, word) ?? [])];
+        }
         return [...argsCompletions, ...(await this.getFileSuggestions(info, word) ?? [])];
     }
 
