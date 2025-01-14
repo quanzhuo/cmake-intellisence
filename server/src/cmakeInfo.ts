@@ -65,6 +65,10 @@ export class CMakeInfo {
             [this.version, this.major, this.minor, this.patch],
             [this.modules, this.policies, this.variables, this.properties, this.commands]
         ] = await Promise.all([this.getCMakeVersion(), this.getBuiltinEntries()]);
+        
+        // cmake --help-property-list contains the following duplicated items
+        // ADDITIONAL_CLEAN_FILES,AUTORCC_OPTIONS,AUTOUIC_OPTIONS,BINARY_DIR,COMPILE_DEFINITIONS,COMPILE_DEFINITIONS,COMPILE_DEFINITIONS_<CONFIG>,COMPILE_DEFINITIONS_<CONFIG>,COMPILE_FLAGS,COMPILE_OPTIONS,COMPILE_OPTIONS,CXX_SCAN_FOR_MODULES,EXCLUDE_FROM_ALL,Fortran_FORMAT,Fortran_PREPROCESS,IMPLICIT_DEPENDS_INCLUDE_TRANSFORM,INCLUDE_DIRECTORIES,INCLUDE_DIRECTORIES,INTERPROCEDURAL_OPTIMIZATION,INTERPROCEDURAL_OPTIMIZATION_<CONFIG>,LABELS,LABELS,LABELS,LINK_DIRECTORIES,LINK_OPTIONS,LOCATION,RULE_LAUNCH_COMPILE,RULE_LAUNCH_COMPILE,RULE_LAUNCH_CUSTOM,RULE_LAUNCH_CUSTOM,RULE_LAUNCH_LINK,RULE_LAUNCH_LINK,SOURCE_DIR,SYSTEM,Swift_DEPENDENCIES_FILE,TYPE,XCODE_EXPLICIT_FILE_TYPE
+        this.properties = [...new Set(this.variables)];
 
         const langVariables: string[] = [];
         const languages = ['C', 'CXX'];
@@ -78,6 +82,7 @@ export class CMakeInfo {
             }
         }
         this.variables = langVariables;
+        this.variables = [...new Set(this.variables)];
 
         if (!fs.existsSync(this.cmakeModulePath)) {
             try {

@@ -55,6 +55,31 @@ suite('Completion Tests', () => {
         const suggestion = suggestions.find(s => s.label === "cmake_minimum_required");
         assert(suggestion !== undefined);
     });
+
+    test('variables should be unique', async () => {
+        const duplicates = cmakeInfo.variables.filter((item, index) => cmakeInfo.variables.indexOf(item) !== index);
+        assert.strictEqual(duplicates.length, 0, `Duplicate variables found: ${duplicates}`);
+    });
+
+    test('modules should be unique', async () => {
+        const duplicates = cmakeInfo.modules.filter((item, index) => cmakeInfo.modules.indexOf(item) !== index);
+        assert.strictEqual(duplicates.length, 0, `Duplicate modules found: ${duplicates}`);
+    });
+
+    test('policies should be unique', async () => {
+        const duplicates = cmakeInfo.policies.filter((item, index) => cmakeInfo.policies.indexOf(item) !== index);
+        assert.strictEqual(duplicates.length, 0, `Duplicate policies found: ${duplicates}`);
+    });
+
+    test('properties should be unique', async () => {
+        const duplicates = cmakeInfo.properties.filter((item, index) => cmakeInfo.properties.indexOf(item) !== index);
+        assert.strictEqual(duplicates.length, 0, `Duplicate properties found: ${duplicates}`);
+    });
+
+    test('commands should be unique', async () => {
+        const duplicates = cmakeInfo.commands.filter((item, index) => cmakeInfo.commands.indexOf(item) !== index);
+        assert.strictEqual(duplicates.length, 0, `Duplicate commands found: ${duplicates}`);
+    });
 });
 
 suite('Utility Function Tests', () => {
