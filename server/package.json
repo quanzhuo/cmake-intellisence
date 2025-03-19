@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://gitee.com/openkylin/cmake-intellisence"
+    "url": "https://github.com/quanzhuo/cmake-intellisence"
   },
   "dependencies": {
     "antlr4": "^4.13.2",

@@ -1,0 +1,16 @@
+{
+    "deb": {
+        "default_arch": {
+            "default_os": {
+                "cmake": {}
+            }
+        }
+    },
+    "rpm": {
+        "default_arch": {
+            "default_os": {
+                "cmake": {}
+            }
+        }
+    }
+}

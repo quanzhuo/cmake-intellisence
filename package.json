@@ -9,10 +9,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://gitee.com/openkylin/cmake-intellisence"
+    "url": "https://github.com/quanzhuo/cmake-intellisence"
   },
   "bugs": {
-    "url": "https://gitee.com/openkylin/cmake-intellisence/issues",
+    "url": "https://github.com/quanzhuo/cmake-intellisence/issues",
     "email": "quanzhuo@kylinos.cn"
   },
   "categories": [
@@ -20,6 +20,16 @@
     "Snippets",
     "Formatters"
   ],
+  "keywords": [
+    "CMake",
+    "C++",
+    "KylinIdeDev",
+    "KylinIdeDevEdit",
+    "KylinIdeDevCYuYan",
+    "KylinIdeDevCPlusPlus",
+    "KylinIdeDevOtherLanguages"
+  ],
+  "downloadUrl": "https://gitee.com/openkylin/cmake-intellisence/releases",
   "publisher": "KylinIdeTeam",
   "icon": "images/icon.png",
   "activationEvents": [
