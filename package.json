@@ -98,11 +98,6 @@
             "default": "cmake",
             "description": "%cmakePath%"
           },
-          "cmakeIntelliSence.cmakeModulePath": {
-            "type": "string",
-            "default": "",
-            "description": "%cmakeModulePath%"
-          },
           "cmakeIntelliSence.pkgConfigPath": {
             "type": "string",
             "default": "pkg-config",

@@ -498,9 +498,7 @@ export class CMakeLanguageServer {
      */
     private async onDidChangeConfiguration(params: DidChangeConfigurationParams) {
         const extSettings = await this.getExtSettings();
-        if (extSettings.cmakeModulePath !== this.extSettings.cmakeModulePath ||
-            extSettings.cmakePath !== this.extSettings.cmakePath
-        ) {
+        if (extSettings.cmakePath !== this.extSettings.cmakePath) {
             this.cmakeInfo = new CMakeInfo(extSettings, this.connection);
             await this.cmakeInfo.init();
         }
@@ -616,13 +614,11 @@ export class CMakeLanguageServer {
             cmakePath,
             loggingLevel,
             cmdCaseDiagnostics,
-            cmakeModulePath,
             pkgConfigPath,
         ] = await this.connection.workspace.getConfiguration([
             { section: 'cmakeIntelliSence.cmakePath' },
             { section: 'cmakeIntelliSence.loggingLevel' },
             { section: 'cmakeIntelliSence.cmdCaseDiagnostics' },
-            { section: 'cmakeIntelliSence.cmakeModulePath' },
             { section: 'cmakeIntelliSence.pkgConfigPath' },
         ]);
 
@@ -630,7 +626,6 @@ export class CMakeLanguageServer {
             cmakePath,
             loggingLevel,
             cmdCaseDiagnostics,
-            cmakeModulePath,
             pkgConfigPath,
         };
     }

@@ -22,7 +22,6 @@ type Commands = string[];
 export interface ExtensionSettings {
     loggingLevel: string;
     cmakePath: string;
-    cmakeModulePath: string;
     pkgConfigPath: string;
     cmdCaseDiagnostics: boolean;
 }
@@ -45,7 +44,6 @@ export class CMakeInfo {
 
     constructor(extSettings: ExtensionSettings, connection: Connection,) {
         this.cmakePath = extSettings.cmakePath;
-        this.cmakeModulePath = extSettings.cmakeModulePath;
         this.pkgConfigPath = extSettings.pkgConfigPath;
         this.connection = connection;
     }
@@ -59,15 +57,11 @@ export class CMakeInfo {
             this.cmakePath = absPath;
         }
 
-        // if this.cmakePath is a symlink, resolve it
-        this.cmakePath = await fsp.realpath(this.cmakePath);
         [
             [this.version, this.major, this.minor, this.patch],
             [this.modules, this.policies, this.variables, this.properties, this.commands]
         ] = await Promise.all([this.getCMakeVersion(), this.getBuiltinEntries()]);
-        
-        // cmake --help-property-list contains the following duplicated items
-        // ADDITIONAL_CLEAN_FILES,AUTORCC_OPTIONS,AUTOUIC_OPTIONS,BINARY_DIR,COMPILE_DEFINITIONS,COMPILE_DEFINITIONS,COMPILE_DEFINITIONS_<CONFIG>,COMPILE_DEFINITIONS_<CONFIG>,COMPILE_FLAGS,COMPILE_OPTIONS,COMPILE_OPTIONS,CXX_SCAN_FOR_MODULES,EXCLUDE_FROM_ALL,Fortran_FORMAT,Fortran_PREPROCESS,IMPLICIT_DEPENDS_INCLUDE_TRANSFORM,INCLUDE_DIRECTORIES,INCLUDE_DIRECTORIES,INTERPROCEDURAL_OPTIMIZATION,INTERPROCEDURAL_OPTIMIZATION_<CONFIG>,LABELS,LABELS,LABELS,LINK_DIRECTORIES,LINK_OPTIONS,LOCATION,RULE_LAUNCH_COMPILE,RULE_LAUNCH_COMPILE,RULE_LAUNCH_CUSTOM,RULE_LAUNCH_CUSTOM,RULE_LAUNCH_LINK,RULE_LAUNCH_LINK,SOURCE_DIR,SYSTEM,Swift_DEPENDENCIES_FILE,TYPE,XCODE_EXPLICIT_FILE_TYPE
+
         this.properties = [...new Set(this.variables)];
 
         const langVariables: string[] = [];
@@ -84,26 +78,37 @@ export class CMakeInfo {
         this.variables = langVariables;
         this.variables = [...new Set(this.variables)];
 
-        if (!fs.existsSync(this.cmakeModulePath)) {
-            try {
-                for (const dir of ['cmake', `cmake-${this.major}.${this.minor}`]) {
-                    const module = path.join(path.dirname(this.cmakePath), '..', 'share', dir, 'Modules');
-                    console.log(`module: ${module}`);
-                    if (fs.existsSync(path.join(module, 'FindQt.cmake'))) {
-                        this.cmakeModulePath = path.normalize(module);
-                        break;
-                    }
-                }
-
-                if (!fs.existsSync(this.cmakeModulePath)) {
-                    this.connection.window.showInformationMessage("CMake system module path not found.");
-                }
-            } catch (error) {
-                this.connection.window.showInformationMessage(`CMakeInfo.init, error: ${error}`);
+        try {
+            const cmakeRoot = await this.getCMakeRoot();
+            if (cmakeRoot) {
+                this.cmakeModulePath = path.join(cmakeRoot, 'Modules');
+            } else {
+                this.connection.window.showInformationMessage("CMake system module path not found.");
             }
+        } catch (error) {
+            this.connection.window.showInformationMessage(`CMakeInfo.init, error: ${error}`);
         }
 
         await this.initPkgConfigModules();
+    }
+
+    private async getCMakeRoot(): Promise<string | null> {
+        const command = `${this.cmakePath} --system-information`;
+        try {
+            const { stdout } = await promisify(cp.exec)(command, { cwd: process.cwd() });
+            const lines = stdout.split('\n');
+            for (const line of lines) {
+                if (line.startsWith('CMAKE_ROOT')) {
+                    const parts = line.split('=').map(part => part.trim());
+                    if (parts.length === 2) {
+                        return parts[1];
+                    }
+                }
+            }
+        } catch (error) {
+            this.connection.window.showInformationMessage(`Error retrieving CMAKE_ROOT: ${error}`);
+        }
+        return null;
     }
 
     private async getCMakeVersion(): Promise<[string, number, number, number]> {

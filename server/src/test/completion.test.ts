@@ -13,7 +13,7 @@ suite('Completion Tests', () => {
     let cmakeInfo: CMakeInfo;
 
     before(async () => {
-        cmakeInfo = new CMakeInfo({ cmakePath: "cmake", cmakeModulePath: "", pkgConfigPath: "", cmdCaseDiagnostics: false, loggingLevel: 'off' }, null);
+        cmakeInfo = new CMakeInfo({ cmakePath: "cmake", pkgConfigPath: "", cmdCaseDiagnostics: false, loggingLevel: 'off' }, null);
         await cmakeInfo.init();
     });
 
