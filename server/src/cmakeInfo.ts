@@ -93,16 +93,18 @@ export class CMakeInfo {
     }
 
     private async getCMakeRoot(): Promise<string | null> {
-        const command = `${this.cmakePath} --system-information`;
+        const command = `"${this.cmakePath}" --system-information`;
         try {
             const { stdout } = await promisify(cp.exec)(command, { cwd: process.cwd() });
             const lines = stdout.split('\n');
             for (const line of lines) {
                 if (line.startsWith('CMAKE_ROOT')) {
-                    const parts = line.split('=').map(part => part.trim());
-                    if (parts.length === 2) {
-                        return parts[1];
+                    const startQuote = line.indexOf('"');
+                    const endQuote = line.lastIndexOf('"');
+                    if (startQuote !== -1 && endQuote !== -1 && startQuote < endQuote) {
+                        return line.substring(startQuote + 1, endQuote);
                     }
+                    return null;
                 }
             }
         } catch (error) {
