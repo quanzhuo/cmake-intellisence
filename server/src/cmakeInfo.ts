@@ -1,17 +1,17 @@
 import { ParseTreeWalker } from 'antlr4';
 import * as cp from 'child_process';
 import * as fs from 'fs';
-import { promises as fsp } from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
 import { Connection, TextDocuments } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
+import * as which from 'which';
 import { ProjectInfo } from './completion';
 import * as cmsp from './generated/CMakeSimpleParser';
 import CMakeSimpleParserListener from './generated/CMakeSimpleParserListener';
 import { getFileContent, getSimpleFileContext } from './utils';
-import * as which from 'which';
 
 type Modules = string[];
 type Policies = string[];
@@ -95,7 +95,7 @@ export class CMakeInfo {
     private async getCMakeRoot(): Promise<string | null> {
         const command = `"${this.cmakePath}" --system-information`;
         try {
-            const { stdout } = await promisify(cp.exec)(command, { cwd: process.cwd() });
+            const { stdout } = await promisify(cp.exec)(command, { cwd: os.tmpdir() });
             const lines = stdout.split('\n');
             for (const line of lines) {
                 if (line.startsWith('CMAKE_ROOT')) {
