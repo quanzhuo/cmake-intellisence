@@ -134,7 +134,7 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "node -e \"fs.rmSync('dist', {'recursive': true, 'force': true})\" && npm run product",
+    "vscode:prepublish": "rimraf dist syntaxes/*.json && npm run product",
     "compile": "tsc -p ./server",
     "tsc-watch": "tsc -p ./server -w",
     "develop": "npm run grammar && npm run antlr4 && webpack --mode development --watch",
@@ -158,6 +158,7 @@
     "eslint": "^8.57.0",
     "js-yaml": "^4.1.0",
     "mocha": "^11.0.1",
+    "rimraf": "^6.0.1",
     "ts-loader": "^9.5.1",
     "typescript": "^5.3.3",
     "webpack": "^5.91.0",
