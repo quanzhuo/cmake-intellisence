@@ -51,7 +51,7 @@ export class CMakeInfo {
     public async init() {
         const absPath: string | null = which.sync(this.cmakePath, { nothrow: true });
         if (absPath === null) {
-            this.connection.window.showInformationMessage(`CMakeInfo.init, cmake not found: ${this.cmakePath}`);
+            this.connection.window.showErrorMessage(`CMakeInfo.init, cmake not found: ${this.cmakePath}`);
             return;
         } else {
             this.cmakePath = absPath;
@@ -78,15 +78,12 @@ export class CMakeInfo {
         this.variables = langVariables;
         this.variables = [...new Set(this.variables)];
 
-        try {
-            const cmakeRoot = await this.getCMakeRoot();
-            if (cmakeRoot) {
-                this.cmakeModulePath = path.join(cmakeRoot, 'Modules');
-            } else {
-                this.connection.window.showInformationMessage("CMake system module path not found.");
-            }
-        } catch (error) {
-            this.connection.window.showInformationMessage(`CMakeInfo.init, error: ${error}`);
+        const cmakeRoot = await this.getCMakeRoot();
+        console.log(`CMakeInfo.init, cmakeRoot: ${cmakeRoot}`);
+        if (cmakeRoot) {
+            this.cmakeModulePath = path.join(cmakeRoot, 'Modules');
+        } else {
+            console.error('CMake system module path not found.');
         }
 
         await this.initPkgConfigModules();
@@ -108,7 +105,7 @@ export class CMakeInfo {
                 }
             }
         } catch (error) {
-            this.connection.window.showInformationMessage(`Error retrieving CMAKE_ROOT: ${error}`);
+            console.error(`getCMakeRoot: Error executing command: ${JSON.stringify(error)}`);
         }
         return null;
     }
