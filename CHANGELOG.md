@@ -1,5 +1,11 @@
 # Change Log
 
+## v0.3.5
+
+Bug Fixes:
+
+* 修复在 Windows 上，如果没有安装 msvc，获取 CMake 模块路径时会导致错误
+
 ## v0.3.4
 
 Improvements:
