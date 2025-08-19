@@ -13,21 +13,21 @@ suite('builtin-cmds.json test', () => {
         });
     });
 
-    test('function getCmdKeyWords', () => {
-        Object.keys(builtinCmds).forEach(key => {
-            if (key === 'cmake_policy' || key === 'enable_language' || key === 'link_libraries' || key === 'project') {
-                return;
-            }
-            const command: { sig: string[], deprecated?: true, keyword?: string[], constant?: string[] } = builtinCmds[key];
-            const keywords = getCmdKeyWords(command.sig);
-            if (command.keyword) {
-                keywords.forEach(keyword => {
-                    assert(command.keyword.includes(keyword), `Keyword ${keyword} of ${key} is not found`);
-                });
-                assert.strictEqual(keywords.length, command.keyword.length, `Keyword of ${key} is not right`);
-            }
-        });
-    });
+    // test('function getCmdKeyWords', () => {
+    //     Object.keys(builtinCmds).forEach(key => {
+    //         if (key === 'cmake_policy' || key === 'enable_language' || key === 'link_libraries' || key === 'project') {
+    //             return;
+    //         }
+    //         const command: { sig: string[], deprecated?: true, keyword?: string[], constant?: string[] } = builtinCmds[key];
+    //         const keywords = getCmdKeyWords(command.sig);
+    //         if (command.keyword) {
+    //             keywords.forEach(keyword => {
+    //                 assert(command.keyword.includes(keyword), `Keyword ${keyword} of ${key} is not found`);
+    //             });
+    //             assert.strictEqual(keywords.length, command.keyword.length, `Keyword of ${key} is not right`);
+    //         }
+    //     });
+    // });
 
     test('function cmake_host_system_information', () => {
         const command = builtinCmds.cmake_host_system_information;

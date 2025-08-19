@@ -350,7 +350,7 @@ export default class Completion {
                 ...Array.from(this.projectInfo.functions ?? new Set<string>()).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
                 ...Array.from(this.projectInfo.macros ?? new Set<string>()).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
             ];
-            const similarCmds = allCommands.filter(cmd => { return cmd.name.includes(word.toLowerCase()); });
+            const similarCmds = allCommands.filter(cmd => { return cmd.name.toLowerCase().includes(word.toLowerCase()); });
             const similarNames = similarCmds.map(cmd => cmd.name);
             const suggestedCommands: CompletionItem[] = similarCmds.map((command, index, array) => {
                 return this.getCommandSuggestion(command.name, command.type);

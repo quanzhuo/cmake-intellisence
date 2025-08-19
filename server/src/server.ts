@@ -312,12 +312,17 @@ export class CMakeLanguageServer {
             return Promise.resolve(null);
         }
 
-        const commandName = command.ID().getText().toLowerCase();
-        if (!(commandName in builtinCmds)) {
+        const cmdName = command.ID().getText();
+        const lowercaseCmdName = cmdName.toLowerCase();
+        if (!(cmdName in builtinCmds) && !(lowercaseCmdName in builtinCmds)) {
             return Promise.resolve(null);
         }
-
-        const sigsStrArr: string[] = builtinCmds[commandName]['sig'];
+        let sigsStrArr: string[];
+        if (cmdName in builtinCmds) {
+            sigsStrArr = builtinCmds[cmdName]['sig'];
+        } else {
+            sigsStrArr = builtinCmds[lowercaseCmdName]['sig'];
+        }
         if (sigsStrArr.length === 1) {
             return Promise.resolve({
                 signatures: [

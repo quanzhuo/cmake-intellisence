@@ -1058,5 +1058,1014 @@
     ],
     "deprecated": true,
     "keyword": ["APPEND"]
-  }
+  },
+  "add_file_dependencies": {
+        "keyword": [],
+        "sig": [
+            "add_file_dependencies(<source> <files>...)"
+        ]
+    },
+    "android_add_test_data": {
+        "keyword": ["FILES", "FILES_DEST", "LIBS", "LIBS_DEST", "DEVICE_OBJECT_STORE", "DEVICE_TEST_DIR", "NO_LINK_REGEX" ],
+        "sig": [
+            "android_add_test_data(<test-name> [FILES <files>...] [FILES_DEST <device-dir>] [LIBS <libs>...] [LIBS_DEST <device-dir>] [DEVICE_OBJECT_STORE <device-dir>] [DEVICE_TEST_DIR <device-dir>] [NO_LINK_REGEX <strings>...] )"
+        ]
+    },
+    "fixup_bundle": {
+        "keyword": [],
+        "sig": [
+            "fixup_bundle(<app> <libs> <dirs>)"
+        ]
+    },
+    "copy_and_fixup_bundle": {
+        "keyword": [],
+        "sig": [
+            "copy_and_fixup_bundle(<src> <dst> <libs> <dirs>)"
+        ]
+    },
+    "verify_app": {
+        "keyword": [],
+        "sig": [
+            "verify_app(<app>)"
+        ]
+    },
+    "get_bundle_main_executable": {
+        "keyword": [],
+        "sig": [
+            "get_bundle_main_executable(<bundle> <result_var>)"
+        ]
+    },
+    "get_dotapp_dir": {
+        "keyword": [],
+        "sig": [
+            "get_dotapp_dir(<exe> <dotapp_dir_var>)"
+        ]
+    },
+    "get_bundle_and_executable": {
+        "keyword": [],
+        "sig": [
+            "get_bundle_and_executable(<app> <bundle_var> <executable_var> <valid_var>)"
+        ]
+    },
+    "get_bundle_all_executables": {
+        "keyword": [],
+        "sig": [
+            "get_bundle_all_executables(<bundle> <exes_var>)"
+        ]
+    },
+    "get_item_key": {
+        "keyword": [],
+        "sig": [
+            "get_item_key(<item> <key_var>)"
+        ]
+    },
+    "clear_bundle_keys": {
+        "keyword": [],
+        "sig": [
+            "clear_bundle_keys(<keys_var>)"
+        ]
+    },
+    "set_bundle_key_values": {
+        "keyword": [],
+        "sig": [
+            "set_bundle_key_values(<keys_var> <context> <item> <exepath> <dirs> <copyflag> [<rpaths>])"
+        ]
+    },
+    "get_bundle_keys": {
+        "keyword": [],
+        "sig": [
+            "get_bundle_keys(<app> <libs> <dirs> <keys_var>)"
+        ]
+    },
+    "copy_resolved_item_into_bundle": {
+        "keyword": [],
+        "sig": [
+            "copy_resolved_item_into_bundle(<resolved_item> <resolved_embedded_item>)"
+        ]
+    },
+    "copy_resolved_framework_into_bundle": {
+        "keyword": [],
+        "sig": [
+            "copy_resolved_framework_into_bundle(<resolved_item> <resolved_embedded_item>)"
+        ]
+    },
+    "fixup_bundle_item": {
+        "keyword": [],
+        "sig": [
+            "fixup_bundle_item(<resolved_embedded_item> <exepath> <dirs>)"
+        ]
+    },
+    "verify_bundle_prerequisites": {
+        "keyword": [],
+        "sig": [
+            "verify_bundle_prerequisites(<bundle> <result_var> <info_var>)"
+        ]
+    },
+    "verify_bundle_symlinks": {
+        "keyword": [],
+        "sig": [
+            "verify_bundle_symlinks(<bundle> <result_var> <info_var>)"
+        ]
+    },
+    "check_c_compiler_flag": {
+        "keyword": [],
+        "sig": [
+            "check_c_compiler_flag(<flag> <resultVar>)"
+        ]
+    },
+    "check_compiler_flag": {
+        "keyword": [],
+        "sig": [
+            "check_compiler_flag(<lang> <flag> <resultVar>)"
+        ]
+    },
+    "check_c_source_compiles": {
+        "keyword": [
+            "FAIL_REGEX"
+        ],
+        "sig": [
+            "check_c_source_compiles(<code> <resultVar> [FAIL_REGEX <regex1> [<regex2>...]])"
+        ]
+    },
+    "check_c_source_runs": {
+        "keyword": [],
+        "sig": [
+            "check_c_source_runs(<code> <resultVar>)"
+        ]
+    },
+    "check_cxx_compiler_flag": {
+        "keyword": [],
+        "sig": [
+            "check_cxx_compiler_flag(<flag> <var>)"
+        ]
+    },
+    "check_cxx_source_compiles": {
+        "keyword": [
+            "FAIL_REGEX"
+        ],
+        "sig": [
+            "check_cxx_source_compiles(<code> <resultVar> [FAIL_REGEX <regex1> [<regex2>...]])"
+        ]
+    },
+    "check_cxx_source_runs": {
+        "keyword": [],
+        "sig": [
+            "check_cxx_source_runs(<code> <resultVar>)"
+        ]
+    },
+    "check_cxx_symbol_exists": {
+        "keyword": [],
+        "sig": [
+            "check_cxx_symbol_exists(<symbol> <files> <variable>)"
+        ]
+    },
+    "check_fortran_compiler_flag": {
+        "keyword": [],
+        "sig": [
+            "check_fortran_compiler_flag(<flag> <resultVar>)"
+        ]
+    },
+    "check_fortran_source_compiles": {
+        "keyword": [
+            "FAIL_REGEX",
+            "SRC_EXT"
+        ],
+        "sig": [
+            "check_fortran_source_compiles(<code> <resultVar> [FAIL_REGEX <regex>...] [SRC_EXT <extension>] )"
+        ]
+    },
+    "check_fortran_source_runs": {
+        "keyword": [
+            "SRC_EXT"
+        ],
+        "sig": [
+            "check_fortran_source_runs(<code> <resultVar> [SRC_EXT <extension>])"
+        ]
+    },
+    "check_function_exists": {
+        "keyword": [],
+        "sig": [
+            "check_function_exists(<function> <variable>)"
+        ]
+    },
+    "cmake_push_check_state": {
+        "keyword": [
+            "RESET"
+        ],
+        "sig": [
+            "cmake_push_check_state(RESET)"
+        ]
+    },
+    "cmake_reset_check_state": {
+        "keyword": [],
+        "sig": [
+            "cmake_reset_check_state()"
+        ]
+    },
+    "cmake_pop_check_state": {
+        "keyword": [],
+        "sig": [
+            "cmake_pop_check_state()"
+        ]
+    },
+    "check_ipo_supported": {
+        "keyword": [
+            "RESULT",
+            "OUTPUT",
+            "LANGUAGES"
+        ],
+        "sig": [
+            "check_ipo_supported([RESULT <result>] [OUTPUT <output>] [LANGUAGES <lang>...])",
+            "check_ipo_supported()"
+        ]
+    },
+    "check_language": {
+        "keyword": [],
+        "sig": [
+            "check_language(<lang>)"
+        ]
+    },
+    "check_linker_flag": {
+        "keyword": [],
+        "sig": [
+            "check_linker_flag(<lang> <flag> <var>)"
+        ]
+    },
+    "check_objc_compiler_flag": {
+        "keyword": [],
+        "sig": [
+            "check_objc_compiler_flag(<flag> <resultVar>)"
+        ]
+    },
+    "check_objc_source_compiles": {
+        "keyword": [
+            "FAIL_REGEX"
+        ],
+        "sig": [
+            "check_objc_source_compiles(<code> <resultVar> [FAIL_REGEX <regex1> [<regex2>...]])"
+        ]
+    },
+    "check_objc_source_runs": {
+        "keyword": [],
+        "sig": [
+            "check_objc_source_runs(<code> <resultVar>)"
+        ]
+    },
+    "check_objcxx_compiler_flag": {
+        "keyword": [],
+        "sig": [
+            "check_objcxx_compiler_flag(<flag> <resultVar>)"
+        ]
+    },
+    "check_objcxx_source_compiles": {
+        "keyword": [
+            "FAIL_REGEX"
+        ],
+        "sig": [
+            "check_objcxx_source_compiles(<code> <resultVar> [FAIL_REGEX <regex1> [<regex2>...]])"
+        ]
+    },
+    "check_objcxx_source_runs": {
+        "keyword": [],
+        "sig": [
+            "check_objcxx_source_runs(<code> <resultVar>)"
+        ]
+    },
+    "check_pie_supported": {
+        "keyword": [
+            "OUTPUT_VARIABLE",
+            "LANGUAGES"
+        ],
+        "sig": [
+            "check_pie_supported([OUTPUT_VARIABLE <output>] [LANGUAGES <lang>...])",
+            "check_pie_supported()"
+        ]
+    },
+    "check_prototype_definition": {
+        "keyword": [
+            "FUNCTION",
+            "PROTOTYPE",
+            "RETURN",
+            "HEADER",
+            "VARIABLE"
+        ],
+        "sig": [
+            "check_prototype_definition(FUNCTION PROTOTYPE RETURN HEADER VARIABLE)"
+        ]
+    },
+    "check_source_compiles": {
+        "keyword": [
+            "FAIL_REGEX",
+            "SRC_EXT"
+        ],
+        "sig": [
+            "check_source_compiles(<lang> <code> <resultVar> [FAIL_REGEX <regex1> [<regex2>...]] [SRC_EXT <extension>])"
+        ]
+    },
+    "check_source_runs": {
+        "keyword": [
+            "SRC_EXT"
+        ],
+        "sig": [
+            "check_source_runs(<lang> <code> <resultVar> [SRC_EXT <extension>])"
+        ]
+    },
+    "check_symbol_exists": {
+        "keyword": [],
+        "sig": [
+            "check_symbol_exists(<symbol> <files> <variable>)"
+        ]
+    },
+    "check_type_size": {
+        "keyword": [
+            "BUILTIN_TYPES_ONLY",
+            "LANGUAGE"
+        ],
+        "sig": [
+            "check_type_size(<type> <variable> [BUILTIN_TYPES_ONLY] [LANGUAGE <language>])"
+        ]
+    },
+    "cmake_add_fortran_subdirectory": {
+        "keyword": [
+            "PROJECT",
+            "ARCHIVE_DIR",
+            "RUNTIME_DIR",
+            "LIBRARIES",
+            "LINK_LIBRARIES",
+            "LINK_LIBS",
+            "CMAKE_COMMAND_LINE",
+            "NO_EXTERNAL_INSTALL"
+        ],
+        "sig": [
+            "cmake_add_fortran_subdirectory( <subdir> PROJECT <project_name> ARCHIVE_DIR <dir> RUNTIME_DIR <dir> LIBRARIES <lib>... LINK_LIBRARIES [LINK_LIBS <lib> <dep>...]... CMAKE_COMMAND_LINE ... NO_EXTERNAL_INSTALL )"
+        ]
+    },
+    "cmake_dependent_option": {
+        "keyword": [],
+        "sig": [
+            "cmake_dependent_option(<option> <help_text> <value> <depends> <force>)"
+        ]
+    },
+    "DetermineVSServicePack": {
+        "keyword": [],
+        "sig": [
+            "DetermineVSServicePack( my_service_pack )"
+        ]
+    },
+    "find_dependency": {
+        "keyword": [],
+        "sig": [
+            "find_dependency(<dep> [...])"
+        ]
+    },
+    "CMAKE_FORCE_Fortran_COMPILER": {
+        "keyword": [],
+        "sig": [
+            "CMAKE_FORCE_Fortran_COMPILER(<compiler> <compiler-id>)"
+        ]
+    },
+    "configure_package_config_file": {
+        "keyword": [
+            "INSTALL_DESTINATION",
+            "PATH_VARS",
+            "NO_SET_AND_CHECK_MACRO",
+            "NO_CHECK_REQUIRED_COMPONENTS_MACRO",
+            "INSTALL_PREFIX"
+        ],
+        "sig": [
+            "configure_package_config_file(<input> <output> INSTALL_DESTINATION <path> [PATH_VARS <var1> <var2> ... <varN>] [NO_SET_AND_CHECK_MACRO] [NO_CHECK_REQUIRED_COMPONENTS_MACRO] [INSTALL_PREFIX <path>] )"
+        ]
+    },
+    "write_basic_package_version_file": {
+        "keyword": [
+            "VERSION",
+            "COMPATIBILITY",
+            "ARCH_INDEPENDENT"
+        ],
+        "sig": [
+            "write_basic_package_version_file(<filename> [VERSION <major.minor.patch>] COMPATIBILITY {`AnyNewerVersion`|`SameMajorVersion`|`SameMinorVersion`|`ExactVersion`} [ARCH_INDEPENDENT] )"
+        ]
+    },
+    "generate_apple_platform_selection_file": {
+        "keyword": [
+            "INSTALL_DESTINATION",
+            "INSTALL_PREFIX",
+            "MACOS_INCLUDE_FILE",
+            "IOS_INCLUDE_FILE",
+            "IOS_SIMULATOR_INCLUDE_FILE",
+            "IOS_CATALYST_INCLUDE_FILE",
+            "TVOS_INCLUDE_FILE",
+            "TVOS_SIMULATOR_INCLUDE_FILE",
+            "WATCHOS_INCLUDE_FILE",
+            "WATCHOS_SIMULATOR_INCLUDE_FILE",
+            "VISIONOS_INCLUDE_FILE",
+            "VISIONOS_SIMULATOR_INCLUDE_FILE",
+            "ERROR_VARIABLE"
+        ],
+        "sig": [
+            "generate_apple_platform_selection_file(<filename> INSTALL_DESTINATION <path> [INSTALL_PREFIX <path>] [MACOS_INCLUDE_FILE <file>] [IOS_INCLUDE_FILE <file>] [IOS_SIMULATOR_INCLUDE_FILE <file>] [IOS_CATALYST_INCLUDE_FILE <file>] [TVOS_INCLUDE_FILE <file>] [TVOS_SIMULATOR_INCLUDE_FILE <file>] [WATCHOS_INCLUDE_FILE <file>] [WATCHOS_SIMULATOR_INCLUDE_FILE <file>] [VISIONOS_INCLUDE_FILE <file>] [VISIONOS_SIMULATOR_INCLUDE_FILE <file>] [ERROR_VARIABLE <variable>] )"
+        ]
+    },
+    "generate_apple_architecture_selection_file": {
+        "keyword": ["INSTALL_DESTINATION", "INSTALL_PREFIX", "SINGLE_ARCHITECTURES", "SINGLE_ARCHITECTURE_INCLUDE_FILES", "UNIVERSAL_ARCHITECTURES", "UNIVERSAL_INCLUDE_FILE", "ERROR_VARIABLE"],
+        "sig": [
+            "generate_apple_architecture_selection_file(<filename> INSTALL_DESTINATION <path> [INSTALL_PREFIX <path>] [SINGLE_ARCHITECTURES <arch>... SINGLE_ARCHITECTURE_INCLUDE_FILES <file>...] [UNIVERSAL_ARCHITECTURES <arch>... UNIVERSAL_INCLUDE_FILE <file>] [ERROR_VARIABLE <variable>] )"
+        ]
+    },
+    "check_required_components": {
+        "keyword": [],
+        "sig": [
+            "check_required_components(<component> ...)"
+        ]
+    },
+    "cmake_print_properties": {
+        "keyword": ["TARGETS", "SOURCES", "DIRECTORIES", "TESTS", "CACHE_ENTRIES", "PROPERTIES"],
+        "sig": [
+            "cmake_print_properties(<TARGETS [<target1> ...] | SOURCES [<source1> ...] | DIRECTORIES [<dir1> ...] | TESTS [<test1> ...] | CACHE_ENTRIES [<entry1> ...] > PROPERTIES [<prop1> ...] )"
+        ]
+    },
+    "cmake_print_variables": {
+        "keyword": [],
+        "sig": [
+            "cmake_print_variables(<var> ...)"
+        ]
+    },
+    "cpack_add_component": {
+        "keyword": ["DISPLAY_NAME", "DESCRIPTION", "HIDDEN", "REQUIRED", "DISABLED", "GROUP", "DEPENDS", "INSTALL_TYPES", "DOWNLOADED", "ARCHIVE_FILE", "PLIST"],
+        "sig": [
+            "cpack_add_component(compname [DISPLAY_NAME name] [DESCRIPTION description] [HIDDEN | REQUIRED | DISABLED ] [GROUP group] [DEPENDS comp1 comp2 ... ] [INSTALL_TYPES type1 type2 ... ] [DOWNLOADED] [ARCHIVE_FILE filename] [PLIST filename])"
+        ]
+    },
+    "cpack_add_component_group": {
+        "keyword": ["DISPLAY_NAME","DESCRIPTION", "PARENT_GROUP", "EXPANDED", "BOLD_TITLE"],
+        "sig": [
+            "cpack_add_component_group(groupname [DISPLAY_NAME name] [DESCRIPTION description] [PARENT_GROUP parent] [EXPANDED] [BOLD_TITLE])"
+        ]
+    },
+    "cpack_add_install_type": {
+        "keyword": ["DISPLAY_NAME"],
+        "sig": [
+            "cpack_add_install_type(typename [DISPLAY_NAME name])"
+        ]
+    },
+    "cpack_configure_downloads": {
+        "keyword": ["UPLOAD_DIRECTORY", "ALL", "ADD_REMOVE", "NO_ADD_REMOVE"],
+        "sig": [
+            "cpack_configure_downloads(site [UPLOAD_DIRECTORY dirname] [ALL] [ADD_REMOVE|NO_ADD_REMOVE])"
+        ]
+    },
+    "cpack_ifw_add_repository": {
+        "keyword": ["DISABLED", "USERNAME", "PASSWORD", "DISPLAY_NAME"],
+        "sig": [
+            "cpack_ifw_add_repository(<reponame> [DISABLED] URL <url> [USERNAME <username>] [PASSWORD <password>] [DISPLAY_NAME <display_name>])"
+        ]
+    },
+    "cpack_ifw_update_repository": {
+        "keyword": ["ADD", "REMOVE", "REPLACE", "OLD_URL", "NEW_URL", "USERNAME", "PASSWORD", "DISPLAY_NAME"],
+        "sig": [
+            "cpack_ifw_update_repository(<reponame> [ [ADD|REMOVE] URL <url> | REPLACE OLD_URL <old_url> NEW_URL <new_url>] [USERNAME <username>] [PASSWORD <password>] [DISPLAY_NAME <display_name>])"
+        ]
+    },
+    "cpack_ifw_add_package_resources": {
+        "keyword": [],
+        "sig": [
+            "cpack_ifw_add_package_resources(<file_path> <file_path> ...)"
+        ]
+    },
+    "cpack_ifw_configure_file": {
+        "keyword": [],
+        "sig": [
+            "cpack_ifw_configure_file(<input> <output>)"
+        ]
+    },
+    "csharp_set_windows_forms_properties": {
+        "keyword": [],
+        "sig": [
+            "csharp_set_windows_forms_properties([<file1> [<file2> [...]]])"
+        ]
+    },
+    "csharp_set_designer_cs_properties": {
+        "keyword": [],
+        "sig": [
+            "csharp_set_designer_cs_properties([<file1> [<file2> [...]]])"
+        ]
+    },
+    "csharp_set_xaml_cs_properties": {
+        "keyword": [],
+        "sig": [
+            "csharp_set_xaml_cs_properties([<file1> [<file2> [...]]])"
+        ]
+    },
+    "csharp_get_filename_keys": {
+        "keyword": [],
+        "sig": [
+            "csharp_get_filename_keys(OUT [<file1> [<file2> [...]]])"
+        ]
+    },
+    "csharp_get_filename_key_base": {
+        "keyword": [],
+        "sig": [
+            "csharp_get_filename_key_base(BASE KEY)"
+        ]
+    },
+    "csharp_get_dependentupon_name": {
+        "keyword": [],
+        "sig": [
+            "csharp_get_dependentupon_name(NAME FILE)"
+        ]
+    },
+    "ctest_coverage_collect_gcov": {
+        "keyword": ["TARBALL", "SOURCE", "BUILD", "GCOV_COMMAND", "GCOV_OPTIONS"],
+        "sig": [
+            "ctest_coverage_collect_gcov(TARBALL <tarfile> [SOURCE <source_dir>][BUILD <build_dir>] [GCOV_COMMAND <gcov_command>] [GCOV_OPTIONS <options>...] )"
+        ]
+    },
+    "ExternalData_Add_Target": {
+        "keyword": ["SHOW_PROGRESS", "ON", "OFF"],
+        "sig": [
+            "ExternalData_Add_Target(MyData)",
+            "ExternalData_Add_Target( <target> [SHOW_PROGRESS <ON|OFF>] )"
+        ]
+    },
+    "ExternalProject_Add": {
+        "keyword": ["PREFIX", "TMP_DIR", "STAMP_DIR", "LOG_DIR", "DOWNLOAD_DIR", "SOURCE_DIR", "BINARY_DIR", "INSTALL_DIR", "DOWNLOAD_COMMAND", "URL", "URL_HASH", "URL_MD5", "DOWNLOAD_NAME", "DOWNLOAD_EXTRACT_TIMESTAMP", "DOWNLOAD_NO_EXTRACT", "DOWNLOAD_NO_PROGRESS", "TIMEOUT", "INACTIVITY_TIMEOUT", "HTTP_USERNAME", "HTTP_PASSWORD", "HTTP_HEADER", "TLS_VERIFY", "TLS_CAINFO", "NETRC", "IGNORED", "OPTIONAL", "REQUIRED", "NETRC_FILE", "GIT_REPOSITORY", "GIT_CONFIG", "GIT_REMOTE_UPDATE_STRATEGY", "CHECKOUT", "REBASE", "REBASE_CHECKOUT", "SVN_REPOSITORY", "SVN_REVISION", "SVN_USERNAME", "SVN_PASSWORD", "SVN_TRUST_CERT", "HG_REPOSITORY", "HG_TAG", "CVS_REPOSITORY", "CVS_MODULE", "CVS_TAG", "UPDATE_COMMAND", "UPDATE_DISCONNECTED", "PATCH_COMMAND", "CONFIGURE_COMMAND", "CMAKE_COMMAND", "CMAKE_GENERATOR", "CMAKE_GENERATOR_PLATFORM", "CMAKE_GENERATOR_TOOLSET", "CMAKE_GENERATOR_INSTANCE", "CMAKE_ARGS", "CMAKE_CACHE_ARGS", "CMAKE_CACHE_DEFAULT_ARGS", "SOURCE_SUBDIR", "CONFIGURE_HANDLED_BY_BUILD", "BUILD_COMMAND", "BUILD_IN_SOURCE", "BUILD_ALWAYS", "BUILD_BYPRODUCTS", "BUILD_JOB_SERVER_AWARE", "INSTALL_COMMAND", "INSTALL_BYPRODUCTS", "TEST_COMMAND", "TEST_BEFORE_INSTALL", "TEST_AFTER_INSTALL", "TEST_EXCLUDE_FROM_MAIN", "LOG_DOWNLOAD", "LOG_UPDATE", "LOG_PATCH", "LOG_CONFIGURE", "LOG_BUILD", "LOG_INSTALL", "LOG_TEST", "LOG_MERGED_STDOUTERR", "LOG_OUTPUT_ON_FAILURE", "USES_TERMINAL_DOWNLOAD", "USES_TERMINAL_UPDATE", "USES_TERMINAL_PATCH", "USES_TERMINAL_CONFIGURE", "USES_TERMINAL_BUILD", "USES_TERMINAL_INSTALL", "USES_TERMINAL_TEST", "DEPENDS", "EXCLUDE_FROM_ALL", "STEP_TARGETS", "INDEPENDENT_STEP_TARGETS", "LIST_SEPARATOR", "COMMAND"],
+        "sig": [
+            "ExternalProject_Add(<name> [{ PREFIX <dir> | TMP_DIR <dir> | STAMP_DIR <dir> | LOG_DIR <dir> | DOWNLOAD_DIR <dir> | SOURCE_DIR <dir> | BINARY_DIR <dir> | INSTALL_DIR <dir> | DOWNLOAD_COMMAND <cmd>... | URL <url1> [<url2>...] | URL_HASH <algo>=<hashValue> | URL_MD5 <md5> | DOWNLOAD_NAME <fname> | DOWNLOAD_EXTRACT_TIMESTAMP <bool> | DOWNLOAD_NO_EXTRACT <bool> | DOWNLOAD_NO_PROGRESS <bool> | TIMEOUT <seconds> | INACTIVITY_TIMEOUT <seconds> | HTTP_USERNAME <username> | HTTP_PASSWORD <password> | HTTP_HEADER <header1> [<header2>...] | TLS_VERIFY <bool> | TLS_CAINFO <file> | NETRC <level> | IGNORED | OPTIONAL | REQUIRED | NETRC_FILE <file> | GIT_REPOSITORY <url> | GIT_TAG <tag> | GIT_REMOTE_NAME <name> | GIT_SUBMODULES <module>... | GIT_SUBMODULES_RECURSE <bool> | GIT_SHALLOW <bool> | GIT_PROGRESS <bool> | GIT_CONFIG <option1> [<option2>...] | GIT_REMOTE_UPDATE_STRATEGY { CHECKOUT | REBASE | REBASE_CHECKOUT } | SVN_REPOSITORY <url> | SVN_REVISION -r<rev> | SVN_USERNAME <username> | SVN_PASSWORD <password> | SVN_TRUST_CERT <bool> | HG_REPOSITORY <url> | HG_TAG <tag> | CVS_REPOSITORY <cvsroot> | CVS_MODULE <mod> | CVS_TAG <tag> | UPDATE_COMMAND <cmd>... | UPDATE_DISCONNECTED <bool> | PATCH_COMMAND <cmd>... | CONFIGURE_COMMAND <cmd>... | CMAKE_COMMAND <path_cmake> | CMAKE_GENERATOR <gen> | CMAKE_GENERATOR_PLATFORM <platform> | CMAKE_GENERATOR_TOOLSET <toolset> | CMAKE_GENERATOR_INSTANCE <instance> | CMAKE_ARGS <arg>... | CMAKE_CACHE_ARGS <arg>... | CMAKE_CACHE_DEFAULT_ARGS <arg>... | SOURCE_SUBDIR <dir> | CONFIGURE_HANDLED_BY_BUILD <bool> | BUILD_COMMAND <cmd>... | BUILD_IN_SOURCE <bool> | BUILD_ALWAYS <bool> | BUILD_BYPRODUCTS <file>... | BUILD_JOB_SERVER_AWARE <bool> | INSTALL_COMMAND <cmd>... | INSTALL_BYPRODUCTS <file>... | TEST_COMMAND <cmd>... | TEST_BEFORE_INSTALL <bool> | TEST_AFTER_INSTALL <bool> | TEST_EXCLUDE_FROM_MAIN <bool> | LOG_DOWNLOAD <bool> | LOG_UPDATE <bool> | LOG_PATCH <bool> | LOG_CONFIGURE <bool> | LOG_BUILD <bool> | LOG_INSTALL <bool> | LOG_TEST <bool> | LOG_MERGED_STDOUTERR <bool> | LOG_OUTPUT_ON_FAILURE <bool> | USES_TERMINAL_DOWNLOAD <bool> | USES_TERMINAL_UPDATE <bool> | USES_TERMINAL_PATCH <bool> | USES_TERMINAL_CONFIGURE <bool> | USES_TERMINAL_BUILD <bool> | USES_TERMINAL_INSTALL <bool> | USES_TERMINAL_TEST <bool> | DEPENDS <target>... | EXCLUDE_FROM_ALL <bool> | STEP_TARGETS <step-target>... | INDEPENDENT_STEP_TARGETS <step-target>... | LIST_SEPARATOR <sep> | COMMAND <cmd>... }...])"
+        ]
+    },
+    "ExternalProject_Get_Property": {
+        "keyword": [],
+        "sig": [
+            "ExternalProject_Get_Property(<name> <prop1> [<prop2>...])"
+        ]
+    },
+    "ExternalProject_Add_Step": {
+        "keyword": ["mkdir", "download", "update", "patch", "configure", "build", "install", "test", "COMMAND", "COMMENT", "DEPENDEES", "DEPENDERS", "DEPENDS", "INDEPENDENT", "BYPRODUCTS", "ALWAYS", "JOB_SERVER_AWARE", "EXCLUDE_FROM_MAIN", "WORKING_DIRECTORY", "LOG", "USES_TERMINAL"],
+        "sig": [
+            "ExternalProject_Add_Step(<name> { `mkdir` | `download` | `update` | `patch` | `configure` | `build` | `install` | `test` } [{ COMMAND <cmd>... | COMMENT <text> ... | DEPENDEES { `mkdir` | `download` | `update` | `patch` | `configure` | `build` | `install` | `test` }... | DEPENDERS { `mkdir` | `download` | `update` | `patch` | `configure` | `build` | `install` | `test` }... | DEPENDS <file>... | INDEPENDENT <bool> | BYPRODUCTS <file>... | ALWAYS <bool> | JOB_SERVER_AWARE <bool> | EXCLUDE_FROM_MAIN <bool> | WORKING_DIRECTORY <dir> | LOG <bool> | USES_TERMINAL <bool> }...])"
+        ]
+    },
+    "ExternalProject_Add_StepTargets": {
+        "keyword": [],
+        "sig": [
+            "ExternalProject_Add_StepTargets(<name> <step1> [<step2>...])"
+        ]
+    },
+    "ExternalProject_Add_StepDependencies": {
+        "keyword": [],
+        "sig": [
+            "ExternalProject_Add_StepDependencies(<name> <step> <target1> [<target2>...])"
+        ]
+    },
+    "feature_summary": {
+        "keyword": ["FILENAME", "APPEND", "VAR", "INCLUDE_QUIET_PACKAGES", "FATAL_ON_MISSING_REQUIRED_PACKAGES", "DESCRIPTION", "DEFAULT_DESCRIPTION", "QUIET_ON_EMPTY", "WHAT", "ALL", "PACKAGES_FOUND", "PACKAGES_NOT_FOUND", "ENABLED_FEATURES", "DISABLED_FEATURE"],
+        "sig": [
+            "feature_summary( [FILENAME <file>] [APPEND] [VAR <variable_name>] [INCLUDE_QUIET_PACKAGES] [FATAL_ON_MISSING_REQUIRED_PACKAGES] [DESCRIPTION <description> | DEFAULT_DESCRIPTION] [QUIET_ON_EMPTY] WHAT {ALL | PACKAGES_FOUND | PACKAGES_NOT_FOUND | $10$ | $11$ | ENABLED_FEATURES | DISABLED_FEATURES} )"
+        ]
+    },
+    "set_package_properties": {
+        "keyword": ["PROPERTIES", "DESCRIPTION", "TYPE", "RUNTIME", "OPTIONAL", "RECOMMENDED", "REQUIRED", "PURPOSE"],
+        "sig": [
+            "set_package_properties(<name> PROPERTIES [ URL <url> ] [ DESCRIPTION <description> ] [ TYPE {RUNTIME|OPTIONAL|RECOMMENDED|REQUIRED} ] [ PURPOSE <purpose> ] )"
+        ]
+    },
+    "add_feature_info": {
+        "keyword": [],
+        "sig": [
+            "add_feature_info(<name> <enabled> <description>)"
+        ]
+    },
+    "set_package_info": {
+        "keyword": [],
+        "sig": [
+            "set_package_info(<name> <description> [ <url> [<purpose>] ])",
+            "set_package_info(<name> <description> <url>)"
+        ]
+    },
+    "set_feature_info": {
+        "keyword": [],
+        "sig": [
+            "set_feature_info(<name> <description> [<url>])"
+        ]
+    },
+    "print_enabled_features": {
+        "keyword": [],
+        "sig": [
+            "print_enabled_features()"
+        ]
+    },
+    "print_disabled_features": {
+        "keyword": [],
+        "sig": [
+            "print_disabled_features()"
+        ]
+    },
+    "FetchContent_MakeAvailable": {
+        "keyword": [],
+        "sig": [
+            "FetchContent_MakeAvailable(<name1> [<name2>...])"
+        ]
+    },
+    "FetchContent_GetProperties": {
+        "keyword": ["SOURCE_DIR", "BINARY_DIR", "POPULATED"],
+        "sig": [
+            "FetchContent_GetProperties( <name> [SOURCE_DIR <srcDirVar>] [BINARY_DIR <binDirVar>] [POPULATED <doneVar>] )"
+        ]
+    },
+    "FetchContent_Populate": {
+        "keyword": ["SOURCE_DIR", "BINARY_DIR","SUBBUILD_DIR", "QUIET"],
+        "sig": [
+            "FetchContent_Populate(<name>)",
+            "FetchContent_Populate( <name> [QUIET] [SUBBUILD_DIR <subBuildDir>] [SOURCE_DIR <srcDir>] [BINARY_DIR <binDir>] ... )"
+        ]
+    },
+    "FetchContent_Declare": {
+        "keyword": ["EXCLUDE_FROM_ALL", "SYSTEM", "OVERRIDE_FIND_PACKAGE", "FIND_PACKAGE_ARGS"],
+        "sig": [
+            "FetchContent_Declare( <name> <contentOptions>... [EXCLUDE_FROM_ALL] [SYSTEM] [OVERRIDE_FIND_PACKAGE | FIND_PACKAGE_ARGS args...] )"
+        ]
+    },
+    "FetchContent_SetPopulated": {
+        "keyword": ["SOURCE_DIR","BINARY_DIR"],
+        "sig": [
+            "FetchContent_SetPopulated( <name> [SOURCE_DIR <srcDir>] [BINARY_DIR <binDir>] )"
+        ]
+    },
+    "cuda_add_cufft_to_target": {
+        "keyword": [],
+        "sig": [
+            "cuda_add_cufft_to_target(<cuda_target>)"
+        ]
+    },
+    "cuda_add_cublas_to_target": {
+        "keyword": [],
+        "sig": [
+            "cuda_add_cublas_to_target(<cuda_target>)"
+        ]
+    },
+    "cuda_add_executable": {
+        "keyword": ["WIN32", "MACOSX_BUNDLE", "EXCLUDE_FROM_ALL", "OPTIONS"],
+        "sig": [
+            "cuda_add_executable(<cuda_target> <file>... [WIN32] [MACOSX_BUNDLE] [EXCLUDE_FROM_ALL] [OPTIONS ...])"
+        ]
+    },
+    "cuda_add_library": {
+        "keyword": ["STATIC", "SHARED", "MODULE", "EXCLUDE_FROM_ALL", "OPTIONS"],
+        "sig": [
+            "cuda_add_library(<cuda_target> <file>... [STATIC | SHARED | MODULE] [EXCLUDE_FROM_ALL] [OPTIONS ...])"
+        ]
+    },
+    "cuda_build_clean_target": {
+        "keyword": [],
+        "sig": [
+            "cuda_build_clean_target()"
+        ]
+    },
+    "cuda_compile": {
+        "keyword": ["STATIC", "SHARED", "MODULE", "OPTIONS"],
+        "sig": [
+            "cuda_compile(<generated_files> <file>... [STATIC | SHARED | MODULE] [OPTIONS ...])"
+        ]
+    },
+    "cuda_compile_ptx": {
+        "keyword": ["OPTIONS"],
+        "sig": [
+            "cuda_compile_ptx(<generated_files> <file>... [OPTIONS ...])"
+        ]
+    },
+    "cuda_compile_fatbin": {
+        "keyword": ["OPTIONS"],
+        "sig": [
+            "cuda_compile_fatbin(<generated_files> <file>... [OPTIONS ...])"
+        ]
+    },
+    "cuda_compile_cubin": {
+        "keyword": ["OPTIONS"],
+        "sig": [
+            "cuda_compile_cubin(<generated_files> <file>... [OPTIONS ...])"
+        ]
+    },
+    "cuda_compute_separable_compilation_object_file_name": {
+        "keyword": [],
+        "sig": [
+            "cuda_compute_separable_compilation_object_file_name(<output_file_var> <cuda_target> <object_files>)"
+        ]
+    },
+    "cuda_include_directories": {
+        "keyword": [],
+        "sig": [
+            "cuda_include_directories(path0 path1 ...)"
+        ]
+    },
+    "cuda_link_separable_compilation_objects": {
+        "keyword": [],
+        "sig": [
+            "cuda_link_separable_compilation_objects(<output_file_var> <cuda_target> <nvcc_flags> <object_files>)"
+        ]
+    },
+    "cuda_select_nvcc_arch_flags": {
+        "keyword": [],
+        "sig": [
+            "cuda_select_nvcc_arch_flags(<out_variable> [<target_CUDA_architecture> ...])"
+        ]
+    },
+    "cuda_wrap_srcs": {
+        "keyword": ["STATIC", "SHARED", "MODULE", "OPTIONS"],
+        "sig": [
+            "cuda_wrap_srcs(<cuda_target> <format> <generated_files> <file>... [STATIC | SHARED | MODULE] [OPTIONS ...])"
+        ]
+    },
+    "doxygen_add_docs": {
+        "keyword": ["ALL", "USE_STAMP_FILE", "WORKING_DIRECTORY", "COMMENT", "CONFIG_FILE"],
+        "sig": [
+            "doxygen_add_docs(targetName [filesOrDirs...] [ALL] [USE_STAMP_FILE] [WORKING_DIRECTORY dir] [COMMENT comment] [CONFIG_FILE filename])"
+        ]
+    },
+    "env_module": {
+        "keyword": ["COMMAND", "OUTPUT_VARIABLE", "RESULT_VARIABLE"],
+        "sig": [
+            "env_module(cmd arg1 ... argN)",
+            "env_module( COMMAND cmd arg1 ... argN [OUTPUT_VARIABLE <out-var>] [RESULT_VARIABLE <ret-var>] )"
+        ]
+    },
+    "env_module_swap": {
+        "keyword": ["OUTPUT_VARIABLE", "RESULT_VARIABLE"],
+        "sig": [
+            "env_module_swap(out_mod in_mod [OUTPUT_VARIABLE <out-var>] [RESULT_VARIABLE <ret-var>] )"
+        ]
+    },
+    "env_module_list": {
+        "keyword": [],
+        "sig": [
+            "env_module_list(<out-var>)"
+        ]
+    },
+    "env_module_avail": {
+        "keyword": [],
+        "sig": [
+            "env_module_avail([<mod-prefix>] <out-var>)"
+        ]
+    },
+    "matlab_get_version_from_release_name": {
+        "keyword": [],
+        "sig": [
+            "matlab_get_version_from_release_name(release version)"
+        ]
+    },
+    "matlab_get_release_name_from_version": {
+        "keyword": [],
+        "sig": [
+            "matlab_get_release_name_from_version(version release_name)"
+        ]
+    },
+    "matlab_extract_all_installed_versions_from_registry": {
+        "keyword": ["REGISTRY_VIEW"],
+        "sig": [
+            "matlab_extract_all_installed_versions_from_registry(matlab_versions [REGISTRY_VIEW view])",
+            "matlab_extract_all_installed_versions_from_registry(win64 matlab_versions)"
+        ]
+    },
+    "matlab_get_all_valid_matlab_roots_from_registry": {
+        "keyword": ["REGISTRY_VIEW"],
+        "sig": [
+            "matlab_get_all_valid_matlab_roots_from_registry(matlab_versions matlab_roots [REGISTRY_VIEW view])"
+        ]
+    },
+    "matlab_get_mex_suffix": {
+        "keyword": [],
+        "sig": [
+            "matlab_get_mex_suffix(matlab_root mex_suffix)"
+        ]
+    },
+    "matlab_get_version_from_matlab_run": {
+        "keyword": [],
+        "sig": [
+            "matlab_get_version_from_matlab_run(matlab_binary_path matlab_list_versions)"
+        ]
+    },
+    "matlab_add_unit_test": {
+        "keyword": ["NAME", "UNITTEST_FILE", "CUSTOM_TEST_COMMAND", "UNITTEST_PRECOMMAND", "TIMEOUT", "ADDITIONAL_PATH", "MATLAB_ADDITIONAL_STARTUP_OPTIONS", "TEST_ARGS", "NO_UNITTEST_FRAMEWORK"],
+        "sig": [
+            "matlab_add_unit_test( NAME <name> UNITTEST_FILE matlab_file_containing_unittest.m [CUSTOM_TEST_COMMAND matlab_command_to_run_as_test] [UNITTEST_PRECOMMAND matlab_command_to_run] [TIMEOUT timeout] [ADDITIONAL_PATH path1 [path2 ...]] [MATLAB_ADDITIONAL_STARTUP_OPTIONS option1 [option2 ...]] [TEST_ARGS arg1 [arg2 ...]] [NO_UNITTEST_FRAMEWORK] )"
+        ]
+    },
+    "matlab_add_mex": {
+        "keyword": ["NAME", "EXECUTABLE", "MODULE", "SHARED", "SRC", "OUTPUT_NAME", "DOCUMENTATION", "LINK_TO", "EXCLUDE_FROM_ALL", "NO_IMPLICIT_LINK_TO_MATLAB_LIBRARIES"],
+        "sig": [
+            "matlab_add_mex( NAME <name> [EXECUTABLE | MODULE | SHARED] SRC src1 [src2 ...] [OUTPUT_NAME output_name] [DOCUMENTATION <file>] [LINK_TO target1 target2 ...] [`R2017b` | `R2018a`] [EXCLUDE_FROM_ALL] [NO_IMPLICIT_LINK_TO_MATLAB_LIBRARIES] [...] )"
+        ]
+    },
+    "find_package_handle_standard_args": {
+        "keyword": ["DEFAULT_MSG", "FOUND_VAR", "REQUIRED_VARS", "VERSION_VAR", "HANDLE_VERSION_RANGE", "HANDLE_COMPONENTS", "CONFIG_MODE", "NAME_MISMATCHED", "REASON_FAILURE_MESSAGE", "FAIL_MESSAGE"],
+        "sig": [
+            "find_package_handle_standard_args(<PackageName> { DEFAULT_MSG | <custom-failure-message> } <required-var>... )",
+            "find_package_handle_standard_args(<PackageName> [FOUND_VAR <result-var>] [REQUIRED_VARS <required-var>...] [VERSION_VAR <version-var>] [HANDLE_VERSION_RANGE] [HANDLE_COMPONENTS] [CONFIG_MODE] [NAME_MISMATCHED] [REASON_FAILURE_MESSAGE <reason-failure-message>] [FAIL_MESSAGE <custom-failure-message>] )"
+        ]
+    },
+    "find_package_check_version": {
+        "keyword": ["HANDLE_VERSION_RANGE", "RESULT_MESSAGE_VARIABLE"],
+        "sig": [
+            "find_package_check_version(<version> <result-var> [HANDLE_VERSION_RANGE] [RESULT_MESSAGE_VARIABLE <message-var>] )"
+        ]
+    },
+    "find_package_message": {
+        "keyword": [],
+        "sig": [
+            "find_package_message(<name> <messageforuser> <find-result-details>)"
+        ]
+    },
+    "pkg_check_modules": {
+        "keyword": ["REQUIRED", "QUIET", "NO_CMAKE_PATH", "NO_CMAKE_ENVIRONMENT_PATH", "IMPORTED_TARGET", "GLOBAL"],
+        "sig": [
+            "pkg_check_modules(<prefix> [REQUIRED] [QUIET] [NO_CMAKE_PATH] [NO_CMAKE_ENVIRONMENT_PATH] [IMPORTED_TARGET [GLOBAL]] <moduleSpec> [<moduleSpec>...])"
+        ]
+    },
+    "pkg_search_module": {
+        "keyword": ["REQUIRED", "QUIET", "NO_CMAKE_PATH", "NO_CMAKE_ENVIRONMENT_PATH", "IMPORTED_TARGET", "GLOBAL"],
+        "sig": [
+            "pkg_search_module(<prefix> [REQUIRED] [QUIET] [NO_CMAKE_PATH] [NO_CMAKE_ENVIRONMENT_PATH] [IMPORTED_TARGET [GLOBAL]] <moduleSpec> [<moduleSpec>...])"
+        ]
+    },
+    "pkg_get_variable": {
+        "keyword": [],
+        "sig": [
+            "pkg_get_variable(<resultVar> <moduleName> <varName>)"
+        ]
+    },
+    "protobuf_generate_cpp": {
+        "keyword": ["PROTO_SRCS", "PROTO_HDRS", "EXPORT_MACRO", "DLL_EXPORT", "DESCRIPTORS", "PROTO_DESCS"],
+        "sig": [
+            "protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS <foo>)",
+            "protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS EXPORT_MACRO DLL_EXPORT <foo>)",
+            "protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS DESCRIPTORS PROTO_DESCS <foo>)"
+        ]
+    },
+    "protobuf_generate_python": {
+        "keyword": ["PROTO_PY"],
+        "sig": [
+            "protobuf_generate_python(PROTO_PY <foo>)"
+        ]
+    },
+    "protobuf_generate": {
+        "keyword": ["TARGET"],
+        "sig": [
+            "protobuf_generate(TARGET ProtoTest)"
+        ]
+    },
+    "squish_add_test": {
+        "keyword": ["AUT", "SUITE", "TEST", "SETTINGSGROUP", "PRE_COMMAND", "POST_COMMAND"],
+        "sig": [
+            "squish_add_test(cmakeTestName AUT targetName SUITE suiteName TEST squishTestName [SETTINGSGROUP group] [PRE_COMMAND command] [POST_COMMAND command] )"
+        ]
+    },
+    "Subversion_WC_INFO": {
+        "keyword": ["IGNORE_SVN_FAILURE"],
+        "sig": [
+            "Subversion_WC_INFO(<dir> <var-prefix> [IGNORE_SVN_FAILURE])"
+        ]
+    },
+    "Subversion_WC_LOG": {
+        "keyword": [],
+        "sig": [
+            "Subversion_WC_LOG(<dir> <var-prefix>)"
+        ]
+    },
+    "xctest_add_bundle": {
+        "keyword": [],
+        "sig": [
+            "xctest_add_bundle( <target> <testee> )"
+        ]
+    },
+    "xctest_add_test": {
+        "keyword": [],
+        "sig": [
+            "xctest_add_test( <name> <bundle> )"
+        ]
+    },
+    "FortranCInterface_VERIFY": {
+        "keyword": ["CXX", "QUIET"],
+        "sig": [
+            "FortranCInterface_VERIFY([CXX] [QUIET])"
+        ]
+    },
+    "FortranCInterface_HEADER": {
+        "keyword": ["MACRO_NAMESPACE"],
+        "sig": [
+            "FortranCInterface_HEADER(<header> MACRO_NAMESPACE <namespace>)"
+        ]
+    },
+    "generate_export_header": {
+        "keyword": ["BASE_NAME", "EXPORT_MACRO_NAME", "OTHER_NAME_EXPORT", "DEPRECATED_MACRO_NAME", "KDE_DEPRECATED", "PREFIX_NAME", "VTK_"],
+        "sig": [
+            "generate_export_header(somelib)",
+            "generate_export_header(somelib BASE_NAME other_name )",
+            "generate_export_header(somelib EXPORT_MACRO_NAME OTHER_NAME_EXPORT )",
+            "generate_export_header(somelib DEPRECATED_MACRO_NAME KDE_DEPRECATED )",
+            "generate_export_header(somelib PREFIX_NAME VTK_)"
+        ]
+    },
+    "GNUInstallDirs_get_absolute_install_dir": {
+        "keyword": [],
+        "sig": [
+            "GNUInstallDirs_get_absolute_install_dir(absvar var dirname)"
+        ]
+    },
+    "gtest_add_tests": {
+        "keyword": ["SOURCES", "TARGET", "EXTRA_ARGS", "WORKING_DIRECTORY", "TEST_PREFIX", "TEST_SUFFIX", "SKIP_DEPENDENCY", "TEST_LIST"],
+        "sig": [
+            "gtest_add_tests(TARGET target [SOURCES src1...] [EXTRA_ARGS args...] [WORKING_DIRECTORY dir] [TEST_PREFIX prefix] [TEST_SUFFIX suffix] [SKIP_DEPENDENCY] [TEST_LIST outVar] )"
+        ]
+    },
+    "gtest_discover_tests": {
+        "keyword": ["EXTRA_ARGS", "WORKING_DIRECTORY", "TEST_PREFIX", "TEST_SUFFIX", "TEST_FILTER", "NO_PRETTY_TYPES", "NO_PRETTY_VALUES", "PROPERTIES", "TEST_LIST", "DISCOVERY_TIMEOUT", "XML_OUTPUT_DIR", "DISCOVERY_MODE", "POST_BUILD", "PRE_TEST", "DISCOVERY_EXTRA_ARGS"],
+        "sig": [
+            "gtest_discover_tests(target [EXTRA_ARGS arg1...] [WORKING_DIRECTORY dir] [TEST_PREFIX prefix] [TEST_SUFFIX suffix] [TEST_FILTER expr] [NO_PRETTY_TYPES] [NO_PRETTY_VALUES] [PROPERTIES name1 value1...] [TEST_LIST var] [DISCOVERY_TIMEOUT seconds] [XML_OUTPUT_DIR dir] [DISCOVERY_MODE <POST_BUILD|PRE_TEST>] [DISCOVERY_EXTRA_ARGS args...])"
+        ]
+    },
+    "ProcessorCount": {
+        "keyword": [],
+        "sig": [
+            "ProcessorCount(<n>)"
+        ]
+    },
+    "select_library_configurations": {
+        "keyword": [],
+        "sig": [
+            "select_library_configurations(basename)"
+        ]
+    },
+    "test_big_endian": {
+        "keyword": [],
+        "sig": [
+            "test_big_endian(<var>)"
+        ]
+    },
+    "add_jar": {
+        "keyword": ["SOURCES", "RESOURCES", "NAMESPACE", "INCLUDE_JARS", "ENTRY_POINT", "VERSION", "MANIFEST", "OUTPUT_NAME", "OUTPUT_DIR", "GENERATE_NATIVE_HEADERS", "DESTINATION", "INSTALL", "BUILD"],
+        "sig": [
+            "add_jar(<target_name> [SOURCES] <source1> [<source2>...] [<resource1>...] [RESOURCES NAMESPACE <ns1> <resource1>... [NAMESPACE <nsX> <resourceX>...]... ] [INCLUDE_JARS <jar1> [<jar2>...]] [ENTRY_POINT <entry>] [VERSION <version>] [MANIFEST <manifest>] [OUTPUT_NAME <name>] [OUTPUT_DIR <dir>] [GENERATE_NATIVE_HEADERS <target> [DESTINATION {<dir>|INSTALL <dir> [BUILD <dir>]}]] )"
+        ]
+    },
+    "install_jar": {
+        "keyword": ["DESTINATION", "COMPONENT"],
+        "sig": [
+            "install_jar(<target_name> <destination>)",
+            "install_jar(<target_name> DESTINATION <destination> [COMPONENT <component>])"
+        ]
+    },
+    "install_jni_symlink": {
+        "keyword": ["DESTINATION", "COMPONENT"],
+        "sig": [
+            "install_jni_symlink(<target_name> <destination>)",
+            "install_jni_symlink(<target_name> DESTINATION <destination> [COMPONENT <component>])"
+        ]
+    },
+    "create_javah": {
+        "keyword": ["TARGET", "GENERATED_FILES", "CLASSES", "CLASSPATH", "DEPENDS", "OUTPUT_NAME", "OUTPUT_DIR"],
+        "sig": [
+            "create_javah(TARGET <target> | GENERATED_FILES <VAR> CLASSES <class>... [CLASSPATH <classpath>...] [DEPENDS <depend>...] [OUTPUT_NAME <path>|OUTPUT_DIR <path>] )"
+        ]
+    },
+    "install_jar_exports": {
+        "keyword": ["TARGETS", "NAMESPACE", "FILE", "DESTINATION", "COMPONENT"],
+        "sig": [
+            "install_jar_exports(TARGETS <jars>... [NAMESPACE <namespace>] FILE <filename> DESTINATION <destination> [COMPONENT <component>])"
+        ]
+    },
+    "export_jars": {
+        "keyword": ["TARGETS", "NAMESPACE", "FILE"],
+        "sig": [
+            "export_jars(TARGETS <jars>... [NAMESPACE <namespace>] FILE <filename>)"
+        ]
+    },
+    "find_jar": {
+        "keyword": ["NAMES", "PATHS", "ENV", "VERSIONS", "DOC"],
+        "sig": [
+            "find_jar(<VAR> <name> | NAMES <name1> [<name2>...] [PATHS <path1> [<path2>... ENV <var>]] [VERSIONS <version1> [<version2>]] [DOC <cachedocstring>] )"
+        ]
+    },
+    "create_javadoc": {
+        "keyword": ["PACKAGES", "FILES", "SOURCEPATH", "CLASSPATH", "INSTALLPATH", "DOCTITLE", "WINDOWTITLE", "AUTHOR", "TRUE", "FALSE", "USE", "VERSION"],
+        "sig": [
+            "create_javadoc(<VAR> {PACKAGES <pkg1> [<pkg2>...] | FILES <file1> [<file2>...]} [SOURCEPATH <sourcepath>] [CLASSPATH <classpath>] [INSTALLPATH <installpath>] [DOCTITLE <thedocumentationtitle>] [WINDOWTITLE <thetitleofthedocument>] [AUTHOR {TRUE|FALSE}] [USE {TRUE|FALSE}] [VERSION {TRUE|FALSE}] )"
+        ]
+    },
+    "swig_add_library": {
+        "keyword": ["TYPE", "SHARED", "STATIC", "MODULE", "USE_BUILD_SHARED_LIBS", "LANGUAGE", "NO_PROXY", "OUTPUT_DIR", "OUTFILE_DIR", "SOURCES"],
+        "sig": [
+            "swig_add_library(<name> [TYPE <SHARED|MODULE|STATIC|USE_BUILD_SHARED_LIBS>] LANGUAGE <language> [NO_PROXY] [OUTPUT_DIR <directory>] [OUTFILE_DIR <directory>] SOURCES <file>... )"
+        ]
+    },
+    "swig_link_libraries": {
+        "keyword": [],
+        "sig": [
+            "swig_link_libraries(<name> <item>...)"
+        ]
+    },
+    "write_compiler_detection_header": {
+        "keyword": ["FILE", "PREFIX", "OUTPUT_FILES_VAR", "OUTPUT_DIR", "COMPILERS", "FEATURES", "BARE_FEATURES", "VERSION", "PROLOG", "EPILOG", "ALLOW_UNKNOWN_COMPILERS", "ALLOW_UNKNOWN_COMPILER_VERSIONS"],
+        "sig": [
+            "write_compiler_detection_header( FILE <file> PREFIX <prefix> [OUTPUT_FILES_VAR <output_files_var> OUTPUT_DIR <output_dir>] COMPILERS <compiler> [...] FEATURES <feature> [...] [BARE_FEATURES <feature> [...]] [VERSION <version>] [PROLOG <prolog>] [EPILOG <epilog>] [ALLOW_UNKNOWN_COMPILERS] [ALLOW_UNKNOWN_COMPILER_VERSIONS] )"
+        ]
+    }
 }
