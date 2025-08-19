@@ -1,5 +1,11 @@
 # Change Log
 
+## v0.4.0
+
+Improvements:
+
+* 新增对 CMake 内置模块的补全支持
+
 ## v0.3.5
 
 Bug Fixes:
