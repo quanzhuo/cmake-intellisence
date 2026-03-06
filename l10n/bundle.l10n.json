@@ -1,0 +1,4 @@
+{
+    "cmakeNotFound": "CMake executable not found, please check the settings, otherwise some IntelliSense features will not work properly",
+    "settings": "Settings"
+}

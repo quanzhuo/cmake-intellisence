@@ -1,6 +1,4 @@
 {
-    "cmakeNotFound": "CMake executable not found, please check the settings, otherwise some IntelliSense features will not work properly",
-    "settings": "Settings",
     "cmakePath": "Set the path to the CMake command",
     "cmdCaseDiagnostics": "Whether to generate warnings for non-lowercase CMake commands",
     "loggingLevel": "Control the logging level",

@@ -2,7 +2,6 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
 import * as which from 'which';
-import localize from './localize';
 import { getConfigLogLevel, Logger } from './logging';
 
 export const SERVER_ID = 'cmakeIntelliSence';
@@ -29,7 +28,7 @@ export async function activate(context: vscode.ExtensionContext) {
         if (cmakePathAbs) {
             startLanguageServer(serverModule, logger, context);
         } else {
-            const selected = await vscode.window.showErrorMessage<string>(localize('cmakeNotFound'), localize('settings'));
+            const selected = await vscode.window.showErrorMessage<string>(vscode.l10n.t('cmakeNotFound'), vscode.l10n.t('settings'));
             if (selected) {
                 vscode.commands.executeCommand('workbench.action.openSettings', 'cmakeIntelliSence.cmakePath');
             }

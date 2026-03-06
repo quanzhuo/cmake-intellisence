@@ -1,0 +1,4 @@
+{
+    "cmakeNotFound": "未找到 CMake 可执行程序，请检查设置, 否则部分 IntelliSense 功能将无法正常工作",
+    "settings": "设置"
+}
