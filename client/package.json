@@ -6,7 +6,7 @@
   "license": "MIT",
   "publisher": "KylinIdeTeam",
   "engines": {
-    "vscode": "^1.68.0"
+    "vscode": "^1.85.0"
   },
   "repository": {
     "type": "git",
@@ -16,6 +16,6 @@
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
-    "@types/vscode": "^1.68.0"
+    "@types/vscode": "^1.85.0"
   }
 }
