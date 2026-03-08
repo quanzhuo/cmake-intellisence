@@ -62,7 +62,7 @@ export class CMakeInfo {
             [this.modules, this.policies, this.variables, this.properties, this.commands]
         ] = await Promise.all([this.getCMakeVersion(), this.getBuiltinEntries()]);
 
-        this.properties = [...new Set(this.variables)];
+        this.properties = [...new Set(this.properties)];
 
         const langVariables: string[] = [];
         const languages = ['C', 'CXX'];
