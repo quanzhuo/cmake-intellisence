@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/naming-convention */
-import { OutputChannel, window, workspace, WorkspaceConfiguration } from 'vscode';
+import { OutputChannel, workspace, WorkspaceConfiguration } from 'vscode';
 import { SERVER_ID } from './extension';
 
 export enum LogLevel {
@@ -12,7 +12,7 @@ export enum LogLevel {
 
 export class Logger {
     constructor(
-        private channel: OutputChannel = window.createOutputChannel('CMake IntelliSence'),
+        private channel: OutputChannel,
         private level: LogLevel = LogLevel.INFO
     ) { }
 
@@ -22,10 +22,6 @@ export class Logger {
 
     public getLogLevel(): LogLevel {
         return this.level;
-    }
-
-    public getOutputChannel(): OutputChannel {
-        return this.channel;
     }
 
     public debug(message: string, data?: unknown): void {
