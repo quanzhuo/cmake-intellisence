@@ -7,7 +7,7 @@ import { getConfigLogLevel, Logger } from './logging';
 export const SERVER_ID = 'cmakeIntelliSence';
 export const SERVER_NAME = 'CMake Language Server';
 
-let client: LanguageClient;
+let client: LanguageClient | undefined;
 
 interface ExtensionSettings {
     loggingLevel: string;
@@ -62,8 +62,9 @@ async function getCMakePath(): Promise<string | null> {
 
 function startLanguageServer(extensionPath: string, cmakePath: string, serverModule: string, channel: vscode.OutputChannel, logger: Logger) {
     // The debug options for the server
-    // --inspect=6009: runs the server in Node's Inspector mode so VS Code can attach to the server for debugging
-    const debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
+    // --inspect-brk=6009: runs the server in Node's Inspector mode so VS Code can attach to the server for debugging
+    // 该参数会让 Node.js 在执行 Server 入口文件（即你的 server.js）的第一行代码前挂起，直到有外部调试器（VS Code）连接进来才会继续执行。
+    const debugOptions = { execArgv: ['--nolazy', '--inspect-brk=6009'] };
 
     // If the extension is lanched in debug mode then the debug server options are used
     // Otherwise the run options are used
