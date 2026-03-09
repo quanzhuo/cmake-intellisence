@@ -209,6 +209,32 @@ suite('LSP Integration Tests', () => {
         assert(match !== undefined, 'Should suggest "cmake_minimum_required" for partial input');
     });
 
+    test('should provide property completion for project() command', async function () {
+        const uri = 'file:///test-workspace/completion-project-args.txt';
+        // 光标位于括号内
+        openDocument(uri, 'project()');
+
+        // 光标在括号内，紧跟 project(
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 8 }
+        });
+
+        assert(result !== null);
+        const items = Array.isArray(result) ? result : result!.items;
+        // builtin-cmds.json 中 project 的 keyword
+        const expectedKeywords = [
+            "VERSION", "DESCRIPTION", "HOMEPAGE_URL", "LANGUAGES",
+            "C", "CXX", "CUDA", "OBJC", "OBJCXX", "Fortran", "HIP", "ISPC", "ASM", "NONE"
+        ];
+        for (const kw of expectedKeywords) {
+            const found = items.find(i => i.label === kw);
+            assert(found, `Should suggest keyword '${kw}' in project() completion`);
+        }
+        // 也可以检查补全类型
+        // assert(items.every(i => i.kind === CompletionItemKind.Property || i.kind === CompletionItemKind.EnumMember));
+    });
+
     // ── Hover ──────────────────────────────────────────────────
 
     test('should provide hover information for commands', async function () {
