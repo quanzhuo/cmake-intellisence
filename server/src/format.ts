@@ -72,12 +72,12 @@ export class Formatter extends CMakeSimpleParserListener {
 
             const next = index + 1;
             if (next < cnt) {
-                if (array[next].start.line === argCtx.stop.line) {
+                if (array[next].start.line === argCtx.stop?.line) {
                     this._formatted += ' ';
                 }
             }
 
-            prevLineNo = argCtx.stop.line;
+            prevLineNo = argCtx.stop?.line ?? cmdLineNo;
         });
 
         // ')'
@@ -151,11 +151,14 @@ export class Formatter extends CMakeSimpleParserListener {
     }
 
     private getArgumentText(argCtx: CommandContext, indent: number): string {
+        if (!argCtx.stop) {
+            throw new Error('Argument context stop token is missing.');
+        }
         let result = "";
         const cnt: number = argCtx.getChildCount();
         if (cnt === 1) {
-            result += argCtx.stop.text;
-            result += this.getHiddenTextOnRight(argCtx.stop.tokenIndex, indent);
+            result += argCtx.stop?.text;
+            result += this.getHiddenTextOnRight(argCtx.stop?.tokenIndex, indent);
         } else {
             result += '(';
             const lParenIndex: number = argCtx.LP().symbol.tokenIndex;
@@ -164,7 +167,7 @@ export class Formatter extends CMakeSimpleParserListener {
             const innerIndent = indent + this._indent;
             let prevLineNo: number = argCtx.LP().symbol.line;
             argCtx.argument_list().forEach((innerCtx, index) => {
-                const curLineNo: number = innerCtx.stop.line;
+                const curLineNo: number = innerCtx.stop!.line;
                 if (curLineNo !== prevLineNo) {
                     result += ' '.repeat(innerIndent);
                 }
@@ -178,7 +181,7 @@ export class Formatter extends CMakeSimpleParserListener {
 
             const rParenToken = argCtx.RP().symbol;
             if ((innerCnt > 0) &&
-                (argCtx.argument_list()[innerCnt - 1].stop.line !== rParenToken.line)) {
+                (argCtx.argument_list()[innerCnt - 1].stop!.line !== rParenToken.line)) {
                 result += ' '.repeat(indent);
             }
 

@@ -1,5 +1,5 @@
 import { CharStreams, CommonTokenStream, ParseTreeWalker, Token } from 'antlr4';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import * as fs from 'fs';
 import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams } from 'vscode-languageserver-protocol';
 import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocument';
@@ -42,8 +42,8 @@ export function getWordAtPosition(textDocument: TextDocument, position: Position
         end = line.substring(position.character),
         startReg = /[a-zA-Z0-9_\.\/]*$/,
         endReg = /^[a-zA-Z0-9_\.\/]*/,
-        startWord = start.match(startReg)[0],
-        endWord = end.match(endReg)[0];
+        startWord = start.match(startReg)?.[0] ?? '',
+        endWord = end.match(endReg)?.[0] ?? '';
 
     return {
         text: startWord + endWord,
@@ -53,18 +53,18 @@ export function getWordAtPosition(textDocument: TextDocument, position: Position
 }
 
 export class CMakeLanguageServer {
-    private initParams: InitializeParams;
+    private initParams!: InitializeParams;
     private connection = createConnection(ProposedFeatures.all);
     private documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
-    private extSettings: ExtensionSettings;
-    private cmakeInfo: CMakeInfo;
+    private extSettings!: ExtensionSettings;
+    private cmakeInfo!: CMakeInfo;
     private disposables: Disposable[] = [];
     private fileContexts: Map<string, FileContext> = new Map();
     private tokenStreams: Map<string, CommonTokenStream> = new Map();
     private simpleTokenStreams: Map<string, CommonTokenStream> = new Map();
     private simpleFileContexts: Map<string, cmsp.FileContext> = new Map();
     private projectInfo?: ProjectInfo;
-    private logger: Logger;
+    private logger!: Logger;
 
     /**
      * Files whose ProjectInfo is already parsed
@@ -153,9 +153,9 @@ export class CMakeLanguageServer {
         this.connection.client.register(DidChangeConfigurationNotification.type, undefined);
     }
 
-    private execPromise(command: string): Promise<{ stdout: string, stderr: string }> {
+    private execFilePromise(file: string, args: string[]): Promise<{ stdout: string, stderr: string }> {
         return new Promise((resolve, reject) => {
-            exec(command, (error, stdout, stderr) => {
+            execFile(file, args, (error, stdout, stderr) => {
                 if (error) {
                     reject({ error, stderr });
                 } else {
@@ -182,6 +182,9 @@ export class CMakeLanguageServer {
         const commandToken: Token = hoveredCommand.ID().symbol;
         const commandName = commandToken.text.toLowerCase();
         const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+            return null;
+        }
         let word = getWordAtPosition(document, params.position).text;
         if (word.length === 0) {
             return null;
@@ -191,27 +194,26 @@ export class CMakeLanguageServer {
         if ((params.position.line + 1 === commandToken.line) &&
             (params.position.character <= commandToken.column + commandToken.text.length) &&
             this.cmakeInfo.commands.includes(commandName)) {
-            arg = '--help-command ';
+            arg = '--help-command';
             category = 'command';
             word = commandName;
         } else if (commandName === 'include' && this.cmakeInfo.modules.includes(word)) {
-            arg = '--help-module ';
+            arg = '--help-module';
             category = 'module';
         } else if (commandName === 'cmake_policy' && this.cmakeInfo.policies.includes(word)) {
-            arg = '--help-policy ';
+            arg = '--help-policy';
             category = 'policy';
         } else if (this.cmakeInfo.variables.includes(word)) {
-            arg = '--help-variable ';
+            arg = '--help-variable';
             category = 'variable';
         } else if (this.cmakeInfo.properties.includes(word)) {
-            arg = '--help-property ';
+            arg = '--help-property';
             category = 'property';
         }
 
         if (arg.length !== 0) {
-            const command = `"${this.cmakeInfo.cmakePath}" ${arg} "${word}"`;
             try {
-                const { stdout } = await this.execPromise(command);
+                const { stdout } = await this.execFilePromise(this.cmakeInfo.cmakePath, [arg, word]);
                 let value: string;
                 if (category === 'property') {
                     value = stdout;
@@ -230,9 +232,8 @@ export class CMakeLanguageServer {
                 const pattern = /_(CXX|C)(_)?$/;
                 if (pattern.test(word)) {
                     const modifiedWord = word.replace(pattern, '_<LANG>$2');
-                    const modifiedCommand = `"${this.cmakeInfo.cmakePath}" ${arg} "${modifiedWord}"`;
                     try {
-                        const { stdout: modifiedStdout } = await this.execPromise(modifiedCommand);
+                        const { stdout: modifiedStdout } = await this.execFilePromise(this.cmakeInfo.cmakePath, [arg, modifiedWord]);
                         return {
                             contents: {
                                 kind: 'markdown',
@@ -250,7 +251,11 @@ export class CMakeLanguageServer {
     }
 
     private onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
-        const word = getWordAtPosition(this.documents.get(params.textDocument.uri), params.position).text;
+        const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+            return Promise.resolve(null);
+        }
+        const word = getWordAtPosition(document, params.position).text;
         const completion = new Completion(this.cmakeInfo, this.simpleFileContexts, this.simpleTokenStreams, this.projectInfo, word, this.logger);
         return completion.onCompletion(params);
     }
@@ -288,7 +293,7 @@ export class CMakeLanguageServer {
         }
         const command = `"${this.cmakeInfo.cmakePath}" ${helpArg} "${item.label}"`;
         return new Promise((resolve, reject) => {
-            exec(command, (error, stdout, stderr) => {
+            execFile(this.cmakeInfo.cmakePath, [helpArg, item.label], (error, stdout, stderr) => {
                 if (error) {
                     this.logger.error(`Failed to get help for ${item.label}: ${stderr}`);
                 } else {
@@ -319,9 +324,9 @@ export class CMakeLanguageServer {
         }
         let sigsStrArr: string[];
         if (cmdName in builtinCmds) {
-            sigsStrArr = builtinCmds[cmdName]['sig'];
+            sigsStrArr = (builtinCmds as any)[cmdName]['sig'];
         } else {
-            sigsStrArr = builtinCmds[lowercaseCmdName]['sig'];
+            sigsStrArr = (builtinCmds as any)[lowercaseCmdName]['sig'];
         }
         if (sigsStrArr.length === 1) {
             return Promise.resolve({
@@ -373,36 +378,35 @@ export class CMakeLanguageServer {
         });
     }
 
-    private onDocumentFormatting(params: DocumentFormattingParams): Promise<TextEdit[] | null> {
+    private onDocumentFormatting(params: DocumentFormattingParams): TextEdit[] | null {
         const tabSize = params.options.tabSize;
         const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+            return null;
+        }
         const range: Range = {
             start: { line: 0, character: 0 },
             end: { line: document.lineCount - 1, character: Number.MAX_VALUE }
         };
 
-        return new Promise((resolve, rejects) => {
-            const formatListener = new Formatter(tabSize, this.getSimpleTokenStream(params.textDocument.uri));
-            try {
-                ParseTreeWalker.DEFAULT.walk(formatListener, this.getSimpleFileContext(params.textDocument.uri));
-            } catch (error) {
-                this.logger.error(`Failed to format document: ${error}`);
+        const formatListener = new Formatter(tabSize, this.getSimpleTokenStream(params.textDocument.uri));
+        try {
+            ParseTreeWalker.DEFAULT.walk(formatListener, this.getSimpleFileContext(params.textDocument.uri));
+        } catch (error) {
+            this.logger.error(`Failed to format document: ${error}`);
+        }
+        return [
+            {
+                range: range,
+                newText: formatListener.formatted
             }
-            resolve([
-                {
-                    range: range,
-                    newText: formatListener.formatted
-                }
-            ]);
-        });
+        ];
     }
 
-    private onDocumentSymbol(params: DocumentSymbolParams): Promise<DocumentSymbol[] | SymbolInformation[] | null> {
-        return new Promise((resolve, reject) => {
-            const symbolListener = new SymbolListener();
-            ParseTreeWalker.DEFAULT.walk(symbolListener, this.getFileContext(params.textDocument.uri));
-            resolve(symbolListener.getSymbols());
-        });
+    private onDocumentSymbol(params: DocumentSymbolParams): DocumentSymbol[] | SymbolInformation[] | null {
+        const symbolListener = new SymbolListener();
+        ParseTreeWalker.DEFAULT.walk(symbolListener, this.getFileContext(params.textDocument.uri));
+        return symbolListener.getSymbols();
     }
 
     private onDefinition(params: DefinitionParams): Promise<Location | Location[] | LocationLink[] | null> {
@@ -420,12 +424,15 @@ export class CMakeLanguageServer {
             return Promise.resolve(null);
         }
 
+        if (!this.initParams.workspaceFolders?.length) {
+            return Promise.resolve(null);
+        }
         const workspaceFolder = this.initParams.workspaceFolders[0].uri;
         const resolver = new DefinitionResolver(this.fileContexts, this.documents, this.cmakeInfo, workspaceFolder, URI.parse(uri), command, this.logger);
         return resolver.resolve(params);
     }
 
-    private onSemanticTokens(params: SemanticTokensParams): Promise<SemanticTokens | null> {
+    private onSemanticTokens(params: SemanticTokensParams): Promise<SemanticTokens> {
         const document = this.documents.get(params.textDocument.uri);
         if (document === undefined) {
             return Promise.resolve({ data: [] });
@@ -436,12 +443,10 @@ export class CMakeLanguageServer {
         return Promise.resolve(semanticListener.getSemanticTokens());
     }
 
-    private onSemanticTokensDelta(params: SemanticTokensDeltaParams): Promise<SemanticTokens | SemanticTokensDelta | null> {
+    private onSemanticTokensDelta(params: SemanticTokensDeltaParams): Promise<SemanticTokens | SemanticTokensDelta> {
         const document = this.documents.get(params.textDocument.uri);
         if (document === undefined) {
-            return Promise.resolve({
-                edits: []
-            });
+            return Promise.resolve({ edits: [] });
         }
 
         const builder = getTokenBuilder(document.uri);
@@ -452,16 +457,18 @@ export class CMakeLanguageServer {
         return Promise.resolve(semanticListener.buildEdits());
     }
 
-    private onSemanticTokensRange(params: SemanticTokensRangeParams): Promise<SemanticTokens | null> {
-        return Promise.resolve({
-            data: []
-        });
+    private onSemanticTokensRange(params: SemanticTokensRangeParams): Promise<SemanticTokens> {
+        return Promise.resolve({ data: [] });
     }
 
     private onCodeAction(params: CodeActionParams): (Command | CodeAction)[] | null {
         const isCmdCaseProblem = params.context.diagnostics.some(value => { return value.code === DIAG_CODE_CMD_CASE; });
         if (isCmdCaseProblem) {
-            const cmdName: string = this.documents.get(params.textDocument.uri).getText(params.range);
+            const document = this.documents.get(params.textDocument.uri);
+            if (!document) {
+                return null;
+            }
+            const cmdName: string = document.getText(params.range);
             return [
                 {
                     title: localize('codeAction.cmdCase', cmdName),
@@ -532,8 +539,8 @@ export class CMakeLanguageServer {
         this.tokenStreams.set(event.document.uri, tokenStream);
 
         // cmsp.FileContext
-        input.reset();
-        const simpleLexer = new CMakeSimpleLexer(input);
+        const simpleInput = CharStreams.fromString(event.document.getText());
+        const simpleLexer = new CMakeSimpleLexer(simpleInput);
         const simpleTokenStream = new CommonTokenStream(simpleLexer);
         const simpleParser = new CMakeSimpleParser(simpleTokenStream);
         const simpleFileContext = simpleParser.file();
@@ -582,22 +589,25 @@ export class CMakeLanguageServer {
 
         const tree = this.getSimpleFileContext(entryCMake.toString());
         const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, entryCMake.toString(), workspaceFolder.fsPath, this.simpleFileContexts, this.documents, this.parsedFiles, workspaceFolder.fsPath);
+        projectInfoListener.resetProjectInfo();
         ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
         if (!this.projectInfo) {
             this.projectInfo = ProjectInfoListener.projectInfo;
         } else {
             const newProjectInfo = ProjectInfoListener.projectInfo;
             for (const key in newProjectInfo) {
-                if (newProjectInfo.hasOwnProperty(key)) {
-                    if (newProjectInfo[key] instanceof Set) {
-                        if (!this.projectInfo[key]) {
-                            this.projectInfo[key] = new Set();
+                if (Object.prototype.hasOwnProperty.call(newProjectInfo, key)) {
+                    const k = key as keyof ProjectInfo;
+                    const newValue = newProjectInfo[k];
+                    if (newValue instanceof Set) {
+                        if (!(this.projectInfo![k] instanceof Set)) {
+                            (this.projectInfo![k] as any) = new Set<string>();
                         }
-                        for (const value of newProjectInfo[key]) {
-                            this.projectInfo[key].add(value);
+                        for (const value of newValue) {
+                            (this.projectInfo![k] as Set<string>).add(value);
                         }
                     } else {
-                        this.projectInfo[key] = newProjectInfo[key];
+                        (this.projectInfo![k] as any) = newValue;
                     }
                 }
             }
@@ -611,7 +621,12 @@ export class CMakeLanguageServer {
     }
 
     private onDidClose(event: TextDocumentChangeEvent<TextDocument>) {
-        tokenBuilders.delete(event.document.uri);
+        const uri = event.document.uri;
+        tokenBuilders.delete(uri);
+        this.fileContexts.delete(uri);
+        this.tokenStreams.delete(uri);
+        this.simpleFileContexts.delete(uri);
+        this.simpleTokenStreams.delete(uri);
     }
 
     private async getExtSettings(): Promise<ExtensionSettings> {
@@ -637,7 +652,7 @@ export class CMakeLanguageServer {
 
     public getFileContext(uri: string): FileContext {
         if (this.fileContexts.has(uri)) {
-            return this.fileContexts.get(uri);
+            return this.fileContexts.get(uri)!;
         }
 
         const input = CharStreams.fromString(getFileContent(this.documents, URI.parse(uri)));
@@ -652,15 +667,15 @@ export class CMakeLanguageServer {
 
     public getTokenStream(uri: string): CommonTokenStream {
         if (this.tokenStreams.has(uri)) {
-            return this.tokenStreams.get(uri);
+            return this.tokenStreams.get(uri)!;
         }
         this.getFileContext(uri);
-        return this.tokenStreams.get(uri);
+        return this.tokenStreams.get(uri)!;
     }
 
     public getSimpleFileContext(uri: string): cmsp.FileContext {
         if (this.simpleFileContexts.has(uri)) {
-            return this.simpleFileContexts.get(uri);
+            return this.simpleFileContexts.get(uri)!;
         }
 
         const input = CharStreams.fromString(getFileContent(this.documents, URI.parse(uri)));
@@ -676,10 +691,10 @@ export class CMakeLanguageServer {
 
     public getSimpleTokenStream(uri: string): CommonTokenStream {
         if (this.simpleTokenStreams.has(uri)) {
-            return this.simpleTokenStreams.get(uri);
+            return this.simpleTokenStreams.get(uri)!;
         }
         this.getSimpleFileContext(uri);
-        return this.simpleTokenStreams.get(uri);
+        return this.simpleTokenStreams.get(uri)!;
     }
 
     private onShutdown() {

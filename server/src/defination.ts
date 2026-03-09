@@ -45,7 +45,11 @@ export class DefinitionResolver {
     }
 
     public resolve(params: DefinitionParams): Promise<Location | Location[] | LocationLink[] | null> {
-        const word = getWordAtPosition(this.documents.get(params.textDocument.uri), params.position);
+        const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+            return Promise.resolve(null);
+        }
+        const word = getWordAtPosition(document, params.position);
         if (word.text.length === 0) {
             return Promise.resolve(null);
         }
@@ -72,12 +76,15 @@ export class DefinitionResolver {
         }
 
         try {
-            let tree: FileContext;
+            let tree: FileContext | undefined;
             if (!this.fileContexts.has(entryFile.toString())) {
                 tree = getFileContext(getFileContent(this.documents, entryFile));
                 this.fileContexts.set(entryFile.toString(), tree);
             } else {
                 tree = this.fileContexts.get(entryFile.toString());
+            }
+            if (!tree) {
+                return Promise.resolve(null);
             }
             ParseTreeWalker.DEFAULT.walk(listener, tree);
         } catch (e) {
@@ -165,7 +172,7 @@ class BaseDefinationListener extends CMakeParserListener {
             return;
         }
 
-        const incUri: URI = getIncludeFileUri(this.cmakeInfo, this.curDir, nameToken.text);
+        const incUri: URI | null = getIncludeFileUri(this.cmakeInfo, this.curDir, nameToken.text);
         if (!incUri) {
             return;
         }
@@ -175,7 +182,7 @@ class BaseDefinationListener extends CMakeParserListener {
             tree = getFileContext(getFileContent(this.documents, incUri));
             this.fileContexts.set(incUri.toString(), tree);
         } else {
-            tree = this.fileContexts.get(incUri.toString());
+            tree = this.fileContexts.get(incUri.toString())!;
         }
 
         const definationListener = new FunctionDefinationListener(this.symbolToFind, this.currentScope, incUri, this.curDir, this.cmakeInfo, this.documents, this.fileContexts);
@@ -200,7 +207,7 @@ class BaseDefinationListener extends CMakeParserListener {
             tree = getFileContext(getFileContent(this.documents, subCMakeListsUri));
             this.fileContexts.set(subCMakeListsUri.toString(), tree);
         } else {
-            tree = this.fileContexts.get(subCMakeListsUri.toString());
+            tree = this.fileContexts.get(subCMakeListsUri.toString())!;
         }
 
         const subDirScope: Scope = new FileScope(this.currentScope);

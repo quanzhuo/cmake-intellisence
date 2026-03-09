@@ -5,7 +5,9 @@
         "lib": [
             "es2020"
         ],
+        "strict": true,
         "sourceMap": true,
-        "composite": true
+        "composite": true,
+        "skipLibCheck": true,
     }
 }

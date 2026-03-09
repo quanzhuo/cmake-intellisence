@@ -20,13 +20,13 @@ suite('SymbolListener Comprehensive Tests', () => {
         const outerMacro = symbols[0];
         assert.strictEqual(outerMacro.name, 'OuterMacro');
         assert.strictEqual(outerMacro.kind, SymbolKind.Function);
-        assert.strictEqual(outerMacro.children.length, 1);
-        const innerMacro = outerMacro.children[0];
+        assert.strictEqual(outerMacro.children!.length, 1);
+        const innerMacro = outerMacro.children![0];
         assert.strictEqual(innerMacro.name, 'InnerMacro');
         assert.strictEqual(innerMacro.kind, SymbolKind.Function);
-        assert.strictEqual(innerMacro.children.length, 1);
-        assert.strictEqual(innerMacro.children[0].name, 'VAR1');
-        assert.strictEqual(innerMacro.children[0].kind, SymbolKind.Variable);
+        assert.strictEqual(innerMacro.children!.length, 1);
+        assert.strictEqual(innerMacro.children![0].name, 'VAR1');
+        assert.strictEqual(innerMacro.children![0].kind, SymbolKind.Variable);
     });
 
     test('should handle variables in global scope and inside functions/macros', () => {
@@ -47,15 +47,15 @@ suite('SymbolListener Comprehensive Tests', () => {
         // Function and its variable
         assert.strictEqual(symbols[1].name, 'MyFunction');
         assert.strictEqual(symbols[1].kind, SymbolKind.Function);
-        assert.strictEqual(symbols[1].children.length, 1);
-        assert.strictEqual(symbols[1].children[0].name, 'FUNC_VAR');
-        assert.strictEqual(symbols[1].children[0].kind, SymbolKind.Variable);
+        assert.strictEqual(symbols[1].children!.length, 1);
+        assert.strictEqual(symbols[1].children![0].name, 'FUNC_VAR');
+        assert.strictEqual(symbols[1].children![0].kind, SymbolKind.Variable);
         // Macro and its variable
         assert.strictEqual(symbols[2].name, 'MyMacro');
         assert.strictEqual(symbols[2].kind, SymbolKind.Function);
-        assert.strictEqual(symbols[2].children.length, 1);
-        assert.strictEqual(symbols[2].children[0].name, 'MACRO_VAR');
-        assert.strictEqual(symbols[2].children[0].kind, SymbolKind.Variable);
+        assert.strictEqual(symbols[2].children!.length, 1);
+        assert.strictEqual(symbols[2].children![0].name, 'MACRO_VAR');
+        assert.strictEqual(symbols[2].children![0].kind, SymbolKind.Variable);
     });
 
     test('should handle symbols with the same name in different scopes', () => {
@@ -80,23 +80,23 @@ suite('SymbolListener Comprehensive Tests', () => {
         const myFunction = symbols[1];
         assert.strictEqual(myFunction.name, 'MyFunction');
         assert.strictEqual(myFunction.kind, SymbolKind.Function);
-        assert.strictEqual(myFunction.children.length, 2);
-        assert.strictEqual(myFunction.children[0].name, 'VAR');
-        assert.strictEqual(myFunction.children[0].kind, SymbolKind.Variable);
+        assert.strictEqual(myFunction.children!.length, 2);
+        assert.strictEqual(myFunction.children![0].name, 'VAR');
+        assert.strictEqual(myFunction.children![0].kind, SymbolKind.Variable);
         // Nested function and its variable
-        const nestedFunction = myFunction.children[1];
+        const nestedFunction = myFunction.children![1];
         assert.strictEqual(nestedFunction.name, 'NestedFunction');
         assert.strictEqual(nestedFunction.kind, SymbolKind.Function);
-        assert.strictEqual(nestedFunction.children.length, 1);
-        assert.strictEqual(nestedFunction.children[0].name, 'VAR');
-        assert.strictEqual(nestedFunction.children[0].kind, SymbolKind.Variable);
+        assert.strictEqual(nestedFunction.children!.length, 1);
+        assert.strictEqual(nestedFunction.children![0].name, 'VAR');
+        assert.strictEqual(nestedFunction.children![0].kind, SymbolKind.Variable);
         // Macro and its variable
         const myMacro = symbols[2];
         assert.strictEqual(myMacro.name, 'MyMacro');
         assert.strictEqual(myMacro.kind, SymbolKind.Function);
-        assert.strictEqual(myMacro.children.length, 1);
-        assert.strictEqual(myMacro.children[0].name, 'VAR');
-        assert.strictEqual(myMacro.children[0].kind, SymbolKind.Variable);
+        assert.strictEqual(myMacro.children!.length, 1);
+        assert.strictEqual(myMacro.children![0].name, 'VAR');
+        assert.strictEqual(myMacro.children![0].kind, SymbolKind.Variable);
     });
 
     test('should handle functions/macros without variables', () => {
@@ -111,11 +111,11 @@ suite('SymbolListener Comprehensive Tests', () => {
         // Empty function
         assert.strictEqual(symbols[0].name, 'EmptyFunction');
         assert.strictEqual(symbols[0].kind, SymbolKind.Function);
-        assert.strictEqual(symbols[0].children.length, 0);
+        assert.strictEqual(symbols[0].children!.length, 0);
         // Empty macro
         assert.strictEqual(symbols[1].name, 'EmptyMacro');
         assert.strictEqual(symbols[1].kind, SymbolKind.Function);
-        assert.strictEqual(symbols[1].children.length, 0);
+        assert.strictEqual(symbols[1].children!.length, 0);
     });
 
     test('should handle deeply nested functions and macros', () => {
@@ -135,21 +135,21 @@ suite('SymbolListener Comprehensive Tests', () => {
         const functionLevel1 = symbols[0];
         assert.strictEqual(functionLevel1.name, 'FunctionLevel1');
         assert.strictEqual(functionLevel1.kind, SymbolKind.Function);
-        assert.strictEqual(functionLevel1.children.length, 1);
-        const macroLevel2 = functionLevel1.children[0];
+        assert.strictEqual(functionLevel1.children!.length, 1);
+        const macroLevel2 = functionLevel1.children![0];
         assert.strictEqual(macroLevel2.name, 'MacroLevel2');
         assert.strictEqual(macroLevel2.kind, SymbolKind.Function);
-        assert.strictEqual(macroLevel2.children.length, 1);
-        const functionLevel3 = macroLevel2.children[0];
+        assert.strictEqual(macroLevel2.children!.length, 1);
+        const functionLevel3 = macroLevel2.children![0];
         assert.strictEqual(functionLevel3.name, 'FunctionLevel3');
         assert.strictEqual(functionLevel3.kind, SymbolKind.Function);
-        assert.strictEqual(functionLevel3.children.length, 1);
-        const macroLevel4 = functionLevel3.children[0];
+        assert.strictEqual(functionLevel3.children!.length, 1);
+        const macroLevel4 = functionLevel3.children![0];
         assert.strictEqual(macroLevel4.name, 'MacroLevel4');
         assert.strictEqual(macroLevel4.kind, SymbolKind.Function);
-        assert.strictEqual(macroLevel4.children.length, 1);
-        assert.strictEqual(macroLevel4.children[0].name, 'VAR');
-        assert.strictEqual(macroLevel4.children[0].kind, SymbolKind.Variable);
+        assert.strictEqual(macroLevel4.children!.length, 1);
+        assert.strictEqual(macroLevel4.children![0].name, 'VAR');
+        assert.strictEqual(macroLevel4.children![0].kind, SymbolKind.Variable);
     });
 
     test('should handle files with only comments', () => {
@@ -190,7 +190,7 @@ suite('SymbolListener Comprehensive Tests', () => {
         // Function without variables
         assert.strictEqual(symbols[0].name, 'MyFunction');
         assert.strictEqual(symbols[0].kind, SymbolKind.Function);
-        assert.strictEqual(symbols[0].children.length, 0);
+        assert.strictEqual(symbols[0].children!.length, 0);
         // Global variable
         assert.strictEqual(symbols[1].name, 'GLOBAL_VAR');
         assert.strictEqual(symbols[1].kind, SymbolKind.Variable);
@@ -211,13 +211,13 @@ suite('SymbolListener Comprehensive Tests', () => {
         assert.strictEqual(symbols[0].name, 'MyFunction');
         assert.strictEqual(symbols[0].kind, SymbolKind.Function);
         // Arguments are not considered symbols in this context
-        assert.strictEqual(symbols[0].children.length, 1);
-        assert.strictEqual(symbols[0].children[0].name, 'VAR');
+        assert.strictEqual(symbols[0].children!.length, 1);
+        assert.strictEqual(symbols[0].children![0].name, 'VAR');
         // Macro with arguments
         assert.strictEqual(symbols[1].name, 'MyMacro');
         assert.strictEqual(symbols[1].kind, SymbolKind.Function);
-        assert.strictEqual(symbols[1].children.length, 1);
-        assert.strictEqual(symbols[1].children[0].name, 'VAR');
+        assert.strictEqual(symbols[1].children!.length, 1);
+        assert.strictEqual(symbols[1].children![0].name, 'VAR');
     });
 
     test('should handle variables with various value types', () => {

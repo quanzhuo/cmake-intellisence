@@ -2,11 +2,11 @@ import { Location } from "vscode-languageserver";
 import { URI } from "vscode-uri";
 
 export class Scope {
-    private enclosingScope: Scope;
+    private enclosingScope: Scope | null;
     private variables: Map<string, Symbol>;
     private commands: Map<string, Symbol>;
 
-    constructor(enclosingScope: Scope) {
+    constructor(enclosingScope: Scope | null) {
         this.enclosingScope = enclosingScope;
         this.variables = new Map<string, Symbol>();
         this.commands = new Map<string, Symbol>();
@@ -37,7 +37,7 @@ export class Scope {
         symbol.setScope(this);
     }
 
-    getEnclosingScope(): Scope {
+    getEnclosingScope(): Scope | null {
         return this.enclosingScope;
     }
 
@@ -48,19 +48,19 @@ export class Scope {
 }
 
 export class FileScope extends Scope {
-    constructor(encolsingScope: Scope) {
-        super(encolsingScope);
+    constructor(enclosingScope: Scope | null) {
+        super(enclosingScope);
     }
 }
 
 export class FunctionScope extends Scope {
-    constructor(enclosingScope: Scope) {
+    constructor(enclosingScope: Scope | null) {
         super(enclosingScope);
     }
 }
 
 export class MacroScope extends Scope {
-    constructor(enclosingScope: Scope) {
+    constructor(enclosingScope: Scope | null) {
         super(enclosingScope);
     }
 }
@@ -78,7 +78,7 @@ export enum SymbolKind {
 
 export class Symbol {
     private type: SymbolKind;
-    private scope: Scope; // all symbols know what scope contains them
+    private scope?: Scope; // all symbols know what scope contains them
     private name: string;
     private uri: URI;
     private line: number;

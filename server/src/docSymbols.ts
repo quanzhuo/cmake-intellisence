@@ -24,7 +24,7 @@ export class SymbolListener extends CMakeParserListener {
     private pushSymbol(symbol: DocumentSymbol): void {
         if (this.scopeStack.length > 0) {
             const parent = this.scopeStack[this.scopeStack.length - 1];
-            parent.children.push(symbol);
+            parent.children!.push(symbol);
         } else {
             this.symbols.push(symbol);
         }
@@ -72,7 +72,7 @@ export class SymbolListener extends CMakeParserListener {
         const varSymbol = this.createDocumentSymbol(varNameToken, SymbolKind.Variable);
         if (this.scopeStack.length > 0) {
             const currentScope = this.scopeStack[this.scopeStack.length - 1];
-            currentScope.children.push(varSymbol);
+            currentScope.children!.push(varSymbol);
         } else {
             this.symbols.push(varSymbol);
         }

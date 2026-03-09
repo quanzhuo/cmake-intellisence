@@ -157,6 +157,7 @@
     "@typescript-eslint/eslint-plugin": "^7.13.1",
     "@typescript-eslint/parser": "^7.13.1",
     "eslint": "^8.57.0",
+    "ignore-loader": "^0.1.2",
     "js-yaml": "^4.1.0",
     "mocha": "^11.0.1",
     "rimraf": "^6.0.1",

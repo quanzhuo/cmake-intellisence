@@ -72,6 +72,9 @@ export class DocumentLinkInfo {
             const filePath = path.join(folder, source);
             return fs.existsSync(filePath);
         }).map((argCtx: cmsp.ArgumentContext) => {
+            if (!argCtx.stop) {
+                throw new Error('Argument context stop token is missing.');
+            }
             const source = argCtx.getText();
             const filePath = path.join(folder, source);
             return {
@@ -102,9 +105,9 @@ export class DocumentLinkInfo {
 
         const links = this.getLinksFromArguments(args, this.uri);
         links.forEach(link => {
-            const targetPath = path.join(URI.parse(link.target).fsPath, 'CMakeLists.txt');
+            const targetPath = path.join(URI.parse(link.target ?? '').fsPath, 'CMakeLists.txt');
             link.target = URI.file(targetPath).toString();
-            link.tooltip = path.join(link.tooltip, 'CMakeLists.txt');
+            link.tooltip = path.join(link.tooltip ?? '', 'CMakeLists.txt');
         });
         return links;
     }
@@ -150,6 +153,9 @@ export class DocumentLinkInfo {
     }
 
     private builtinModule(arg: cmsp.ArgumentContext, moduleName: string): DocumentLink[] {
+        if (!arg.stop) {
+            throw new Error('Argument context stop token is missing.');
+        }
         const argName = arg.getText();
         if (!this.cmakeInfo.cmakeModulePath) {
             return [];

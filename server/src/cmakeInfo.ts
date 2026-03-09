@@ -27,10 +27,10 @@ export interface ExtensionSettings {
 }
 
 export class CMakeInfo {
-    public version: string;
-    public major: number;
-    public minor: number;
-    public patch: number;
+    public version?: string;
+    public major?: number;
+    public minor?: number;
+    public patch?: number;
     public modules: string[] = [];
     public policies: string[] = [];
     public variables: string[] = [];
@@ -38,7 +38,7 @@ export class CMakeInfo {
     public commands: string[] = [];
     public pkgConfigModules: Map<string, string> = new Map<string, string>();
     public cmakePath: string;
-    public cmakeModulePath: string;
+    public cmakeModulePath?: string;
     public pkgConfigPath: string;
     private connection: Connection;
 
@@ -136,6 +136,9 @@ export class CMakeInfo {
         const { stdout, stderr } = await promisify(cp.exec)(command);
         const regexp: RegExp = /(\d+)\.(\d+)\.(\d+)/;
         const res = stdout.match(regexp);
+        if (!res) {
+            throw new Error(`Failed to parse cmake version from: ${stdout}`);
+        }
         return [
             res[0],
             parseInt(res[1]),
@@ -194,7 +197,11 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
         this.commands = new Set<string>(this.cmakeInfo.commands);
     }
 
-    static projectInfo: ProjectInfo = {};
+    static projectInfo: ProjectInfo = {} as ProjectInfo;
+
+    resetProjectInfo(): void {
+        ProjectInfoListener.projectInfo = {} as ProjectInfo;
+    }
 
     private project(ctx: cmsp.CommandContext): void {
         const args = ctx.argument_list();
@@ -225,7 +232,8 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
             return null;
         }
         const content = fs.readFileSync(cmakeCacheFile, 'utf-8');
-        const regex = new RegExp(`^${packageName}_DIR:PATH=(.*)$`, 'm');
+        const escapedName = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`^${escapedName}_DIR:PATH=(.*)$`, 'm');
         const match = content.match(regex);
         const packageDir = match ? match[1] : null;
         if (!packageDir) {
@@ -254,7 +262,7 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
 
         const packageName = args[0].getText();
         // CMake builtin modules
-        let targetCMakeFile = path.join(this.cmakeInfo.cmakeModulePath, `Find${packageName}.cmake`);
+        let targetCMakeFile: string | null = path.join(this.cmakeInfo.cmakeModulePath ?? '', `Find${packageName}.cmake`);
         if (!fs.existsSync(targetCMakeFile)) {
             targetCMakeFile = this.findConfigPackage(packageName);
             if (!targetCMakeFile) {
@@ -267,15 +275,17 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
             return;
         }
 
-        let tree: cmsp.FileContext;
+        let tree: cmsp.FileContext | undefined;
         if (this.simpleFileContexts.has(targetCMakeFile)) {
             tree = this.simpleFileContexts.get(targetCMakeFile);
         } else {
             tree = getSimpleFileContext(getFileContent(this.documents, URI.parse(targetCMakeFile)));
             this.simpleFileContexts.set(targetCMakeFile, tree);
         }
-        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.simpleFileContexts, this.documents, this.parsedFiles, this.workspaceFolder);
-        ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
+        if (tree) {
+            const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.simpleFileContexts, this.documents, this.parsedFiles, this.workspaceFolder);
+            ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
+        }
     }
 
     private include(ctx: cmsp.CommandContext): void {
@@ -286,7 +296,7 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
         const includeFile = args[0].getText();
         let targetCMakeFile = path.join(this.baseDirectory, includeFile);
         if (!fs.existsSync(targetCMakeFile)) {
-            targetCMakeFile = path.join(this.cmakeInfo.cmakeModulePath, `${includeFile}.cmake`);
+            targetCMakeFile = path.join(this.cmakeInfo.cmakeModulePath ?? '', `${includeFile}.cmake`);
             if (!fs.existsSync(targetCMakeFile)) {
                 return;
             }
@@ -297,15 +307,18 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
             return;
         }
 
-        let tree: cmsp.FileContext;
+        let tree: cmsp.FileContext | undefined;
         if (this.simpleFileContexts.has(targetCMakeFile)) {
             tree = this.simpleFileContexts.get(targetCMakeFile);
         } else {
             tree = getSimpleFileContext(getFileContent(this.documents, URI.parse(targetCMakeFile)));
             this.simpleFileContexts.set(targetCMakeFile, tree);
         }
-        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.simpleFileContexts, this.documents, this.parsedFiles, this.workspaceFolder);
-        ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
+
+        if (tree) {
+            const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.simpleFileContexts, this.documents, this.parsedFiles, this.workspaceFolder);
+            ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
+        }
     }
 
     private functionOrMacro(ctx: cmsp.CommandContext): void {

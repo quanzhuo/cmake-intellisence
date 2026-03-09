@@ -4,8 +4,8 @@ lexer grammar CMakeSimpleLexer;
     private nestingLevel: number = 0;
     private newLineCount: number = 1;
 
-    private start_line: number;
-    private start_col: number;
+    private start_line: number = 0;
+    private start_col: number = 0;
 
     HandleComment() {
         this.start_line = this.line;

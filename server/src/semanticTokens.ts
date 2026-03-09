@@ -6,7 +6,7 @@ import { CMakeInfo } from "./cmakeInfo";
 import { AddSubDirectoryCmdContext, ArgumentContext, ElseIfCmdContext, ForeachCmdContext, FunctionCmdContext, IfCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext, WhileCmdContext } from "./generated/CMakeParser";
 import CMakeParserListener from "./generated/CMakeParserListener";
 
-let tokenTypes = [
+const defaultTokenTypes = [
     'namespace',
     'type',
     'class',
@@ -25,13 +25,16 @@ let tokenTypes = [
     'operator',
 ];
 
-let tokenModifiers = [
+const defaultTokenModifiers = [
     'declaration',
     'definition',
     'readonly',
     'deprecated',
     'documentation',
 ];
+
+let tokenTypes = [...defaultTokenTypes];
+let tokenModifiers = [...defaultTokenModifiers];
 
 enum TokenModifiers {
     declaration = 2 ** 0,
@@ -73,14 +76,14 @@ export function getTokenBuilder(uri: string): SemanticTokensBuilder {
 }
 
 export function getTokenTypes(initParams: InitializeParams): string[] {
-    tokenTypes = tokenTypes.filter(value => {
+    tokenTypes = defaultTokenTypes.filter(value => {
         return initParams.capabilities.textDocument?.semanticTokens?.tokenTypes.includes(value);
     });
     return tokenTypes;
 }
 
 export function getTokenModifiers(initParams: InitializeParams): string[] {
-    tokenModifiers = tokenModifiers.filter(value => {
+    tokenModifiers = defaultTokenModifiers.filter(value => {
         return initParams.capabilities.textDocument?.semanticTokens?.tokenModifiers.includes(value);
     });
     return tokenModifiers;
@@ -94,7 +97,7 @@ export class SemanticTokenListener extends CMakeParserListener {
 
     private _operator: Set<string> = new Set([
         'EXISTS', 'COMMAND', 'DEFINED',
-        'EQUAL', 'LESS', 'LESS_EQUAL', 'GREATER', 'GREATER_EAUAL', 'STREQUAL',
+        'EQUAL', 'LESS', 'LESS_EQUAL', 'GREATER', 'GREATER_EQUAL', 'STREQUAL',
         'STRLESS', 'STRLESS_EQUAL', 'STRGREATER', 'STRGREATER_EQUAL',
         'VERSION_EQUAL', 'VERSION_LESS', 'VERSION_LESS_EQUAL', 'VERSION_GREATER',
         'VERSION_GREATER_EQUAL', 'PATH_EQUAL', 'MATCHES',
@@ -127,17 +130,6 @@ export class SemanticTokenListener extends CMakeParserListener {
 
     public buildEdits() {
         return this._builder.buildEdits();
-    }
-
-    private getTokenBuilder(uri: string): SemanticTokensBuilder {
-        let result = tokenBuilders.get(uri);
-        if (result !== undefined) {
-            return result;
-        }
-
-        result = new SemanticTokensBuilder();
-        tokenBuilders.set(uri, result);
-        return result;
     }
 
     private tokenInConditional(context: IfCmdContext | ElseIfCmdContext | WhileCmdContext): void {
@@ -272,8 +264,7 @@ export class SemanticTokenListener extends CMakeParserListener {
         }
 
         if (cmdNameLower in builtinCmds) {
-            const sigs: string[] = builtinCmds[cmdNameLower]['sig'];
-            const keywords = builtinCmds[cmdNameLower]['keyword'] ?? [];
+            const keywords = (builtinCmds as Record<string, { keyword?: string[] }>)[cmdNameLower].keyword ?? [];
             const args: ArgumentContext[] = ctx.argument_list();
             args.forEach(argCtx => {
                 const text = argCtx.getText();

@@ -1,4 +1,4 @@
-import { ErrorListener } from "antlr4";
+import { ErrorListener, RecognitionException, Recognizer, Token } from "antlr4";
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver";
 import { CMakeInfo } from "./cmakeInfo";
 import { DIAG_CODE_CMD_CASE } from "./consts";
@@ -8,7 +8,7 @@ import * as csp from './generated/CMakeSimpleParser';
 import CMakeSimpleParserListener from "./generated/CMakeSimpleParserListener";
 import localize from "./localize";
 
-export class SyntaxErrorListener extends ErrorListener<string> {
+export class SyntaxErrorListener extends ErrorListener<Token> {
     private diagnostics: Diagnostic[] = [];
 
     /**
@@ -20,7 +20,7 @@ export class SyntaxErrorListener extends ErrorListener<string> {
      * @param msg 
      * @param e 
      */
-    syntaxError(recognizer, offendingSymbol, line, column, msg, e) {
+    syntaxError(recognizer: Recognizer<Token>, offendingSymbol: Token, line: number, column: number, msg: string, e: RecognitionException | undefined): void {
         this.diagnostics.push({
             range: {
                 start: {

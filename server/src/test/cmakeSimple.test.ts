@@ -1,12 +1,12 @@
-import { CharStreams, CommonTokenStream, ErrorListener, Token } from 'antlr4';
+import { CharStreams, CommonTokenStream, ErrorListener, RecognitionException, Recognizer, Token } from 'antlr4';
 import * as assert from 'assert';
 import CMakeSimpleLexer from '../generated/CMakeSimpleLexer';
 import CMakeSimpleParser, { FileContext } from '../generated/CMakeSimpleParser';
 
-export class SyntaxErrorListener extends ErrorListener<string> {
+export class SyntaxErrorListener extends ErrorListener<Token> {
     private _errors = 0;
 
-    syntaxError(recognizer, offendingSymbol, line, column, msg, e) {
+    syntaxError(recognizer: Recognizer<Token>, offendingSymbol: Token, line: number, column: number, msg: string, e: RecognitionException | undefined): void {
         this._errors++;
     }
 
@@ -24,7 +24,7 @@ suite('CMakeSimple Tests', () => {
         const parser = new CMakeSimpleParser(tokens);
         parser.removeErrorListeners();
         const syntaxErrorListener = new SyntaxErrorListener();
-        parser.addErrorListener(syntaxErrorListener);
+        parser.addErrorListener(syntaxErrorListener as any);
         const tree = parser.file();
         return [tokens, tree, syntaxErrorListener.errorCount];
     }

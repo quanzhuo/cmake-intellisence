@@ -5,6 +5,7 @@
 
 import * as node_fs from 'fs';
 import * as path from 'path';
+import paths, { mkdir_p, exists } from './paths';
 
 /** Logging levels */
 export enum LogLevel {
@@ -177,6 +178,4 @@ export class Logger {
 export function createLogger(tag: string, configedLevel: string) {
     return new Logger(tag, configedLevel);
 }
-
-import paths, { mkdir_p, exists } from './paths'; import { config } from 'process';
 

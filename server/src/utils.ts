@@ -41,7 +41,7 @@ export function getIncludeFileUri(cmakeInfo: CMakeInfo, baseDir: URI, includeFil
         return incFileUri;
     }
 
-    const resPath = path.join(cmakeInfo.cmakeModulePath, `${includeFileName}.cmake`);
+    const resPath = path.join(cmakeInfo.cmakeModulePath ?? '', `${includeFileName}.cmake`);
     if (existsSync(resPath)) {
         return URI.file(resPath);
     }

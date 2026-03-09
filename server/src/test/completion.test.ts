@@ -12,8 +12,9 @@ import { getSimpleFileContext } from "../utils";
 suite('Completion Tests', () => {
     let cmakeInfo: CMakeInfo;
 
-    before(async () => {
-        cmakeInfo = new CMakeInfo({ cmakePath: "cmake", pkgConfigPath: "", cmdCaseDiagnostics: false, loggingLevel: 'off' }, null);
+    before(async function() {
+        this.timeout(10000);
+        cmakeInfo = new CMakeInfo({ cmakePath: "cmake", pkgConfigPath: "", cmdCaseDiagnostics: false, loggingLevel: 'off' }, null as any);
         await cmakeInfo.init();
     });
 
@@ -334,22 +335,6 @@ arg2  arg3          arg4 )
                 pos: { line: 0, character: 23 },
                 expected: { type: CMakeCompletionType.Variable, }
             },
-            // {
-            //     pos: { line: 0, character: 26 },
-            //     expected: { type: CMakeCompletionType.Variable, }
-            // },
-            // {
-            //     pos: { line: 0, character: 27 },
-            //     expected: { type: CMakeCompletionType.Variable, }
-            // },
-            // {
-            //     pos: { line: 0, character: 29 },
-            //     expected: { type: CMakeCompletionType.Variable, }
-            // },
-            // {
-            //     pos: { line: 0, character: 30 },
-            //     expected: { type: CMakeCompletionType.Argument, }
-            // },
         ];
 
         testCases.forEach(({ pos, expected }) => {

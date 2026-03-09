@@ -83,10 +83,10 @@ function startLanguageServer(extensionPath: string, cmakePath: string, serverMod
     function getExtensionSettings(): ExtensionSettings {
         const config = vscode.workspace.getConfiguration(SERVER_ID);
         return {
-            loggingLevel: config.get<string>('loggingLevel'),
+            loggingLevel: config.get<string>('loggingLevel', 'info'),
             cmakePath: cmakePath,
-            pkgConfigPath: config.get<string>('pkgConfigPath'),
-            cmdCaseDiagnostics: config.get<boolean>('cmdCaseDiagnostics'),
+            pkgConfigPath: config.get<string>('pkgConfigPath', 'pkg-config'),
+            cmdCaseDiagnostics: config.get<boolean>('cmdCaseDiagnostics', true),
         };
     }
 

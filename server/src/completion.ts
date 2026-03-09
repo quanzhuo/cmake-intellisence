@@ -130,7 +130,10 @@ export function findCommandAtPosition(contexts: cmsp.CommandContext[], position:
         mid = Math.floor((left + right) / 2);
         // line is 1-based, column is 0-based in antlr4
         const start = contexts[mid].start.line - 1;
-        const stop = contexts[mid].stop.line - 1;
+        if (!contexts[mid].stop) {
+            return null;
+        }
+        const stop = contexts[mid].stop!.line - 1;
         if (position.line >= start && position.line <= stop) {
             return contexts[mid];
         } else if (position.line < start) {
@@ -231,13 +234,13 @@ export function getCompletionInfoAtCursor(tree: cmsp.FileContext, pos: Position)
 }
 
 export default class Completion {
-    private completionParams: CompletionParams;
+    private completionParams?: CompletionParams;
 
     constructor(
         private cmakeInfo: CMakeInfo,
         private simpleFileContexts: Map<string, cmsp.FileContext>,
         private simpleTokenStreams: Map<string, CommonTokenStream>,
-        private projectInfo: ProjectInfo = {},
+        private projectInfo: ProjectInfo = {} as ProjectInfo,
         private word: string,
         private logger: Logger,
     ) { }
@@ -336,82 +339,80 @@ export default class Completion {
                 break;
         }
         if (commandName in builtinCmds) {
-            if ("deprecated" in builtinCmds[commandName]) {
+            if ("deprecated" in (builtinCmds as any)[commandName]) {
                 item.tags = [CompletionItemTag.Deprecated];
             }
         }
         return item;
     }
 
-    private getCommandSuggestions(word: string): Promise<CompletionItem[]> {
-        return new Promise((resolve, rejects) => {
-            const allCommands = [
-                ...this.cmakeInfo.commands.map(value => { return { name: value, type: CompletionItemType.BuiltInCommand }; }),
-                ...Array.from(this.projectInfo.functions ?? new Set<string>()).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
-                ...Array.from(this.projectInfo.macros ?? new Set<string>()).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
-            ];
-            const similarCmds = allCommands.filter(cmd => { return cmd.name.toLowerCase().includes(word.toLowerCase()); });
-            const similarNames = similarCmds.map(cmd => cmd.name);
-            const suggestedCommands: CompletionItem[] = similarCmds.map((command, index, array) => {
-                return this.getCommandSuggestion(command.name, command.type);
-            });
-
-            if (similarNames.includes('block')) {
-                suggestedCommands.push({
-                    label: 'block ... endblock',
-                    kind: CompletionItemKind.Snippet,
-                    insertText: 'block(${1:name})\n\t${0}\nendblock()',
-                    insertTextFormat: InsertTextFormat.Snippet,
-                });
-            }
-
-            if (similarNames.includes('if')) {
-                suggestedCommands.push({
-                    label: 'if ... endif',
-                    kind: CompletionItemKind.Snippet,
-                    insertText: 'if(${1:condition})\n\t${0}\nendif()',
-                    insertTextFormat: InsertTextFormat.Snippet,
-                });
-            }
-
-            if (similarNames.includes('foreach')) {
-                suggestedCommands.push({
-                    label: 'foreach ... endforeach',
-                    kind: CompletionItemKind.Snippet,
-                    insertText: 'foreach(${1:item} ${2:items})\n\t${0}\nendforeach()',
-                    insertTextFormat: InsertTextFormat.Snippet,
-                });
-            }
-
-            if (similarNames.includes('while')) {
-                suggestedCommands.push({
-                    label: 'while ... endwhile',
-                    kind: CompletionItemKind.Snippet,
-                    insertText: 'while(${1:condition})\n\t${0}\nendwhile()',
-                    insertTextFormat: InsertTextFormat.Snippet,
-                });
-            }
-
-            if (similarNames.includes('function')) {
-                suggestedCommands.push({
-                    label: 'function ... endfunction',
-                    kind: CompletionItemKind.Snippet,
-                    insertText: 'function(${1:name} ${2:args})\n\t${0}\nendfunction()',
-                    insertTextFormat: InsertTextFormat.Snippet,
-                });
-            }
-
-            if (similarNames.includes('macro')) {
-                suggestedCommands.push({
-                    label: 'macro ... endmacro',
-                    kind: CompletionItemKind.Snippet,
-                    insertText: 'macro(${1:name} ${2:args})\n\t${0}\nendmacro()',
-                    insertTextFormat: InsertTextFormat.Snippet,
-                });
-            }
-
-            resolve(suggestedCommands);
+    private getCommandSuggestions(word: string): CompletionItem[] {
+        const allCommands = [
+            ...this.cmakeInfo.commands.map(value => { return { name: value, type: CompletionItemType.BuiltInCommand }; }),
+            ...Array.from(this.projectInfo.functions ?? new Set<string>()).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
+            ...Array.from(this.projectInfo.macros ?? new Set<string>()).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
+        ];
+        const similarCmds = allCommands.filter(cmd => { return cmd.name.toLowerCase().includes(word.toLowerCase()); });
+        const similarNames = similarCmds.map(cmd => cmd.name);
+        const suggestedCommands: CompletionItem[] = similarCmds.map((command, index, array) => {
+            return this.getCommandSuggestion(command.name, command.type);
         });
+
+        if (similarNames.includes('block')) {
+            suggestedCommands.push({
+                label: 'block ... endblock',
+                kind: CompletionItemKind.Snippet,
+                insertText: 'block(${1:name})\n\t${0}\nendblock()',
+                insertTextFormat: InsertTextFormat.Snippet,
+            });
+        }
+
+        if (similarNames.includes('if')) {
+            suggestedCommands.push({
+                label: 'if ... endif',
+                kind: CompletionItemKind.Snippet,
+                insertText: 'if(${1:condition})\n\t${0}\nendif()',
+                insertTextFormat: InsertTextFormat.Snippet,
+            });
+        }
+
+        if (similarNames.includes('foreach')) {
+            suggestedCommands.push({
+                label: 'foreach ... endforeach',
+                kind: CompletionItemKind.Snippet,
+                insertText: 'foreach(${1:item} ${2:items})\n\t${0}\nendforeach()',
+                insertTextFormat: InsertTextFormat.Snippet,
+            });
+        }
+
+        if (similarNames.includes('while')) {
+            suggestedCommands.push({
+                label: 'while ... endwhile',
+                kind: CompletionItemKind.Snippet,
+                insertText: 'while(${1:condition})\n\t${0}\nendwhile()',
+                insertTextFormat: InsertTextFormat.Snippet,
+            });
+        }
+
+        if (similarNames.includes('function')) {
+            suggestedCommands.push({
+                label: 'function ... endfunction',
+                kind: CompletionItemKind.Snippet,
+                insertText: 'function(${1:name} ${2:args})\n\t${0}\nendfunction()',
+                insertTextFormat: InsertTextFormat.Snippet,
+            });
+        }
+
+        if (similarNames.includes('macro')) {
+            suggestedCommands.push({
+                label: 'macro ... endmacro',
+                kind: CompletionItemKind.Snippet,
+                insertText: 'macro(${1:name} ${2:args})\n\t${0}\nendmacro()',
+                insertTextFormat: InsertTextFormat.Snippet,
+            });
+        }
+
+        return suggestedCommands;
     }
 
     private getModuleSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
@@ -431,6 +432,10 @@ export default class Completion {
     }
 
     private async getFileSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
+        if (!this.completionParams) {
+            return null;
+        }
+
         const uri: URI = URI.parse(this.completionParams.textDocument.uri);
         const curDir = path.dirname(uri.fsPath);
         // Get the directory part and the filter part from the word
@@ -553,7 +558,7 @@ export default class Completion {
             }
             case 'cmake_policy': {
                 if (info.index === 1) {
-                    const firstArg = info.context.argument(0).ID().getText();
+                    const firstArg = info.context?.argument(0).ID().getText();
                     if (firstArg === 'GET' || firstArg === 'SET') {
                         return this.getPolicySuggestions(info, word);
                     }
@@ -605,8 +610,8 @@ export default class Completion {
             case 'get_property':
             case 'set_property':
             case 'define_property': {
-                if (info.index > 1) {
-                    const preArg = info.context.argument(info.index - 1).getText();
+                if (info.index && (info.index > 1)) {
+                    const preArg = info.context?.argument(info.index - 1).getText();
                     if (preArg === 'PROPERTY') {
                         return this.getPropertySuggestions(info, word);
                     }
@@ -645,11 +650,11 @@ export default class Completion {
                 break;
         }
 
-        if (!(info.command in builtinCmds)) {
+        if (info.command && !(info.command in builtinCmds)) {
             return null;
         }
 
-        const args: string[] = builtinCmds[info.command]['keyword'] ?? [];
+        const args: string[] = ((builtinCmds as any)[info.command!]['keyword']) ?? [];
         const argsCompletions = args.map((arg) => {
             return {
                 label: arg,
@@ -681,6 +686,10 @@ export default class Completion {
     public async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
         this.completionParams = params;
         const simpleTokenStream = this.simpleTokenStreams.get(params.textDocument.uri);
+        if (!simpleTokenStream) {
+            return null;
+        }
+
         const comments = simpleTokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
 
         // if the cursor is in comments, return null
@@ -689,7 +698,7 @@ export default class Completion {
         }
 
         const simpleFileContext = this.simpleFileContexts.get(params.textDocument.uri);
-        const info = getCompletionInfoAtCursor(simpleFileContext, params.position);
+        const info = getCompletionInfoAtCursor(simpleFileContext!, params.position);
         if (info.type === CMakeCompletionType.Command) {
             return this.getCommandSuggestions(this.word);
         } else if (info.type === CMakeCompletionType.Argument) {
@@ -697,6 +706,6 @@ export default class Completion {
         } else if (info.type === CMakeCompletionType.Variable) {
             return this.getVariableSuggestions(info, this.word);
         }
-        throw new Error('Unknown completion type');
+        return null;
     }
 }
