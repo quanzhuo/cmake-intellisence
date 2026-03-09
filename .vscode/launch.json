@@ -27,6 +27,16 @@
             ]
         },
         {
+            "name": "Debug Integrate test (Attach to Server)",
+            "type": "node",
+            "request": "attach",
+            "port": 6009,
+            "restart": true,
+            "outFiles": [
+                "${workspaceFolder}/server/out/**/*.js"
+            ]
+        },
+        {
             "name": "Extension Tests",
             "type": "extensionHost",
             "request": "launch",
