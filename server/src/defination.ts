@@ -1,4 +1,4 @@
-import { ParseTreeWalker, Token } from "antlr4";
+import { ParserRuleContext, Token } from "antlr4";
 import * as fs from 'fs';
 import * as path from "path";
 import { DefinitionParams, Location, LocationLink, TextDocuments } from "vscode-languageserver";
@@ -8,7 +8,7 @@ import { CMakeInfo } from "./cmakeInfo";
 import { builtinCmds } from "./completion";
 import { FlatCommand } from "./flatCommands";
 import { AddSubDirectoryCmdContext, ArgumentContext, FileContext, FunctionCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext } from "./generated/CMakeParser";
-import CMakeParserListener from "./generated/CMakeParserListener";
+import CMakeParserVisitor from "./generated/CMakeParserVisitor";
 import { Logger } from "./logging";
 import { getWordAtPosition } from "./server";
 import { FileScope, Scope, Symbol, SymbolKind } from "./symbolTable";
@@ -62,64 +62,52 @@ export class DefinitionResolver {
         }
 
         const destType = this.findDestinationType(this.command, params.position);
-        let listener: CMakeParserListener;
+        let visitor: BaseDefinitionVisitor;
         if (destType === DestinationType.Command) {
             const commandName = this.command.ID().getText();
             if (commandName in builtinCmds) {
                 return Promise.resolve(null);
             }
             const symbolToFind = new Symbol(commandName, SymbolKind.Function, this.curFile, word.line, word.col);
-            listener = new FunctionDefinationListener(symbolToFind, new FileScope(null), entryFile, this.baseDir, this.cmakeInfo, this.documents, this.fileContexts);
+            visitor = new FunctionDefinitionVisitor(symbolToFind, new FileScope(null), entryFile, this.baseDir, this.cmakeInfo, this.documents, this.fileContexts);
         } else {
             const symbolToFind = new Symbol(word.text, SymbolKind.Variable, this.curFile, word.line, word.col);
-            listener = new VariableDefinationListener(symbolToFind, new FileScope(null), entryFile, this.baseDir, this.cmakeInfo, this.documents, this.fileContexts);
+            visitor = new VariableDefinitionVisitor(symbolToFind, new FileScope(null), entryFile, this.baseDir, this.cmakeInfo, this.documents, this.fileContexts);
         }
 
-        try {
-            let tree: FileContext | undefined;
-            if (!this.fileContexts.has(entryFile.toString())) {
-                tree = getFileContext(getFileContent(this.documents, entryFile));
-                this.fileContexts.set(entryFile.toString(), tree);
-            } else {
-                tree = this.fileContexts.get(entryFile.toString());
-            }
-            if (!tree) {
-                return Promise.resolve(null);
-            }
-            ParseTreeWalker.DEFAULT.walk(listener, tree);
-        } catch (e) {
-            if (e instanceof EarlyExitException) {
-                return e.symbols;
-                // } else if (e instanceof TypeError) {
-                //     logger.error('TypeError', e.message);
-            } else {
-                throw e;
-            }
+        let tree: FileContext | undefined;
+        if (!this.fileContexts.has(entryFile.toString())) {
+            tree = getFileContext(getFileContent(this.documents, entryFile));
+            this.fileContexts.set(entryFile.toString(), tree);
+        } else {
+            tree = this.fileContexts.get(entryFile.toString());
         }
-        return (listener as FunctionDefinationListener | VariableDefinationListener).symbols;
+        if (!tree) {
+            return Promise.resolve(null);
+        }
+
+        const result = visitor.visit(tree) as Symbol[] | null;
+        if (result && result.length > 0) {
+            return Promise.resolve(result.map(sym => sym.getLocation()));
+        }
+        // If visitor completed without finding the symbol, check accumulated foundSymbols
+        if (visitor.foundSymbols.length > 0) {
+            return Promise.resolve(visitor.foundSymbols.map(sym => sym.getLocation()));
+        }
+        return Promise.resolve(null);
     }
 }
 
-class EarlyExitException extends Error {
-    private _foundSymbols: Symbol[];
-    constructor(message: string, foundSymbols: Symbol[] = []) {
-        super(message);
-        this.name = 'EarlyExitException';
-        this._foundSymbols = foundSymbols;
-    }
-
-    get symbols(): Promise<Location | Location[] | LocationLink[] | null> {
-        return new Promise((resolve, reject) => {
-            if (this._foundSymbols.length === 0) {
-                resolve(null);
-            } else {
-                resolve(this._foundSymbols.map(sym => sym.getLocation()));
-            }
-        });
-    }
-}
-
-class BaseDefinationListener extends CMakeParserListener {
+/**
+ * Base Visitor for go-to-definition.
+ *
+ * Uses Visitor instead of Listener to support natural early termination:
+ * visit methods return Symbol[] when found (stop immediately) or null (continue).
+ * The overridden visitChildren iterates children one by one and stops as soon as
+ * a non-null result is returned, avoiding the exception-based control flow
+ * that was previously used with the Listener pattern.
+ */
+class BaseDefinitionVisitor extends CMakeParserVisitor<Symbol[] | null> {
     protected symbolToFind: Symbol;
     protected currentScope: Scope;
     protected curFile: URI;
@@ -127,7 +115,7 @@ class BaseDefinationListener extends CMakeParserListener {
     protected cmakeInfo: CMakeInfo;
     protected documents: TextDocuments<TextDocument>;
     protected fileContexts: Map<string, FileContext>;
-    protected foundSymbols: Symbol[] = [];
+    foundSymbols: Symbol[] = [];
 
     constructor(symbol: Symbol, scope: Scope, file: URI, curDir: URI, cmakeInfo: CMakeInfo, documents: TextDocuments<TextDocument>, fileContexts: Map<string, FileContext>) {
         super();
@@ -140,41 +128,54 @@ class BaseDefinationListener extends CMakeParserListener {
         this.fileContexts = fileContexts;
     }
 
-    get symbols(): Promise<Location | Location[] | LocationLink[] | null> {
-        return new Promise((resolve, reject) => {
-            if (this.foundSymbols.length === 0) {
-                resolve(null);
-            } else {
-                resolve(this.foundSymbols.map(sym => sym.getLocation()));
-            }
-        });
+    /**
+     * Override visitChildren for early termination.
+     * Iterates children one by one; returns immediately when a child returns non-null.
+     */
+    override visitChildren(ctx: ParserRuleContext): Symbol[] | null {
+        if (!ctx.children) { return null; }
+        for (const child of ctx.children) {
+            const result = this.visit(child);
+            if (result != null) { return result; }
+        }
+        return null;
     }
 
-    enterFunctionCmd = (ctx: FunctionCmdContext): void => {
+    protected registerFunction(ctx: FunctionCmdContext): void {
         const funcNameToken: Token = ctx.argument(0)?.start;
         if (funcNameToken !== undefined) {
             const funcSymbol: Symbol = new Symbol(funcNameToken.text, SymbolKind.Function, this.curFile, funcNameToken.line - 1, funcNameToken.column);
             this.currentScope.define(funcSymbol);
         }
-    };
+    }
 
-    enterMacroCmd = (ctx: MacroCmdContext): void => {
+    protected registerMacro(ctx: MacroCmdContext): void {
         const macroNameToken: Token = ctx.argument(0)?.start;
         if (macroNameToken !== undefined) {
             const macroSymbol: Symbol = new Symbol(macroNameToken.text, SymbolKind.Macro, this.curFile, macroNameToken.line - 1, macroNameToken.column);
             this.currentScope.define(macroSymbol);
         }
+    }
+
+    visitFunctionCmd = (ctx: FunctionCmdContext): Symbol[] | null => {
+        this.registerFunction(ctx);
+        return null;
     };
 
-    enterIncludeCmd = (ctx: IncludeCmdContext): void => {
+    visitMacroCmd = (ctx: MacroCmdContext): Symbol[] | null => {
+        this.registerMacro(ctx);
+        return null;
+    };
+
+    visitIncludeCmd = (ctx: IncludeCmdContext): Symbol[] | null => {
         const nameToken = ctx.argument(0)?.start;
         if (nameToken === undefined) {
-            return;
+            return null;
         }
 
         const incUri: URI | null = getIncludeFileUri(this.cmakeInfo, this.curDir, nameToken.text);
         if (!incUri) {
-            return;
+            return null;
         }
 
         let tree: FileContext;
@@ -185,21 +186,20 @@ class BaseDefinationListener extends CMakeParserListener {
             tree = this.fileContexts.get(incUri.toString())!;
         }
 
-        const definationListener = new FunctionDefinationListener(this.symbolToFind, this.currentScope, incUri, this.curDir, this.cmakeInfo, this.documents, this.fileContexts);
-        ParseTreeWalker.DEFAULT.walk(definationListener, tree);
+        const definitionVisitor = new FunctionDefinitionVisitor(this.symbolToFind, this.currentScope, incUri, this.curDir, this.cmakeInfo, this.documents, this.fileContexts);
+        return definitionVisitor.visit(tree) as Symbol[] | null;
     };
 
-    enterAddSubDirectoryCmd = (ctx: AddSubDirectoryCmdContext): void => {
+    visitAddSubDirectoryCmd = (ctx: AddSubDirectoryCmdContext): Symbol[] | null => {
         const dirToken = ctx.argument(0)?.start;
         if (dirToken === undefined) {
-            return;
+            return null;
         }
 
         const subDir = dirToken.text;
         const subCMakeListsUri: URI = Utils.joinPath(this.curDir, subDir, 'CMakeLists.txt');
         if (!fs.existsSync(subCMakeListsUri.fsPath)) {
-            // this.logger.error('enterAddSubdirectoryCmd:', subCMakeListsUri.fsPath, 'not exist');
-            return;
+            return null;
         }
 
         let tree: FileContext;
@@ -212,13 +212,13 @@ class BaseDefinationListener extends CMakeParserListener {
 
         const subDirScope: Scope = new FileScope(this.currentScope);
         const subBaseDir = Utils.joinPath(this.curDir, subDir);
-        const definationListener = new FunctionDefinationListener(this.symbolToFind, subDirScope, subCMakeListsUri, subBaseDir, this.cmakeInfo, this.documents, this.fileContexts);
-        ParseTreeWalker.DEFAULT.walk(definationListener, tree);
+        const definitionVisitor = new FunctionDefinitionVisitor(this.symbolToFind, subDirScope, subCMakeListsUri, subBaseDir, this.cmakeInfo, this.documents, this.fileContexts);
+        return definitionVisitor.visit(tree) as Symbol[] | null;
     };
 }
 
-class FunctionDefinationListener extends BaseDefinationListener {
-    enterOtherCmd = (ctx: OtherCmdContext): void => {
+class FunctionDefinitionVisitor extends BaseDefinitionVisitor {
+    visitOtherCmd = (ctx: OtherCmdContext): Symbol[] | null => {
         const commandToken = ctx.ID().symbol;
         if (commandToken.line === this.symbolToFind.getLine() + 1 &&
             commandToken.column === this.symbolToFind.getColumn() &&
@@ -227,32 +227,40 @@ class FunctionDefinationListener extends BaseDefinationListener {
             if (sym !== null) {
                 this.foundSymbols.push(sym);
             }
-            throw new EarlyExitException('found', this.foundSymbols);
+            return this.foundSymbols; // early exit: found usage site
         }
+        return null;
     };
 }
 
-class VariableDefinationListener extends BaseDefinationListener {
-    enterSetCmd = (ctx: SetCmdContext): void => {
+class VariableDefinitionVisitor extends BaseDefinitionVisitor {
+    // Override: need to visit children of functionCmd to reach argument nodes
+    visitFunctionCmd = (ctx: FunctionCmdContext): Symbol[] | null => {
+        this.registerFunction(ctx);
+        return this.visitChildren(ctx);
+    };
+
+    visitSetCmd = (ctx: SetCmdContext): Symbol[] | null => {
         const varToken: Token = ctx.argument(0)?.start;
         if (varToken !== undefined) {
             const varSymbol: Symbol = new Symbol(varToken.text, SymbolKind.Variable, this.curFile, varToken.line - 1, varToken.column);
             this.currentScope.define(varSymbol);
         }
+        return this.visitChildren(ctx);
     };
 
-    enterOptionCmd = (ctx: OptionCmdContext): void => {
-        this.enterSetCmd(ctx as unknown as SetCmdContext);
+    visitOptionCmd = (ctx: OptionCmdContext): Symbol[] | null => {
+        return this.visitSetCmd(ctx as unknown as SetCmdContext);
     };
 
-    enterArgument = (ctx: ArgumentContext): void => {
+    visitArgument = (ctx: ArgumentContext): Symbol[] | null => {
         if (ctx.getChildCount() !== 1) {
-            return;
+            return null;
         }
 
         // skip the arguments in include() and add_subdirectory()
         if (ctx.parentCtx instanceof IncludeCmdContext || ctx.parentCtx instanceof AddSubDirectoryCmdContext) {
-            return;
+            return null;
         }
 
         const argToken: Token = ctx.start;
@@ -263,7 +271,8 @@ class VariableDefinationListener extends BaseDefinationListener {
             if (sym !== null) {
                 this.foundSymbols.push(sym);
             }
-            throw new EarlyExitException('found', this.foundSymbols);
+            return this.foundSymbols; // early exit: found usage site
         }
+        return null;
     };
 }

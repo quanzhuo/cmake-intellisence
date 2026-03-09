@@ -1,4 +1,4 @@
-import { ParseTreeWalker, ParserRuleContext, TerminalNode, Token } from 'antlr4';
+import { ParserRuleContext, TerminalNode, Token } from 'antlr4';
 import {
     AddSubDirectoryCmdContext, ArgumentContext,
     BreakCmdContext, ContinueCmdContext,
@@ -9,7 +9,7 @@ import {
     MacroCmdContext, OptionCmdContext, OtherCmdContext,
     SetCmdContext, WhileCmdContext
 } from './generated/CMakeParser';
-import CMakeParserListener from './generated/CMakeParserListener';
+import CMakeParserVisitor from './generated/CMakeParserVisitor';
 
 /**
  * A unified wrapper around any CMakeParser command context.
@@ -53,37 +53,43 @@ export class FlatCommand {
 
 /**
  * Extract a flat, document-ordered list of all commands from a Full Parser tree.
- * The result is sorted by source position (guaranteed by tree walk order),
+ * The result is sorted by source position (guaranteed by tree visit order),
  * suitable for binary search.
+ *
+ * Uses Visitor instead of Listener: command visit methods push and return
+ * without calling visitChildren, avoiding unnecessary descent into argument nodes.
+ * Structural nodes (file, entity, conditional, etc.) have no visit method defined,
+ * so they fall through to the default visitChildren — correctly recursing into
+ * nested commands.
  */
 export function extractFlatCommands(tree: FileContext): FlatCommand[] {
     const commands: FlatCommand[] = [];
-    const push = (ctx: ParserRuleContext) => commands.push(new FlatCommand(ctx));
+    const push = (ctx: ParserRuleContext) => { commands.push(new FlatCommand(ctx)); };
 
-    const listener = new class extends CMakeParserListener {
+    const visitor = new class extends CMakeParserVisitor<void> {
         // Control flow commands
-        enterIfCmd = (ctx: IfCmdContext) => push(ctx);
-        enterElseIfCmd = (ctx: ElseIfCmdContext) => push(ctx);
-        enterElseCmd = (ctx: ElseCmdContext) => push(ctx);
-        enterEndIfCmd = (ctx: EndIfCmdContext) => push(ctx);
-        enterForeachCmd = (ctx: ForeachCmdContext) => push(ctx);
-        enterEndForeachCmd = (ctx: EndForeachCmdContext) => push(ctx);
-        enterWhileCmd = (ctx: WhileCmdContext) => push(ctx);
-        enterEndWhileCmd = (ctx: EndWhileCmdContext) => push(ctx);
-        enterMacroCmd = (ctx: MacroCmdContext) => push(ctx);
-        enterEndMacroCmd = (ctx: EndMacroCmdContext) => push(ctx);
-        enterFunctionCmd = (ctx: FunctionCmdContext) => push(ctx);
-        enterEndFunctionCmd = (ctx: EndFunctionCmdContext) => push(ctx);
+        visitIfCmd = (ctx: IfCmdContext) => { push(ctx); };
+        visitElseIfCmd = (ctx: ElseIfCmdContext) => { push(ctx); };
+        visitElseCmd = (ctx: ElseCmdContext) => { push(ctx); };
+        visitEndIfCmd = (ctx: EndIfCmdContext) => { push(ctx); };
+        visitForeachCmd = (ctx: ForeachCmdContext) => { push(ctx); };
+        visitEndForeachCmd = (ctx: EndForeachCmdContext) => { push(ctx); };
+        visitWhileCmd = (ctx: WhileCmdContext) => { push(ctx); };
+        visitEndWhileCmd = (ctx: EndWhileCmdContext) => { push(ctx); };
+        visitMacroCmd = (ctx: MacroCmdContext) => { push(ctx); };
+        visitEndMacroCmd = (ctx: EndMacroCmdContext) => { push(ctx); };
+        visitFunctionCmd = (ctx: FunctionCmdContext) => { push(ctx); };
+        visitEndFunctionCmd = (ctx: EndFunctionCmdContext) => { push(ctx); };
         // Regular commands
-        enterBreakCmd = (ctx: BreakCmdContext) => push(ctx);
-        enterContinueCmd = (ctx: ContinueCmdContext) => push(ctx);
-        enterSetCmd = (ctx: SetCmdContext) => push(ctx);
-        enterOptionCmd = (ctx: OptionCmdContext) => push(ctx);
-        enterIncludeCmd = (ctx: IncludeCmdContext) => push(ctx);
-        enterAddSubDirectoryCmd = (ctx: AddSubDirectoryCmdContext) => push(ctx);
-        enterOtherCmd = (ctx: OtherCmdContext) => push(ctx);
+        visitBreakCmd = (ctx: BreakCmdContext) => { push(ctx); };
+        visitContinueCmd = (ctx: ContinueCmdContext) => { push(ctx); };
+        visitSetCmd = (ctx: SetCmdContext) => { push(ctx); };
+        visitOptionCmd = (ctx: OptionCmdContext) => { push(ctx); };
+        visitIncludeCmd = (ctx: IncludeCmdContext) => { push(ctx); };
+        visitAddSubDirectoryCmd = (ctx: AddSubDirectoryCmdContext) => { push(ctx); };
+        visitOtherCmd = (ctx: OtherCmdContext) => { push(ctx); };
     };
 
-    ParseTreeWalker.DEFAULT.walk(listener, tree);
+    visitor.visit(tree);
     return commands;
 }
