@@ -1,20 +1,18 @@
 import { CommonTokenStream, Token } from "antlr4";
-import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
-import { CommandContext, FileContext } from "./generated/CMakeSimpleParser";
-import CMakeSimpleParserListener from "./generated/CMakeSimpleParserListener";
+import { FlatCommand } from "./flatCommands";
+import CMakeLexer from "./generated/CMakeLexer";
+import { ArgumentContext } from "./generated/CMakeParser";
 
-export class Formatter extends CMakeSimpleParserListener {
+export class Formatter {
     private _indent: number;
     private _indentLevel: number;
     private _tokenStream: CommonTokenStream;
     private _formatted: string;
-    private hiddenChannel = CMakeSimpleLexer.channelNames.indexOf("HIDDEN");
-    private commentsChannel = CMakeSimpleLexer.channelNames.indexOf("COMMENTS");
-    private defaultChannel = CMakeSimpleLexer.channelNames.indexOf("DEFAULT_TOKEN_CHANNEL");
+    private hiddenChannel = CMakeLexer.channelNames.indexOf("HIDDEN");
+    private commentsChannel = CMakeLexer.channelNames.indexOf("COMMENTS");
+    private defaultChannel = CMakeLexer.channelNames.indexOf("DEFAULT_TOKEN_CHANNEL");
 
-    constructor(_indent: number, tokenStream: any) {
-        super();
-
+    constructor(_indent: number, tokenStream: CommonTokenStream) {
         this._indent = _indent;
         this._indentLevel = 0;
         this._tokenStream = tokenStream;
@@ -25,17 +23,21 @@ export class Formatter extends CMakeSimpleParserListener {
         return this._formatted;
     }
 
-    enterFile = (ctx: FileContext) => {
+    format(commands: FlatCommand[]): void {
+        // Handle leading hidden tokens (comments, newlines before first command)
         for (let token of this._tokenStream.tokens) {
             if (token.channel !== this.hiddenChannel && token.channel !== this.commentsChannel) {
                 break;
             }
             this._formatted += token.text;
         }
-    };
 
+        for (const cmd of commands) {
+            this.formatCommand(cmd);
+        }
+    }
 
-    enterCommand = (ctx: CommandContext) => {
+    private formatCommand(ctx: FlatCommand): void {
         const cmd = ctx.start.text;
 
         if (this.isEndCommandGroupCmd(cmd)) {
@@ -57,12 +59,13 @@ export class Formatter extends CMakeSimpleParserListener {
         );
 
         // all arguments
-        const cnt: number = ctx.argument_list().length;
+        const args = ctx.argument_list();
+        const cnt: number = args.length;
         const indent = (this._indentLevel + 1) * this._indent;
         const cmdLineNo: number = ctx.LP().symbol.line;
         let prevLineNo: number = cmdLineNo;
         let curLineNo: number = -1;
-        ctx.argument_list().forEach((argCtx, index, array) => {
+        args.forEach((argCtx, index, array) => {
             curLineNo = argCtx.start.line;
             if (curLineNo !== prevLineNo) {
                 this._formatted += ' '.repeat(indent);
@@ -94,10 +97,10 @@ export class Formatter extends CMakeSimpleParserListener {
         this._formatted += comment;
 
         const nextToken = comment === '' ? this._tokenStream.get(rParenIndex + 1) : this._tokenStream.get(rParenIndex + 2);
-        if (nextToken.type === CMakeSimpleLexer.EOF) {
+        if (nextToken.type === CMakeLexer.EOF) {
             this._formatted += '\n';
             return;
-        } else if (nextToken.type === CMakeSimpleLexer.NL && nextToken.channel === this.defaultChannel) {
+        } else if (nextToken.type === CMakeLexer.NL && nextToken.channel === this.defaultChannel) {
             this._formatted += '\n';
             // consider increase or decrease indent level
             if (this.isCommandGroupCmd(cmd)) {
@@ -107,7 +110,7 @@ export class Formatter extends CMakeSimpleParserListener {
             // get all comments and newlines after command terminator
             this._formatted += this.getHiddenTextOnRight(nextToken.tokenIndex, this.getIndent());
         }
-    };
+    }
 
     private getIndent(): number {
         return this._indent * this._indentLevel;
@@ -132,14 +135,14 @@ export class Formatter extends CMakeSimpleParserListener {
         }
 
         if ((hiddenTokens.length > 0) &&
-            (hiddenTokens[0].type === CMakeSimpleLexer.Comment) && hiddenTokens[0].line === token.line) {
+            (hiddenTokens[0].type === CMakeLexer.Comment) && hiddenTokens[0].line === token.line) {
             result += ' ';
         }
 
         let prevLineNo: number = token.line;
         hiddenTokens.forEach((t, index) => {
             const curLineNo: number = t.line;
-            if ((curLineNo !== prevLineNo) && (t.type === CMakeSimpleLexer.Comment)) {
+            if ((curLineNo !== prevLineNo) && (t.type === CMakeLexer.Comment)) {
                 result += ' '.repeat(indent);
             }
 
@@ -150,7 +153,7 @@ export class Formatter extends CMakeSimpleParserListener {
         return result;
     }
 
-    private getArgumentText(argCtx: CommandContext, indent: number): string {
+    private getArgumentText(argCtx: ArgumentContext, indent: number): string {
         if (!argCtx.stop) {
             throw new Error('Argument context stop token is missing.');
         }
@@ -193,7 +196,7 @@ export class Formatter extends CMakeSimpleParserListener {
     }
 
     private getTokenEndLine(token: Token): number {
-        if (token.type === CMakeSimpleLexer.IgnoreNLBetweenArgs) {
+        if (token.type === CMakeLexer.IgnoreNLBetweenArgs) {
             return token.line;
         }
         return token.line + token.text.split('\n').length - 1;

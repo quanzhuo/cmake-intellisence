@@ -2,7 +2,8 @@ import * as assert from 'assert';
 import { before } from "mocha";
 import { CMakeInfo } from "../cmakeInfo";
 import { CMakeCompletionType, getCompletionInfoAtCursor, isCursorWithinParentheses } from "../completion";
-import { getSimpleFileContext } from "../utils";
+import { extractFlatCommands } from "../flatCommands";
+import { getFileContext } from "../utils";
 
 suite('Completion Tests', () => {
     let cmakeInfo: CMakeInfo;
@@ -78,7 +79,7 @@ suite('Utility Function Tests', () => {
 mock_command ( arg1 
 arg2 ) 
 `;
-        const fileContext = getSimpleFileContext(input);
+        const commands = extractFlatCommands(getFileContext(input));
         const testCases = [
             {
                 pos: { line: 0, character: 0 },
@@ -112,7 +113,7 @@ arg2 )
         ];
 
         testCases.forEach(({ pos, expected }) => {
-            const result = getCompletionInfoAtCursor(fileContext, pos);
+            const result = getCompletionInfoAtCursor(commands, pos);
             assert.strictEqual(result.type, expected.type);
         });
     });
@@ -123,7 +124,7 @@ mock_command ( arg1
 
 arg2  arg3          arg4 ) 
 `;
-        const fileContext = getSimpleFileContext(input);
+        const commands = extractFlatCommands(getFileContext(input));
         const testCases = [
             {
                 pos: { line: 1, character: 14 },
@@ -192,7 +193,7 @@ arg2  arg3          arg4 )
         ];
 
         testCases.forEach(({ pos, expected }) => {
-            const result = getCompletionInfoAtCursor(fileContext, pos);
+            const result = getCompletionInfoAtCursor(commands, pos);
             assert.strictEqual(result.type, expected.type);
             assert.strictEqual(result.command, expected.command);
             assert.strictEqual(result.index, expected.index);
@@ -201,7 +202,7 @@ arg2  arg3          arg4 )
 
     test('getCompletionInfoAtCursor variable 1', () => {
         const input = 'mock_command(arg1 ${})';
-        const fileContext = getSimpleFileContext(input);
+        const commands = extractFlatCommands(getFileContext(input));
         const testCases = [
             {
                 pos: { line: 0, character: 20 },
@@ -219,14 +220,14 @@ arg2  arg3          arg4 )
         ];
 
         testCases.forEach(({ pos, expected }) => {
-            const result = getCompletionInfoAtCursor(fileContext, pos);
+            const result = getCompletionInfoAtCursor(commands, pos);
             assert.strictEqual(result.type, expected.type);
         });
     });
 
     test('getCompletionInfoAtCursor variable 2', () => {
         const input = "mock_command( arg1 ${CMAKE})";
-        const fileContext = getSimpleFileContext(input);
+        const commands = extractFlatCommands(getFileContext(input));
         const testCases = [
             {
                 pos: { line: 0, character: 21 },
@@ -244,14 +245,14 @@ arg2  arg3          arg4 )
         ];
 
         testCases.forEach(({ pos, expected }) => {
-            const result = getCompletionInfoAtCursor(fileContext, pos);
+            const result = getCompletionInfoAtCursor(commands, pos);
             assert.strictEqual(result.type, expected.type);
         });
     });
 
     test('getCompletionInfoAtCursor variable 3', () => {
         const input = "mock_command(arg1 ${CMAKE} ${FOO})";
-        const fileContext = getSimpleFileContext(input);
+        const commands = extractFlatCommands(getFileContext(input));
         const testCases = [
             {
                 pos: { line: 0, character: 20 },
@@ -284,14 +285,14 @@ arg2  arg3          arg4 )
         ];
 
         testCases.forEach(({ pos, expected }) => {
-            const result = getCompletionInfoAtCursor(fileContext, pos);
+            const result = getCompletionInfoAtCursor(commands, pos);
             assert.strictEqual(result.type, expected.type);
         });
     });
 
     test('multi variable reference in single argument should work', () => {
         const input = 'mock_command(arg1 ${Foo}${Bar})';
-        const fileContext = getSimpleFileContext(input);
+        const commands = extractFlatCommands(getFileContext(input));
         const testCases = [
             {
                 pos: { line: 0, character: 19 },
@@ -312,7 +313,7 @@ arg2  arg3          arg4 )
         ];
 
         testCases.forEach(({ pos, expected }) => {
-            const result = getCompletionInfoAtCursor(fileContext, pos);
+            const result = getCompletionInfoAtCursor(commands, pos);
             assert.strictEqual(result.type, expected.type);
         });
     });

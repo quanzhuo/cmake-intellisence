@@ -5,8 +5,9 @@ import { CompletionItem, CompletionItemKind, CompletionItemTag, CompletionList, 
 import { URI } from "vscode-uri";
 import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from "./cmakeInfo";
-import CMakeSimpleLexer from "./generated/CMakeSimpleLexer";
-import * as cmsp from "./generated/CMakeSimpleParser";
+import { FlatCommand } from "./flatCommands";
+import CMakeLexer from "./generated/CMakeLexer";
+import { ArgumentContext } from "./generated/CMakeParser";
 import { Logger } from "./logging";
 
 export { builtinCmds };
@@ -38,7 +39,7 @@ export interface CMakeCompletionInfo {
     /**
      * if type is CMakeCompletionType.Argument, this field is the current command context
      */
-    context?: cmsp.CommandContext,
+    context?: FlatCommand,
 
     /**
      * if type is CMakeCompletionType.Argument, this field is the active command name
@@ -118,7 +119,7 @@ export function inComments(pos: Position, comments: Token[]): boolean {
  * @param position - The position to check against the command contexts.
  * @returns The command context if the position is within any command's range, otherwise null.
  */
-export function findCommandAtPosition(contexts: cmsp.CommandContext[], position: Position): cmsp.CommandContext | null {
+export function findCommandAtPosition(contexts: FlatCommand[], position: Position): FlatCommand | null {
     if (contexts.length === 0) {
         return null;
     }
@@ -178,8 +179,7 @@ export function isCursorWithinParentheses(position: Position, lParenLine: number
  * The function determines if the cursor is within a command's parentheses and identifies the current argument index if so.
  * If the cursor is not within any command's parentheses, it returns a completion type of `Command`.
  */
-export function getCompletionInfoAtCursor(tree: cmsp.FileContext, pos: Position): CMakeCompletionInfo {
-    const commands: cmsp.CommandContext[] = tree.command_list();
+export function getCompletionInfoAtCursor(commands: FlatCommand[], pos: Position): CMakeCompletionInfo {
     const currentCommand = findCommandAtPosition(commands, pos);
     if (currentCommand === null) {
         return { type: CMakeCompletionType.Command };
@@ -238,8 +238,8 @@ export default class Completion {
 
     constructor(
         private cmakeInfo: CMakeInfo,
-        private simpleFileContexts: Map<string, cmsp.FileContext>,
-        private simpleTokenStreams: Map<string, CommonTokenStream>,
+        private flatCommandsMap: Map<string, FlatCommand[]>,
+        private tokenStreams: Map<string, CommonTokenStream>,
         private projectInfo: ProjectInfo = {} as ProjectInfo,
         private word: string,
         private logger: Logger,
@@ -685,20 +685,23 @@ export default class Completion {
 
     public async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
         this.completionParams = params;
-        const simpleTokenStream = this.simpleTokenStreams.get(params.textDocument.uri);
-        if (!simpleTokenStream) {
+        const tokenStream = this.tokenStreams.get(params.textDocument.uri);
+        if (!tokenStream) {
             return null;
         }
 
-        const comments = simpleTokenStream.tokens.filter(token => token.channel === CMakeSimpleLexer.channelNames.indexOf("COMMENTS"));
+        const comments = tokenStream.tokens.filter(token => token.channel === CMakeLexer.channelNames.indexOf("COMMENTS"));
 
         // if the cursor is in comments, return null
         if (inComments(params.position, comments)) {
             return null;
         }
 
-        const simpleFileContext = this.simpleFileContexts.get(params.textDocument.uri);
-        const info = getCompletionInfoAtCursor(simpleFileContext!, params.position);
+        const commands = this.flatCommandsMap.get(params.textDocument.uri);
+        if (!commands) {
+            return null;
+        }
+        const info = getCompletionInfoAtCursor(commands, params.position);
         if (info.type === CMakeCompletionType.Command) {
             return this.getCommandSuggestions(this.word);
         } else if (info.type === CMakeCompletionType.Argument) {

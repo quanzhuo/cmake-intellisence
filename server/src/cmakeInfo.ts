@@ -9,9 +9,9 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
 import * as which from 'which';
 import { ProjectInfo } from './completion';
-import * as cmsp from './generated/CMakeSimpleParser';
-import CMakeSimpleParserListener from './generated/CMakeSimpleParserListener';
-import { getFileContent, getSimpleFileContext } from './utils';
+import { FlatCommand, extractFlatCommands } from './flatCommands';
+import { FileContext } from './generated/CMakeParser';
+import { getFileContent, getFileContext } from './utils';
 
 type Modules = string[];
 type Policies = string[];
@@ -179,18 +179,17 @@ export class CMakeInfo {
     }
 }
 
-export class ProjectInfoListener extends CMakeSimpleParserListener {
+export class ProjectInfoListener {
     private commands: Set<string>;
     constructor(
         private cmakeInfo: CMakeInfo,
         private currentCMake: string,
         private baseDirectory: string,
-        private simpleFileContexts: Map<string, cmsp.FileContext>,
+        private fileContexts: Map<string, FileContext>,
         private documents: TextDocuments<TextDocument>,
         private parsedFiles: Set<string>,
         private workspaceFolder: string,
     ) {
-        super();
         this.commands = new Set<string>(this.cmakeInfo.commands);
     }
 
@@ -200,14 +199,14 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
         ProjectInfoListener.projectInfo = {} as ProjectInfo;
     }
 
-    private project(ctx: cmsp.CommandContext): void {
+    private project(ctx: FlatCommand): void {
         const args = ctx.argument_list();
         if (args.length > 0) {
             ProjectInfoListener.projectInfo.projectName = args[0].getText();
         }
     }
 
-    private addExecutable(ctx: cmsp.CommandContext): void {
+    private addExecutable(ctx: FlatCommand): void {
         const args = ctx.argument_list();
         if (args.length > 0) {
             ProjectInfoListener.projectInfo.executables = ProjectInfoListener.projectInfo.executables ?? new Set<string>();
@@ -215,7 +214,7 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
         }
     }
 
-    private addLibrary(ctx: cmsp.CommandContext): void {
+    private addLibrary(ctx: FlatCommand): void {
         const args = ctx.argument_list();
         if (args.length > 0) {
             ProjectInfoListener.projectInfo.libraries = ProjectInfoListener.projectInfo.libraries ?? new Set<string>();
@@ -251,7 +250,7 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
         return null;
     }
 
-    private findPackage(ctx: cmsp.CommandContext): void {
+    private findPackage(ctx: FlatCommand): void {
         const args = ctx.argument_list();
         if (args.length <= 0) {
             return;
@@ -272,20 +271,19 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
             return;
         }
 
-        let tree: cmsp.FileContext | undefined;
-        if (this.simpleFileContexts.has(targetCMakeFile)) {
-            tree = this.simpleFileContexts.get(targetCMakeFile);
+        let tree: FileContext;
+        if (this.fileContexts.has(targetCMakeFile)) {
+            tree = this.fileContexts.get(targetCMakeFile)!;
         } else {
-            tree = getSimpleFileContext(getFileContent(this.documents, URI.parse(targetCMakeFile)));
-            this.simpleFileContexts.set(targetCMakeFile, tree);
+            tree = getFileContext(getFileContent(this.documents, URI.parse(targetCMakeFile)));
+            this.fileContexts.set(targetCMakeFile, tree);
         }
-        if (tree) {
-            const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.simpleFileContexts, this.documents, this.parsedFiles, this.workspaceFolder);
-            ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
-        }
+        const commands = extractFlatCommands(tree);
+        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.fileContexts, this.documents, this.parsedFiles, this.workspaceFolder);
+        projectInfoListener.processCommands(commands);
     }
 
-    private include(ctx: cmsp.CommandContext): void {
+    private include(ctx: FlatCommand): void {
         const args = ctx.argument_list();
         if (args.length !== 1) {
             return;
@@ -304,21 +302,19 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
             return;
         }
 
-        let tree: cmsp.FileContext | undefined;
-        if (this.simpleFileContexts.has(targetCMakeFile)) {
-            tree = this.simpleFileContexts.get(targetCMakeFile);
+        let tree: FileContext;
+        if (this.fileContexts.has(targetCMakeFile)) {
+            tree = this.fileContexts.get(targetCMakeFile)!;
         } else {
-            tree = getSimpleFileContext(getFileContent(this.documents, URI.parse(targetCMakeFile)));
-            this.simpleFileContexts.set(targetCMakeFile, tree);
+            tree = getFileContext(getFileContent(this.documents, URI.parse(targetCMakeFile)));
+            this.fileContexts.set(targetCMakeFile, tree);
         }
-
-        if (tree) {
-            const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.simpleFileContexts, this.documents, this.parsedFiles, this.workspaceFolder);
-            ParseTreeWalker.DEFAULT.walk(projectInfoListener, tree);
-        }
+        const commands = extractFlatCommands(tree);
+        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, targetCMakeFile, this.baseDirectory, this.fileContexts, this.documents, this.parsedFiles, this.workspaceFolder);
+        projectInfoListener.processCommands(commands);
     }
 
-    private functionOrMacro(ctx: cmsp.CommandContext): void {
+    private functionOrMacro(ctx: FlatCommand): void {
         const args = ctx.argument_list();
         if (args.length > 0) {
             ProjectInfoListener.projectInfo.functions = ProjectInfoListener.projectInfo.functions ?? new Set<string>();
@@ -326,31 +322,32 @@ export class ProjectInfoListener extends CMakeSimpleParserListener {
         }
     }
 
-    enterCommand?: (ctx: cmsp.CommandContext) => void = (ctx: cmsp.CommandContext) => {
-        const commandToken = ctx.start;
-        const command: string = commandToken.text.toLowerCase();
-        switch (command) {
-            case 'project':
-                this.project(ctx);
-                break;
-            case 'add_executable':
-                this.addExecutable(ctx);
-                break;
-            case 'add_library':
-                this.addLibrary(ctx);
-                break;
-            case 'find_package':
-                this.findPackage(ctx);
-                break;
-            case 'include':
-                this.include(ctx);
-                break;
-            case 'function':
-            case 'macro':
-                this.functionOrMacro(ctx);
-                break;
-            default:
-                break;
+    processCommands(commands: FlatCommand[]): void {
+        for (const cmd of commands) {
+            const commandName: string = cmd.commandName.toLowerCase();
+            switch (commandName) {
+                case 'project':
+                    this.project(cmd);
+                    break;
+                case 'add_executable':
+                    this.addExecutable(cmd);
+                    break;
+                case 'add_library':
+                    this.addLibrary(cmd);
+                    break;
+                case 'find_package':
+                    this.findPackage(cmd);
+                    break;
+                case 'include':
+                    this.include(cmd);
+                    break;
+                case 'function':
+                case 'macro':
+                    this.functionOrMacro(cmd);
+                    break;
+                default:
+                    break;
+            }
         }
-    };
+    }
 }

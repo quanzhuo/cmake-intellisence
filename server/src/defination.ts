@@ -6,9 +6,9 @@ import { Position, TextDocument } from "vscode-languageserver-textdocument";
 import { URI, Utils } from "vscode-uri";
 import { CMakeInfo } from "./cmakeInfo";
 import { builtinCmds } from "./completion";
+import { FlatCommand } from "./flatCommands";
 import { AddSubDirectoryCmdContext, ArgumentContext, FileContext, FunctionCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext } from "./generated/CMakeParser";
 import CMakeParserListener from "./generated/CMakeParserListener";
-import * as cmsp from "./generated/CMakeSimpleParser";
 import { Logger } from "./logging";
 import { getWordAtPosition } from "./server";
 import { FileScope, Scope, Symbol, SymbolKind } from "./symbolTable";
@@ -29,14 +29,14 @@ export class DefinitionResolver {
         private cmakeInfo: CMakeInfo,
         private workspaceFolder: string,
         private curFile: URI,
-        private command: cmsp.CommandContext,
+        private command: FlatCommand,
         private logger: Logger,
     ) {
         const dir = path.dirname(curFile.fsPath);
         this.baseDir = URI.file(dir);
     }
 
-    private findDestinationType(command: cmsp.CommandContext, pos: Position): DestinationType {
+    private findDestinationType(command: FlatCommand, pos: Position): DestinationType {
         const commandToken: Token = command.ID().symbol;
         if ((pos.line + 1 === commandToken.line) && (pos.character <= commandToken.column + commandToken.text.length)) {
             return DestinationType.Command;

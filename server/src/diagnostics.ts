@@ -2,10 +2,9 @@ import { ErrorListener, RecognitionException, Recognizer, Token } from "antlr4";
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver";
 import { CMakeInfo } from "./cmakeInfo";
 import { DIAG_CODE_CMD_CASE } from "./consts";
+import { FlatCommand } from "./flatCommands";
 import { BreakCmdContext, ContinueCmdContext, ForeachLoopContext, WhileLoopContext } from "./generated/CMakeParser";
 import CMakeListener from "./generated/CMakeParserListener";
-import * as csp from './generated/CMakeSimpleParser';
-import CMakeSimpleParserListener from "./generated/CMakeSimpleParserListener";
 import localize from "./localize";
 
 export class SyntaxErrorListener extends ErrorListener<Token> {
@@ -97,45 +96,46 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
     }
 }
 
-export class CommandCaseChecker extends CMakeSimpleParserListener {
+export class CommandCaseChecker {
     private diagnostics: Diagnostic[] = [];
     private commands: Set<string>;
 
     constructor(
         cmakeInfo: CMakeInfo,
     ) {
-        super();
         this.commands = new Set<string>(cmakeInfo.commands);
     }
 
-    enterCommand?: (ctx: csp.CommandContext) => void = (ctx: csp.CommandContext) => {
-        const token = ctx.start;
-        const command: string = token.text;
-        const lowerCaseCommand = command.toLowerCase();
-        if (!this.commands.has(lowerCaseCommand)) {
-            return;
-        }
-        const line: number = token.line, column: number = token.column;
-        const isLowerCase = lowerCaseCommand === command;
-        if (!isLowerCase) {
-            this.diagnostics.push({
-                range: {
-                    start: {
-                        line: line - 1,
-                        character: column
+    check(flatCommands: FlatCommand[]): void {
+        for (const cmd of flatCommands) {
+            const token = cmd.start;
+            const command: string = token.text;
+            const lowerCaseCommand = command.toLowerCase();
+            if (!this.commands.has(lowerCaseCommand)) {
+                continue;
+            }
+            const line: number = token.line, column: number = token.column;
+            const isLowerCase = lowerCaseCommand === command;
+            if (!isLowerCase) {
+                this.diagnostics.push({
+                    range: {
+                        start: {
+                            line: line - 1,
+                            character: column
+                        },
+                        end: {
+                            line: line - 1,
+                            character: column + command.length
+                        }
                     },
-                    end: {
-                        line: line - 1,
-                        character: column + command.length
-                    }
-                },
-                severity: DiagnosticSeverity.Information,
-                source: 'cmake-intellisence',
-                message: localize('diagnostics.cmdCase'),
-                code: DIAG_CODE_CMD_CASE,
-            });
+                    severity: DiagnosticSeverity.Information,
+                    source: 'cmake-intellisence',
+                    message: localize('diagnostics.cmdCase'),
+                    code: DIAG_CODE_CMD_CASE,
+                });
+            }
         }
-    };
+    }
 
     getCmdCaseDdiagnostics(): Diagnostic[] {
         return this.diagnostics;

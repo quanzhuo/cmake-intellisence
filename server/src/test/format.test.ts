@@ -1,8 +1,9 @@
-import { CharStreams, CommonTokenStream, ParseTreeWalker } from 'antlr4';
+import { CharStreams, CommonTokenStream } from 'antlr4';
 import * as assert from 'assert';
+import { extractFlatCommands } from '../flatCommands';
 import { Formatter } from '../format';
-import CMakeSimpleLexer from '../generated/CMakeSimpleLexer';
-import CMakeSimpleParser from '../generated/CMakeSimpleParser';
+import CMakeLexer from '../generated/CMakeLexer';
+import CMakeParser from '../generated/CMakeParser';
 import { SyntaxErrorListener } from './cmakeSimple.test';
 
 suite('Formatter Tests', () => {
@@ -474,14 +475,15 @@ set(VAR2 value2)
 
 function formatCMake(input: string, indentSize: number): [string, number] {
     const chars = CharStreams.fromString(input);
-    const lexer = new CMakeSimpleLexer(chars);
+    const lexer = new CMakeLexer(chars);
     const tokens = new CommonTokenStream(lexer);
-    const parser = new CMakeSimpleParser(tokens);
+    const parser = new CMakeParser(tokens);
     parser.removeErrorListeners();
     const syntaxErrorListener = new SyntaxErrorListener();
     parser.addErrorListener(syntaxErrorListener);
     const tree = parser.file();
+    const commands = extractFlatCommands(tree);
     const formatter = new Formatter(indentSize, tokens);
-    ParseTreeWalker.DEFAULT.walk(formatter, tree);
+    formatter.format(commands);
     return [formatter.formatted, syntaxErrorListener.errorCount];
 }

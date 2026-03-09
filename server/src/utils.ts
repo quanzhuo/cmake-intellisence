@@ -7,16 +7,6 @@ import { URI, Utils } from 'vscode-uri';
 import { CMakeInfo } from './cmakeInfo';
 import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
-import CMakeSimpleLexer from './generated/CMakeSimpleLexer';
-import CMakeSimpleParser, * as cmsp from './generated/CMakeSimpleParser';
-
-export function getSimpleFileContext(text: string): cmsp.FileContext {
-    const input: CharStream = CharStreams.fromString(text);
-    const lexer = new CMakeSimpleLexer(input);
-    const tokenStream = new CommonTokenStream(lexer);
-    const parser = new CMakeSimpleParser(tokenStream);
-    return parser.file();
-}
 
 export function getFileContext(text: string): FileContext {
     const input: CharStream = CharStreams.fromString(text);

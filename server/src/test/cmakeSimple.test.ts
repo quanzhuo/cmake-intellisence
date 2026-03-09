@@ -1,7 +1,8 @@
 import { CharStreams, CommonTokenStream, ErrorListener, RecognitionException, Recognizer, Token } from 'antlr4';
 import * as assert from 'assert';
-import CMakeSimpleLexer from '../generated/CMakeSimpleLexer';
-import CMakeSimpleParser, { FileContext } from '../generated/CMakeSimpleParser';
+import { extractFlatCommands, FlatCommand } from '../flatCommands';
+import CMakeLexer from '../generated/CMakeLexer';
+import CMakeParser from '../generated/CMakeParser';
 
 export class SyntaxErrorListener extends ErrorListener<Token> {
     private _errors = 0;
@@ -15,18 +16,19 @@ export class SyntaxErrorListener extends ErrorListener<Token> {
     }
 }
 
-suite('CMakeSimple Tests', () => {
+suite('CMake Parser Tests', () => {
 
-    function parseInput(input: string): [CommonTokenStream, FileContext, number] {
+    function parseInput(input: string): [CommonTokenStream, FlatCommand[], number] {
         const chars = CharStreams.fromString(input);
-        const lexer = new CMakeSimpleLexer(chars);
+        const lexer = new CMakeLexer(chars);
         const tokens = new CommonTokenStream(lexer);
-        const parser = new CMakeSimpleParser(tokens);
+        const parser = new CMakeParser(tokens);
         parser.removeErrorListeners();
         const syntaxErrorListener = new SyntaxErrorListener();
         parser.addErrorListener(syntaxErrorListener as any);
         const tree = parser.file();
-        return [tokens, tree, syntaxErrorListener.errorCount];
+        const commands = extractFlatCommands(tree);
+        return [tokens, commands, syntaxErrorListener.errorCount];
     }
 
     function findTokenWithText(tokens: CommonTokenStream, text: string): Token | null {
@@ -39,14 +41,13 @@ suite('CMakeSimple Tests', () => {
         return null;
     }
 
-    const defaultChannel = CMakeSimpleLexer.channelNames.indexOf('DEFAULT_TOKEN_CHANNEL');
-    const hiddenChannel = CMakeSimpleLexer.channelNames.indexOf('HIDDEN');
-    const commentsChannel = CMakeSimpleLexer.channelNames.indexOf('COMMENTS');
+    const defaultChannel = CMakeLexer.channelNames.indexOf('DEFAULT_TOKEN_CHANNEL');
+    const hiddenChannel = CMakeLexer.channelNames.indexOf('HIDDEN');
+    const commentsChannel = CMakeLexer.channelNames.indexOf('COMMENTS');
 
     test('should parse simple command', () => {
         const input = 'set(VAR value)\n';
-        const [_, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [_, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 1);
         assert.strictEqual(commands[0].argument_list().length, 2);
         assert.strictEqual(errs, 0);
@@ -54,8 +55,7 @@ suite('CMakeSimple Tests', () => {
 
     test('newline after the last command is optional', () => {
         const input = 'set(VAR value)';
-        const [_, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [_, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 1);
         assert.strictEqual(commands[0].argument_list().length, 2);
         assert.strictEqual(errs, 0);
@@ -82,40 +82,38 @@ suite('CMakeSimple Tests', () => {
 
     test('should parse bracket argument', () => {
         const input = 'set(VAR [=[This is a\nmulti-line\nstring]=])\n';
-        const [_, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [_, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 1);
         assert.strictEqual(commands[0].argument_list().length, 2);
         const arg0 = commands[0].argument_list()[0];
         const arg1 = commands[0].argument_list()[1];
         assert.strictEqual(arg0.ID().symbol.text, 'VAR');
-        assert.strictEqual(arg1.BracketArgument().symbol.type, CMakeSimpleLexer.BracketArgument);
+        assert.strictEqual(arg1.BracketArgument().symbol.type, CMakeLexer.BracketArgument);
         assert.strictEqual(errs, 0);
     });
 
     test('should parse quoted argument with escape sequences', () => {
         const input = 'message("Line1\\nLine2\\tTabbed")\n';
-        const [tokens, tree, errs] = parseInput(input);
-        const command = tree.command_list()[0];
+        const [tokens, commands, errs] = parseInput(input);
+        const command = commands[0];
         const arg0 = command.argument_list()[0];
-        assert.strictEqual(arg0.QuotedArgument().symbol.type, CMakeSimpleLexer.QuotedArgument);
+        assert.strictEqual(arg0.QuotedArgument().symbol.type, CMakeLexer.QuotedArgument);
         assert.strictEqual(arg0.QuotedArgument().symbol.text, '"Line1\\nLine2\\tTabbed"');
         assert.strictEqual(errs, 0);
     });
 
     test('should parse unquoted argument with escape sequences', () => {
         const input = 'set(VAR \\;\\t\\n)\n';
-        const [tokens, tree, errs] = parseInput(input);
-        const command = tree.command_list()[0];
+        const [tokens, commands, errs] = parseInput(input);
+        const command = commands[0];
         const arg1 = command.argument_list()[1];
-        assert.strictEqual(arg1.UnquotedArgument().symbol.type, CMakeSimpleLexer.UnquotedArgument);
+        assert.strictEqual(arg1.UnquotedArgument().symbol.type, CMakeLexer.UnquotedArgument);
         assert.strictEqual(errs, 0);
     });
 
     test('should parse nested parentheses', () => {
         const input = 'if(EXISTS "${CMAKE_SOURCE_DIR}/config.h")\nadd_definitions(-DHAS_CONFIG)\nendif()';
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [tokens, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 3);
         assert.strictEqual(commands[0].argument_list().length, 2);
         assert.strictEqual(commands[1].argument_list().length, 1);
@@ -125,19 +123,17 @@ suite('CMakeSimple Tests', () => {
 
     test('should parse complex command arguments', () => {
         const input = 'add_definitions(-DLOG_DIR="${LOG_DIR}")\n';
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [tokens, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 1);
         assert.strictEqual(commands[0].argument_list().length, 1);
         const arg0 = commands[0].argument_list()[0];
-        assert.strictEqual(arg0.UnquotedArgument().symbol.type, CMakeSimpleLexer.UnquotedArgument);
+        assert.strictEqual(arg0.UnquotedArgument().symbol.type, CMakeLexer.UnquotedArgument);
         assert.strictEqual(errs, 0);
     });
 
     test('should parse generator expressions', () => {
         const input = 'target_include_directories(tgt PRIVATE /opt/include/$<CXX_COMPILER_ID>)\n';
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [tokens, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 1);
         const args = commands[0].argument_list();
         assert.strictEqual(args.length, 3);
@@ -149,8 +145,7 @@ suite('CMakeSimple Tests', () => {
 
     test('should parse multi-line generator expressions', () => {
         const input = 'target_compile_definitions(tgt PRIVATE\n$<$<VERSION_LESS:$<CXX_COMPILER_VERSION>,4.2.0>:OLD_COMPILER>\n)\n';
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [tokens, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 1);
         const args = commands[0].argument_list();
         assert.strictEqual(args.length, 3);
@@ -162,8 +157,7 @@ suite('CMakeSimple Tests', () => {
 
     test('should parse complex conditional expressions', () => {
         const input = 'if(DEFINED ENV{MY_ENV_VAR} AND "\${MY_VAR}" STREQUAL "value")\nmessage("Condition met")\nendif()\n';
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [tokens, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 3);
         const ifCommand = commands[0];
         const messageCommand = commands[1];
@@ -180,22 +174,20 @@ suite('CMakeSimple Tests', () => {
 
     test('should lex complex input', () => {
         const input = 'set(VAR [=[This is a\nmulti-line\nstring]=])\n';
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [tokens, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 1);
         const args = commands[0].argument_list();
         assert.strictEqual(args.length, 2);
         assert.strictEqual(args[0].ID().symbol.text, 'VAR');
-        assert.strictEqual(args[1].BracketArgument().symbol.type, CMakeSimpleLexer.BracketArgument);
+        assert.strictEqual(args[1].BracketArgument().symbol.type, CMakeLexer.BracketArgument);
         assert.strictEqual(args[1].BracketArgument().symbol.text, '[=[This is a\nmulti-line\nstring]=]');
         assert.strictEqual(errs, 0);
     });
 
     test('should parse separated arguments', () => {
-        const input = 'if(FALSE AND (FALSE OR TRUE))';
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
-        assert.strictEqual(commands.length, 1);
+        const input = 'if(FALSE AND (FALSE OR TRUE))\nendif()';
+        const [tokens, commands, errs] = parseInput(input);
+        assert.strictEqual(commands.length, 2);
         const args = commands[0].argument_list();
         assert.strictEqual(args.length, 3);
         assert.strictEqual(errs, 0);
@@ -214,12 +206,11 @@ This is always one argument even though it contains a ; character.
 The text does not end on a closing bracket of length 0 like ]].
 It does end in a closing bracket of length 1.
 ]=])`;
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [tokens, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 1);
         const args = commands[0].argument_list();
         assert.strictEqual(args.length, 1);
-        assert.strictEqual(args[0].BracketArgument().symbol.type, CMakeSimpleLexer.BracketArgument);
+        assert.strictEqual(args[0].BracketArgument().symbol.type, CMakeLexer.BracketArgument);
         assert.strictEqual(errs, 0);
     });
 
@@ -232,12 +223,11 @@ The text does not end on an escaped double-quote like \\\".
 It does end in an unescaped double quote.
 ")
 `;
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [tokens, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 1);
         const args = commands[0].argument_list();
         assert.strictEqual(args.length, 2);
-        assert.strictEqual(args[1].QuotedArgument().symbol.type, CMakeSimpleLexer.QuotedArgument);
+        assert.strictEqual(args[1].QuotedArgument().symbol.type, CMakeLexer.QuotedArgument);
         assert.strictEqual(errs, 0);
     });
 
@@ -251,18 +241,17 @@ foreach(arg
     )
   message("\${arg}")
 endforeach()`;
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [tokens, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 3);
         const args = commands[0].argument_list();
         assert.strictEqual(args.length, 5);
-        assert.strictEqual(args[0].ID().symbol.type, CMakeSimpleLexer.ID);
+        assert.strictEqual(args[0].ID().symbol.type, CMakeLexer.ID);
         assert.strictEqual(args[1].ID().symbol.text, 'NoSpace');
-        assert.strictEqual(args[2].UnquotedArgument().symbol.type, CMakeSimpleLexer.UnquotedArgument);
+        assert.strictEqual(args[2].UnquotedArgument().symbol.type, CMakeLexer.UnquotedArgument);
         assert.strictEqual(args[2].UnquotedArgument().symbol.text, String.raw`Escaped\ Space`);
-        assert.strictEqual(args[3].UnquotedArgument().symbol.type, CMakeSimpleLexer.UnquotedArgument);
+        assert.strictEqual(args[3].UnquotedArgument().symbol.type, CMakeLexer.UnquotedArgument);
         assert.strictEqual(args[3].UnquotedArgument().symbol.text, 'This;Divides;Into;Five;Arguments');
-        assert.strictEqual(args[4].UnquotedArgument().symbol.type, CMakeSimpleLexer.UnquotedArgument);
+        assert.strictEqual(args[4].UnquotedArgument().symbol.type, CMakeLexer.UnquotedArgument);
         assert.strictEqual(args[4].UnquotedArgument().symbol.text, String.raw`Escaped\;Semicolon`);
         assert.strictEqual(errs, 0);
     });
@@ -273,18 +262,17 @@ endforeach()`;
 It runs until the close bracket.]]
 message("First Argument\n" #[[Bracket Comment]] "Second Argument")
 `;
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [tokens, commands, errs] = parseInput(input);
         const bracketComment1 = findTokenWithText(tokens, `#[[This is a bracket comment.
 It runs until the close bracket.]]`);
         assert(bracketComment1 !== null);
-        assert.strictEqual(bracketComment1.type, CMakeSimpleLexer.Comment);
+        assert.strictEqual(bracketComment1.type, CMakeLexer.Comment);
         assert.strictEqual(commands.length, 1);
         const args = commands[0].argument_list();
         assert.strictEqual(args.length, 2);
         const bracketComment2 = findTokenWithText(tokens, `#[[Bracket Comment]]`);
         assert(bracketComment2 !== null);
-        assert.strictEqual(bracketComment2.type, CMakeSimpleLexer.Comment);
+        assert.strictEqual(bracketComment2.type, CMakeLexer.Comment);
         assert.strictEqual(errs, 0);
     });
 
@@ -294,20 +282,19 @@ It runs until the close bracket.]]`);
 message("First Argument\n" # This is a line comment :)
         "Second Argument") # This is a line comment2.
 `;
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [tokens, commands, errs] = parseInput(input);
         const lineComment1 = findTokenWithText(tokens, `# This is a line comment1.`);
         assert(lineComment1 !== null);
-        assert.strictEqual(lineComment1.type, CMakeSimpleLexer.Comment);
+        assert.strictEqual(lineComment1.type, CMakeLexer.Comment);
         assert.strictEqual(commands.length, 1);
         const args = commands[0].argument_list();
         assert.strictEqual(args.length, 2);
         const lineComment2 = findTokenWithText(tokens, `# This is a line comment :)`);
         assert(lineComment2 !== null);
-        assert.strictEqual(lineComment2.type, CMakeSimpleLexer.Comment);
+        assert.strictEqual(lineComment2.type, CMakeLexer.Comment);
         const lineComment3 = findTokenWithText(tokens, `# This is a line comment2.`);
         assert(lineComment3 !== null);
-        assert.strictEqual(lineComment3.type, CMakeSimpleLexer.Comment);
+        assert.strictEqual(lineComment3.type, CMakeLexer.Comment);
         assert.strictEqual(errs, 0);
     });
 
@@ -318,12 +305,11 @@ set(VAR [=[This is a
 multi-line argument]=])
 message("\${VAR}")
 `;
-        const [tokens, tree, errs] = parseInput(input);
-        const commands = tree.command_list();
+        const [tokens, commands, errs] = parseInput(input);
         assert.strictEqual(commands.length, 2);
         assert.strictEqual(tokens.tokens.length, 14);
         const bracketComment = tokens.get(0);
-        assert.strictEqual(bracketComment.type, CMakeSimpleLexer.Comment);
+        assert.strictEqual(bracketComment.type, CMakeLexer.Comment);
         const setCommand = commands[0];
         const setToken = setCommand.ID().symbol;
         assert.strictEqual(setToken.line, 3);
