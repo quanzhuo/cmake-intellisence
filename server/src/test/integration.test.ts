@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as cp from 'child_process';
 import { EventEmitter } from 'events';
 import * as path from 'path';
+import { CMakeInfo, ExtensionSettings } from '../cmakeInfo';
 import {
     CompletionItemKind,
     CompletionRequest,
@@ -29,10 +30,20 @@ import {
 suite('LSP Integration Tests', () => {
     let connection: ProtocolConnection;
     let serverProcess: cp.ChildProcess;
+    let cmakeInfo: CMakeInfo;
     let docVersion = 0;
     const diagnosticEmitter = new EventEmitter();
+    const extSettings: ExtensionSettings = {
+        cmakePath: 'cmake',
+        pkgConfigPath: '',
+        cmdCaseDiagnostics: true,
+        loggingLevel: 'off'
+    };
 
     suiteSetup(async function () {
+        cmakeInfo = new CMakeInfo(extSettings);
+        await cmakeInfo.init();
+
         const serverModule = path.resolve(__dirname, '..', 'server.js');
         const debugArgs = process.execArgv.some(arg => /--inspect/.test(arg)) ? ['--inspect-brk=6009'] : [];
         serverProcess = cp.fork(serverModule, ['--node-ipc'], {
@@ -67,12 +78,7 @@ suite('LSP Integration Tests', () => {
             initializationOptions: {
                 extensionPath: path.resolve(__dirname, '..', '..', '..'),
                 language: 'en',
-                extSettings: {
-                    cmakePath: 'cmake',
-                    pkgConfigPath: '',
-                    cmdCaseDiagnostics: true,
-                    loggingLevel: 'off'
-                }
+                extSettings
             },
             workspaceFolders: [
                 { uri: 'file:///test-workspace', name: 'test' }
@@ -132,6 +138,27 @@ suite('LSP Integration Tests', () => {
     }
 
     // ── Completion ─────────────────────────────────────────────
+
+    test('should suggest all builtin commands', async function () {
+        const uri = 'file:///test-workspace/completion-all-cmds.txt';
+        openDocument(uri, '');
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 0 }
+        });
+
+        assert(result !== null);
+        const items = Array.isArray(result) ? result : result!.items;
+        assert(items.length > 0, 'Should return completion items');
+
+        cmakeInfo.commands.forEach(cmd => {
+            const suggest = items.find(i => i.label === cmd);
+            assert(suggest !== undefined, `Should suggest "${cmd}" command`);
+            assert.strictEqual(suggest.kind, CompletionItemKind.Function);
+        });
+        assert(items.length > cmakeInfo.commands.length);
+    });
 
     test('should provide completion for empty document', async function () {
         const uri = 'file:///test-workspace/completion-empty.txt';

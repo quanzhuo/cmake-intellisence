@@ -104,8 +104,12 @@ export class CMakeLanguageServer {
         this.initParams = params;
         initializationOptions = params.initializationOptions;
         this.extSettings = initializationOptions.extSettings;
-        this.cmakeInfo = new CMakeInfo(this.extSettings, this.connection);
-        await this.cmakeInfo.init();
+        this.cmakeInfo = new CMakeInfo(this.extSettings);
+        try {
+            await this.cmakeInfo.init();
+        } catch (e: any) {
+            this.connection.window.showErrorMessage(e.message);
+        }
         this.logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
 
         const result: InitializeResult = {
@@ -511,8 +515,12 @@ export class CMakeLanguageServer {
     private async onDidChangeConfiguration(params: DidChangeConfigurationParams) {
         const extSettings = await this.getExtSettings();
         if (extSettings.cmakePath !== this.extSettings.cmakePath) {
-            this.cmakeInfo = new CMakeInfo(extSettings, this.connection);
-            await this.cmakeInfo.init();
+            this.cmakeInfo = new CMakeInfo(extSettings);
+            try {
+                await this.cmakeInfo.init();
+            } catch (e: any) {
+                this.connection.window.showErrorMessage(e.message);
+            }
         }
         this.extSettings = extSettings;
     }

@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
-import { Connection, TextDocuments } from 'vscode-languageserver';
+import { TextDocuments } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
 import * as which from 'which';
@@ -40,19 +40,16 @@ export class CMakeInfo {
     public cmakePath: string;
     public cmakeModulePath?: string;
     public pkgConfigPath: string;
-    private connection: Connection;
 
-    constructor(extSettings: ExtensionSettings, connection: Connection,) {
+    constructor(extSettings: ExtensionSettings) {
         this.cmakePath = extSettings.cmakePath;
         this.pkgConfigPath = extSettings.pkgConfigPath;
-        this.connection = connection;
     }
 
     public async init() {
         const absPath: string | null = which.sync(this.cmakePath, { nothrow: true });
         if (absPath === null) {
-            this.connection.window.showErrorMessage(`CMakeInfo.init, cmake not found: ${this.cmakePath}`);
-            return;
+            throw new Error(`cmake not found: ${this.cmakePath}`);
         } else {
             this.cmakePath = absPath;
         }

@@ -113,6 +113,12 @@
     ],
     "keyword": ["RESULT", "QUERY",  "WINDOWS_REGISTRY", "VALUE_NAMES", "SUBKEYS", "VALUE", "VIEW", "SEPARATOR", "ERROR_VARIABLE", "NUMBER_OF_LOGICAL_CORES", "NUMBER_OF_PHYSICAL_CORES", "HOSTNAME", "FQDN", "TOTAL_VIRTUAL_MEMORY", "AVAILABLE_VIRTUAL_MEMORY", "TOTAL_PHYSICAL_MEMORY", "AVAILABLE_PHYSICAL_MEMORY", "IS_64BIT", "HAS_FPU", "HAS_MMX", "HAS_MMX_PLUS", "HAS_SSE", "HAS_SSE2", "HAS_SSE_FP", "HAS_SSE_MMX", "HAS_AMD_3DNOW", "HAS_AMD_3DNOW_PLUS", "HAS_IA64", "HAS_SERIAL_NUMBER", "PROCESSOR_SERIAL_NUMBER", "PROCESSOR_NAME", "PROCESSOR_DESCRIPTION", "OS_NAME", "OS_RELEASE", "OS_VERSION", "OS_PLATFORM", "MSYSTEM_PREFIX", "DISTRIB_INFO", "64", "32", "64_32", "32_64", "HOST", "TARGET", "BOTH"]
   },
+  "cmake_instrumentation": {
+    "sig": [
+      "cmake_instrumentation(API_VERSION <version> DATA_VERSION <version> [HOOKS <hooks>...] [OPTIONS <options>...] [CALLBACK <callback>] [CUSTOM_CONTENT <name> <type> <content>])"
+    ],
+    "keyword": ["API_VERSION", "DATA_VERSION", "HOOKS", "OPTIONS", "CALLBACK", "CUSTOM_CONTENT", "STRING", "BOOL", "LIST", "JSON"]
+  },
   "cmake_language": {
     "sig": [
       "cmake_language(CALL <command> [<arg>...])",

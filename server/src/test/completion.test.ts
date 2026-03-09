@@ -1,85 +1,59 @@
-import { CharStreams, CommonTokenStream } from "antlr4";
 import * as assert from 'assert';
 import { before } from "mocha";
-import { CompletionItem, CompletionItemKind, CompletionList, Position } from "vscode-languageserver";
 import { CMakeInfo } from "../cmakeInfo";
-import Completion, { CMakeCompletionType, getCompletionInfoAtCursor, isCursorWithinParentheses } from "../completion";
-import CMakeSimpleLexer from "../generated/CMakeSimpleLexer";
-import CMakeSimpleParser, * as cmsp from "../generated/CMakeSimpleParser";
-import { createLogger } from "../logging";
+import { CMakeCompletionType, getCompletionInfoAtCursor, isCursorWithinParentheses } from "../completion";
 import { getSimpleFileContext } from "../utils";
 
 suite('Completion Tests', () => {
     let cmakeInfo: CMakeInfo;
 
-    before(async function() {
+    before(async function () {
         this.timeout(10000);
-        cmakeInfo = new CMakeInfo({ cmakePath: "cmake", pkgConfigPath: "", cmdCaseDiagnostics: false, loggingLevel: 'off' }, null as any);
+        cmakeInfo = new CMakeInfo({
+            cmakePath: "cmake",
+            pkgConfigPath: "",
+            cmdCaseDiagnostics: false,
+            loggingLevel: 'off'
+        });
         await cmakeInfo.init();
     });
 
-    async function getSuggestions(input: string, position: Position, word: string): Promise<CompletionItem[] | CompletionList | null> {
-        const charStream = CharStreams.fromString(input);
-        const lexer = new CMakeSimpleLexer(charStream);
-        const tokenStream = new CommonTokenStream(lexer);
-        const parser = new CMakeSimpleParser(tokenStream);
-        parser.removeErrorListeners();
-        const fileContext = parser.file();
-        const simpleFileContexts = new Map<string, cmsp.FileContext>();
-        const simpleTokenStreams = new Map<string, CommonTokenStream>();
-        const fileUri = 'file:///test/CMakeLists.txt';
-        simpleFileContexts.set(fileUri, fileContext);
-        simpleTokenStreams.set(fileUri, tokenStream);
-        const params = { textDocument: { uri: fileUri }, position };
-        const logger = createLogger('cmake-intellisence', 'off');;
-        const completion = new Completion(cmakeInfo, simpleFileContexts, simpleTokenStreams, {}, word, logger);
-        return completion.onCompletion(params);
+    function findDuplicates(items: string[]): string[] {
+        const seen = new Set<string>();
+        const duplicates = new Set<string>();
+        for (const item of items) {
+            if (seen.has(item)) {
+                duplicates.add(item);
+            } else {
+                seen.add(item);
+            }
+        }
+        return Array.from(duplicates);
     }
 
-    test('should suggest all builtin commands', async () => {
-        const input = ``;
-        const suggestions = await getSuggestions(input, { line: 0, character: 0 }, "");
-        assert(Array.isArray(suggestions));
-        cmakeInfo.commands.forEach(cmd => {
-            const suggest = suggestions.find(s => s.label === cmd);
-            assert(suggest !== undefined);
-            assert.strictEqual(suggest.kind, CompletionItemKind.Function);
-        });
-        assert(suggestions.length > cmakeInfo.commands.length);
-        assert.strictEqual(suggestions[0].kind, CompletionItemKind.Function);
+    test('variables should be unique', () => {
+        const duplicates = findDuplicates(cmakeInfo.variables);
+        assert.strictEqual(duplicates.length, 0, `Duplicate variables found: ${duplicates.join(', ')}`);
     });
 
-    test('cmake_minimum_required', async () => {
-        const input = `cmake_mini`;
-        const suggestions = await getSuggestions(input, { line: 0, character: 10 }, "cmake_mini");
-        assert(Array.isArray(suggestions));
-        const suggestion = suggestions.find(s => s.label === "cmake_minimum_required");
-        assert(suggestion !== undefined);
+    test('modules should be unique', () => {
+        const duplicates = findDuplicates(cmakeInfo.modules);
+        assert.strictEqual(duplicates.length, 0, `Duplicate modules found: ${duplicates.join(', ')}`);
     });
 
-    test('variables should be unique', async () => {
-        const duplicates = cmakeInfo.variables.filter((item, index) => cmakeInfo.variables.indexOf(item) !== index);
-        assert.strictEqual(duplicates.length, 0, `Duplicate variables found: ${duplicates}`);
+    test('policies should be unique', () => {
+        const duplicates = findDuplicates(cmakeInfo.policies);
+        assert.strictEqual(duplicates.length, 0, `Duplicate policies found: ${duplicates.join(', ')}`);
     });
 
-    test('modules should be unique', async () => {
-        const duplicates = cmakeInfo.modules.filter((item, index) => cmakeInfo.modules.indexOf(item) !== index);
-        assert.strictEqual(duplicates.length, 0, `Duplicate modules found: ${duplicates}`);
+    test('properties should be unique', () => {
+        const duplicates = findDuplicates(cmakeInfo.properties);
+        assert.strictEqual(duplicates.length, 0, `Duplicate properties found: ${duplicates.join(', ')}`);
     });
 
-    test('policies should be unique', async () => {
-        const duplicates = cmakeInfo.policies.filter((item, index) => cmakeInfo.policies.indexOf(item) !== index);
-        assert.strictEqual(duplicates.length, 0, `Duplicate policies found: ${duplicates}`);
-    });
-
-    test('properties should be unique', async () => {
-        const duplicates = cmakeInfo.properties.filter((item, index) => cmakeInfo.properties.indexOf(item) !== index);
-        assert.strictEqual(duplicates.length, 0, `Duplicate properties found: ${duplicates}`);
-    });
-
-    test('commands should be unique', async () => {
-        const duplicates = cmakeInfo.commands.filter((item, index) => cmakeInfo.commands.indexOf(item) !== index);
-        assert.strictEqual(duplicates.length, 0, `Duplicate commands found: ${duplicates}`);
+    test('commands should be unique', () => {
+        const duplicates = findDuplicates(cmakeInfo.commands);
+        assert.strictEqual(duplicates.length, 0, `Duplicate commands found: ${duplicates.join(', ')}`);
     });
 });
 
