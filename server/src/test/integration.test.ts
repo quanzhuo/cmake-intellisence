@@ -209,30 +209,51 @@ suite('LSP Integration Tests', () => {
         assert(match !== undefined, 'Should suggest "cmake_minimum_required" for partial input');
     });
 
-    test('should provide property completion for project() command', async function () {
-        const uri = 'file:///test-workspace/completion-project-args.txt';
-        // 光标位于括号内
-        openDocument(uri, 'project()');
+    test('should provide keyword completion for all builtin commands', async function () {
+        this.timeout(120000);
+        const cmds: Record<string, { keyword?: string[] }> = require('../builtin-cmds.json');
 
-        // 光标在括号内，紧跟 project(
-        const result = await connection.sendRequest(CompletionRequest.type, {
-            textDocument: { uri },
-            position: { line: 0, character: 8 }
-        });
+        // These commands always override keyword completion with custom suggestions
+        const skipCommands = new Set([
+            'pkg_check_modules',      // always returns pkg-config suggestions
+            'target_link_libraries',  // always returns custom items at index > 0
+        ]);
 
-        assert(result !== null);
-        const items = Array.isArray(result) ? result : result!.items;
-        // builtin-cmds.json 中 project 的 keyword
-        const expectedKeywords = [
-            "VERSION", "DESCRIPTION", "HOMEPAGE_URL", "LANGUAGES",
-            "C", "CXX", "CUDA", "OBJC", "OBJCXX", "Fortran", "HIP", "ISPC", "ASM", "NONE"
-        ];
-        for (const kw of expectedKeywords) {
-            const found = items.find(i => i.label === kw);
-            assert(found, `Should suggest keyword '${kw}' in project() completion`);
+        // Block commands need proper wrapping to satisfy the CMake parser grammar
+        function buildContent(cmdName: string): { content: string; line: number } {
+            const cmdLine = `${cmdName}(x y z )`;
+            switch (cmdName) {
+                case 'if': return { content: `${cmdLine}\nendif()`, line: 0 };
+                case 'elseif': return { content: `if(cond)\n${cmdLine}\nendif()`, line: 1 };
+                case 'foreach': return { content: `${cmdLine}\nendforeach()`, line: 0 };
+                case 'while': return { content: `${cmdLine}\nendwhile()`, line: 0 };
+                default: return { content: cmdLine, line: 0 };
+            }
         }
-        // 也可以检查补全类型
-        // assert(items.every(i => i.kind === CompletionItemKind.Property || i.kind === CompletionItemKind.EnumMember));
+
+        for (const [cmdName, cmdInfo] of Object.entries(cmds)) {
+            if (!cmdInfo.keyword || cmdInfo.keyword.length === 0) { continue; }
+            if (skipCommands.has(cmdName)) { continue; }
+
+            const { content, line } = buildContent(cmdName);
+            // Cursor at the space before ')' in `cmdName(x y z )`
+            const cursorChar = cmdName.length + 1 + 'x y z '.length - 1;
+            const uri = `file:///test-workspace/kw-${cmdName}.txt`;
+            openDocument(uri, content);
+
+            const result = await connection.sendRequest(CompletionRequest.type, {
+                textDocument: { uri },
+                position: { line, character: cursorChar }
+            });
+
+            assert(result !== null, `${cmdName}: completion should not be null`);
+            const items = Array.isArray(result) ? result : result!.items;
+            const labels = new Set(items.map(i => i.label));
+
+            for (const kw of cmdInfo.keyword) {
+                assert(labels.has(kw), `${cmdName}: should suggest keyword '${kw}'`);
+            }
+        }
     });
 
     // ── Hover ──────────────────────────────────────────────────
