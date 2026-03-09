@@ -120,7 +120,7 @@ export class DocumentLinkInfo {
 
         const firstArg: ArgumentContext = args[0];
         const argName = firstArg.getText();
-        if (this.cmakeInfo.modules.includes(argName)) {
+        if (this.cmakeInfo.modules.has(argName)) {
             return this.includeSystemModule(firstArg);
         }
 

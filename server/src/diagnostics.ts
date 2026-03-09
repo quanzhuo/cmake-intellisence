@@ -103,7 +103,7 @@ export class CommandCaseChecker {
     constructor(
         cmakeInfo: CMakeInfo,
     ) {
-        this.commands = new Set<string>(cmakeInfo.commands);
+        this.commands = cmakeInfo.commands;
     }
 
     check(flatCommands: FlatCommand[]): void {

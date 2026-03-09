@@ -116,7 +116,7 @@ export class SemanticTokenListener extends CMakeParserListener {
     }
 
     private isVariable(token: string): boolean {
-        return this.cmakeInfo.variables.includes(token);
+        return this.cmakeInfo.variables.has(token);
     }
 
     private getModifiers(modifiers: TokenModifiers[]): number {

@@ -136,7 +136,7 @@ class BaseDefinitionVisitor extends CMakeParserVisitor<Symbol[] | null> {
         if (!ctx.children) { return null; }
         for (const child of ctx.children) {
             const result = this.visit(child);
-            if (result != null) { return result; }
+            if (result !== null) { return result; }
         }
         return null;
     }

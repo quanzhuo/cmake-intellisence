@@ -170,7 +170,7 @@ suite('LSP Integration Tests', () => {
             assert(suggest !== undefined, `Should suggest "${cmd}" command`);
             assert.strictEqual(suggest.kind, CompletionItemKind.Function);
         });
-        assert(items.length > cmakeInfo.commands.length);
+        assert(items.length > cmakeInfo.commands.size, 'Should have additional completion items beyond builtin commands');
     });
 
     test('should provide completion for empty document', async function () {

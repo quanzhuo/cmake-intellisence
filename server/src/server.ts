@@ -56,6 +56,7 @@ export class CMakeLanguageServer {
     private fileContexts: Map<string, FileContext> = new Map();
     private tokenStreams: Map<string, CommonTokenStream> = new Map();
     private flatCommandsMap: Map<string, FlatCommand[]> = new Map();
+    private commentsMap: Map<string, Token[]> = new Map();
     private projectInfo?: ProjectInfo;
     private logger: Logger = createLogger('cmake-intellisence', 'off');
 
@@ -162,8 +163,7 @@ export class CMakeLanguageServer {
     }
 
     private async onHover(params: HoverParams): Promise<Hover | null> {
-        const tokenStream = this.getTokenStream(params.textDocument.uri);
-        const comments = tokenStream.tokens.filter(token => token.channel === CMakeLexer.channelNames.indexOf("COMMENTS"));
+        const comments = this.getComments(params.textDocument.uri);
         if (inComments(params.position, comments)) {
             return null;
         }
@@ -188,20 +188,20 @@ export class CMakeLanguageServer {
         let arg = '', category = '';
         if ((params.position.line + 1 === commandToken.line) &&
             (params.position.character <= commandToken.column + commandToken.text.length) &&
-            this.cmakeInfo.commands.includes(commandName)) {
+            this.cmakeInfo.commands.has(commandName)) {
             arg = '--help-command';
             category = 'command';
             word = commandName;
-        } else if (commandName === 'include' && this.cmakeInfo.modules.includes(word)) {
+        } else if (commandName === 'include' && this.cmakeInfo.modules.has(word)) {
             arg = '--help-module';
             category = 'module';
-        } else if (commandName === 'cmake_policy' && this.cmakeInfo.policies.includes(word)) {
+        } else if (commandName === 'cmake_policy' && this.cmakeInfo.policies.has(word)) {
             arg = '--help-policy';
             category = 'policy';
-        } else if (this.cmakeInfo.variables.includes(word)) {
+        } else if (this.cmakeInfo.variables.has(word)) {
             arg = '--help-variable';
             category = 'variable';
-        } else if (this.cmakeInfo.properties.includes(word)) {
+        } else if (this.cmakeInfo.properties.has(word)) {
             arg = '--help-property';
             category = 'property';
         }
@@ -405,8 +405,7 @@ export class CMakeLanguageServer {
 
     private onDefinition(params: DefinitionParams): Promise<Location | Location[] | LocationLink[] | null> {
         const uri: string = params.textDocument.uri;
-        const tokenStream: CommonTokenStream = this.getTokenStream(uri);
-        const comments = tokenStream.tokens.filter(token => token.channel === CMakeLexer.channelNames.indexOf("COMMENTS"));
+        const comments = this.getComments(uri);
         if (inComments(params.position, comments)) {
             return Promise.resolve(null);
         }
@@ -539,6 +538,10 @@ export class CMakeLanguageServer {
         const flatCommands = extractFlatCommands(fileContext);
         this.flatCommandsMap.set(event.document.uri, flatCommands);
 
+        // Cache comment tokens
+        const commentsChannel = CMakeLexer.channelNames.indexOf("COMMENTS");
+        this.commentsMap.set(event.document.uri, tokenStream.tokens.filter(token => token.channel === commentsChannel));
+
         // check semantic errors
         const semanticListener = new SemanticDiagnosticsListener();
         ParseTreeWalker.DEFAULT.walk(semanticListener, fileContext);
@@ -587,15 +590,13 @@ export class CMakeLanguageServer {
             entryCMake = projectRootCMake.toString();
         }
 
-        const tree = this.getFileContext(entryCMake.toString());
-        const commands = extractFlatCommands(tree);
+        const commands = this.getFlatCommands(entryCMake.toString());
         const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, entryCMake.toString(), workspaceFolder.fsPath, this.fileContexts, this.documents, this.parsedFiles, workspaceFolder.fsPath);
-        projectInfoListener.resetProjectInfo();
         projectInfoListener.processCommands(commands);
         if (!this.projectInfo) {
-            this.projectInfo = ProjectInfoListener.projectInfo;
+            this.projectInfo = projectInfoListener.projectInfo;
         } else {
-            const newProjectInfo = ProjectInfoListener.projectInfo;
+            const newProjectInfo = projectInfoListener.projectInfo;
             for (const key in newProjectInfo) {
                 if (Object.prototype.hasOwnProperty.call(newProjectInfo, key)) {
                     const k = key as keyof ProjectInfo;
@@ -627,6 +628,7 @@ export class CMakeLanguageServer {
         this.fileContexts.delete(uri);
         this.tokenStreams.delete(uri);
         this.flatCommandsMap.delete(uri);
+        this.commentsMap.delete(uri);
     }
 
     private async getExtSettings(): Promise<ExtensionSettings> {
@@ -681,6 +683,17 @@ export class CMakeLanguageServer {
         const flatCommands = extractFlatCommands(fileContext);
         this.flatCommandsMap.set(uri, flatCommands);
         return flatCommands;
+    }
+
+    private getComments(uri: string): Token[] {
+        if (this.commentsMap.has(uri)) {
+            return this.commentsMap.get(uri)!;
+        }
+        const tokenStream = this.getTokenStream(uri);
+        const commentsChannel = CMakeLexer.channelNames.indexOf("COMMENTS");
+        const comments = tokenStream.tokens.filter(token => token.channel === commentsChannel);
+        this.commentsMap.set(uri, comments);
+        return comments;
     }
 
     private execFilePromise(file: string, args: string[]): Promise<{ stdout: string, stderr: string }> {

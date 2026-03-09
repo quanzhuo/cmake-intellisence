@@ -88,23 +88,40 @@ export interface ProjectInfo {
  * @returns `true` if the position is within a comment, `false` otherwise.
  */
 export function inComments(pos: Position, comments: Token[]): boolean {
+    const targetLine = pos.line + 1; // Token lines are 1-based
     let left = 0;
     let right = comments.length - 1;
 
     while (left <= right) {
         const mid = Math.floor((left + right) / 2);
         const comment = comments[mid];
+        const startLine = comment.line;
+        const text = comment.text;
+        const isBracket = /^#\[=*\[/.test(text);
+        const newlines = isBracket ? (text.match(/\n/g) || []).length : 0;
+        const endLine = startLine + newlines;
 
-        if (comment.line === pos.line + 1) {
-            if (comment.column <= pos.character) {
+        if (targetLine < startLine) {
+            right = mid - 1;
+        } else if (targetLine > endLine) {
+            left = mid + 1;
+        } else if (targetLine === startLine && pos.character < comment.column) {
+            // Cursor is before the comment on its start line
+            right = mid - 1;
+        } else if (isBracket && targetLine === endLine) {
+            // On the last line of a bracket comment — check end column
+            const lastNL = newlines > 0 ? text.lastIndexOf('\n') : -1;
+            const endCol = lastNL >= 0
+                ? (text.length - lastNL - 1)
+                : (comment.column + text.length);
+            if (pos.character < endCol) {
                 return true;
-            } else {
-                right = mid - 1;
             }
-        } else if (comment.line < pos.line + 1) {
             left = mid + 1;
         } else {
-            right = mid - 1;
+            // Line comment (extends to EOL), interior of multi-line bracket comment,
+            // or start line of multi-line bracket comment with cursor after '#'
+            return true;
         }
     }
 
@@ -348,7 +365,7 @@ export default class Completion {
 
     private getCommandSuggestions(word: string): CompletionItem[] {
         const allCommands = [
-            ...this.cmakeInfo.commands.map(value => { return { name: value, type: CompletionItemType.BuiltInCommand }; }),
+            ...Array.from(this.cmakeInfo.commands).map(value => { return { name: value, type: CompletionItemType.BuiltInCommand }; }),
             ...Array.from(this.projectInfo.functions ?? new Set<string>()).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
             ...Array.from(this.projectInfo.macros ?? new Set<string>()).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
         ];
@@ -416,7 +433,7 @@ export default class Completion {
     }
 
     private getModuleSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
-        const similar = this.cmakeInfo.modules.filter(candidate => {
+        const similar = Array.from(this.cmakeInfo.modules).filter(candidate => {
             return candidate.includes(word);
         });
 
@@ -472,7 +489,7 @@ export default class Completion {
     }
 
     private getVariableSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
-        let similar = this.cmakeInfo.variables.filter(candidate => {
+        let similar = Array.from(this.cmakeInfo.variables).filter(candidate => {
             return candidate.includes(word);
         });
 
@@ -511,7 +528,7 @@ export default class Completion {
     }
 
     private getPropertySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
-        let similar = this.cmakeInfo.properties.filter(candidate => {
+        let similar = Array.from(this.cmakeInfo.properties).filter(candidate => {
             return candidate.includes(word);
         });
 
@@ -668,7 +685,7 @@ export default class Completion {
     }
 
     private getPolicySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
-        let similar = this.cmakeInfo.policies.filter(candidate => {
+        let similar = Array.from(this.cmakeInfo.policies).filter(candidate => {
             return candidate.includes(word);
         });
 

@@ -57,7 +57,7 @@ suite('builtin-cmds.json tests', () => {
 
         const builtinCommandSet = new Set(Object.keys(commands).map(command => command.toLowerCase()));
         const missing = Array.from(new Set(
-            cmakeInfo.commands.filter(command => !builtinCommandSet.has(command.toLowerCase()))
+            Array.from(cmakeInfo.commands).filter(command => !builtinCommandSet.has(command.toLowerCase()))
         )).sort();
 
         assert.strictEqual(

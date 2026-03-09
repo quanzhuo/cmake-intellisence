@@ -19,7 +19,7 @@ suite('Completion Tests', () => {
         await cmakeInfo.init();
     });
 
-    function findDuplicates(items: string[]): string[] {
+    function findDuplicates(items: Iterable<string>): string[] {
         const seen = new Set<string>();
         const duplicates = new Set<string>();
         for (const item of items) {
