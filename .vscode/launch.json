@@ -27,7 +27,7 @@
             ]
         },
         {
-            "name": "Debug Integrate test (Attach to Server)",
+            "name": "Debug Integrate test",
             "type": "node",
             "request": "attach",
             "port": 6009,

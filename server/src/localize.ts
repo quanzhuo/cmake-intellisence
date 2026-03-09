@@ -1,6 +1,5 @@
 import * as fs from 'fs';
-import { resolve } from "path";
-import { initializationOptions } from './server';
+import { resolve, join } from "path";
 
 export interface ILanguagePack {
     [key: string]: string;
@@ -8,6 +7,23 @@ export interface ILanguagePack {
 
 export class Localize {
     private bundle?: ILanguagePack;
+    private locale: string = 'en';
+    private get rootPath(): string {
+        let current = __dirname;
+        while (!fs.existsSync(resolve(current, 'package.nls.json'))) {
+            const next = resolve(current, '..');
+            if (next === current) {
+                return __dirname; // fallback
+            }
+            current = next;
+        }
+        return current;
+    }
+
+    public init(locale: string) {
+        this.locale = locale.toLowerCase();
+        this.bundle = undefined; // reload on init
+    }
 
     public localize(key: string, ...args: string[]): string {
         if (!this.bundle) {
@@ -30,19 +46,18 @@ export class Localize {
         const languageFormat = "package.nls{0}.json";
         const defaultLanguage = languageFormat.replace("{0}", "");
 
-        var rootPath = initializationOptions.extensionPath;
         const resolvedLanguage = this.recurseCandidates(
-            rootPath,
+            this.rootPath,
             languageFormat,
-            initializationOptions.language,
+            this.locale,
         );
 
-        const languageFilePath = resolve(rootPath, resolvedLanguage);
+        const languageFilePath = resolve(this.rootPath, resolvedLanguage);
 
         try {
             const defaultLanguageBundle = JSON.parse(
                 resolvedLanguage !== defaultLanguage
-                    ? fs.readFileSync(resolve(rootPath, defaultLanguage), "utf-8")
+                    ? fs.readFileSync(resolve(this.rootPath, defaultLanguage), "utf-8")
                     : "{}"
             );
 
@@ -73,4 +88,7 @@ export class Localize {
     }
 }
 
-export default Localize.prototype.localize.bind(new Localize());
+const localizeInstance = new Localize();
+const localize = localizeInstance.localize.bind(localizeInstance);
+export { localizeInstance as localizeInitializer };
+export default localize;

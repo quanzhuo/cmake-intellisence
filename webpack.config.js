@@ -11,6 +11,9 @@ const { resolve: _resolve } = require("path");
 const baseConfig = {
     mode: "none", // this leaves the source code as close as possible to the original (when packaging we set this to 'production')
     target: "node",
+    node: {
+        __dirname: false,
+    },
     externals: {
         vscode: "commonjs vscode", // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
         // modules added here also need to be added in the .vscodeignore file

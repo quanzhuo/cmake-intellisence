@@ -18,7 +18,7 @@ import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
 import CMakeSimpleLexer from './generated/CMakeSimpleLexer';
 import CMakeSimpleParser, * as cmsp from './generated/CMakeSimpleParser';
-import localize from './localize';
+import localize, { localizeInitializer } from './localize';
 import { Logger, createLogger } from './logging';
 import { SemanticTokenListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
 import { getFileContent } from './utils';
@@ -28,9 +28,6 @@ type Word = {
     line: number,
     col: number
 };
-
-export let logger: Logger;
-export let initializationOptions: any;
 
 export function getWordAtPosition(textDocument: TextDocument, position: Position): Word {
     const lineRange: Range = {
@@ -53,18 +50,25 @@ export function getWordAtPosition(textDocument: TextDocument, position: Position
 }
 
 export class CMakeLanguageServer {
-    private initParams!: InitializeParams;
+    private initParams?: InitializeParams;
     private connection = createConnection(ProposedFeatures.all);
     private documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
-    private extSettings!: ExtensionSettings;
-    private cmakeInfo!: CMakeInfo;
     private disposables: Disposable[] = [];
     private fileContexts: Map<string, FileContext> = new Map();
     private tokenStreams: Map<string, CommonTokenStream> = new Map();
     private simpleTokenStreams: Map<string, CommonTokenStream> = new Map();
     private simpleFileContexts: Map<string, cmsp.FileContext> = new Map();
     private projectInfo?: ProjectInfo;
-    private logger!: Logger;
+    private logger: Logger = createLogger('cmake-intellisence', 'off');
+
+    private extSettings: ExtensionSettings = {
+        cmakePath: 'cmake',
+        loggingLevel: 'off',
+        cmdCaseDiagnostics: false,
+        pkgConfigPath: 'pkg-config',
+    };
+
+    private cmakeInfo: CMakeInfo = new CMakeInfo(this.extSettings);
 
     /**
      * Files whose ProjectInfo is already parsed
@@ -100,17 +104,11 @@ export class CMakeLanguageServer {
         this.connection.listen();
     }
 
+    // #region: methods to process LSP requests and notifications
+
     private async onInitialize(params: InitializeParams): Promise<InitializeResult> {
         this.initParams = params;
-        initializationOptions = params.initializationOptions;
-        this.extSettings = initializationOptions.extSettings;
-        this.cmakeInfo = new CMakeInfo(this.extSettings);
-        try {
-            await this.cmakeInfo.init();
-        } catch (e: any) {
-            this.connection.window.showErrorMessage(e.message);
-        }
-        this.logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
+        localizeInitializer.init(params.locale || 'en');
 
         const result: InitializeResult = {
             capabilities: {
@@ -153,20 +151,16 @@ export class CMakeLanguageServer {
         return result;
     }
 
-    private onInitialized(params: InitializedParams) {
+    private async onInitialized(params: InitializedParams) {
         this.connection.client.register(DidChangeConfigurationNotification.type, undefined);
-    }
-
-    private execFilePromise(file: string, args: string[]): Promise<{ stdout: string, stderr: string }> {
-        return new Promise((resolve, reject) => {
-            execFile(file, args, (error, stdout, stderr) => {
-                if (error) {
-                    reject({ error, stderr });
-                } else {
-                    resolve({ stdout, stderr });
-                }
-            });
-        });
+        this.extSettings = await this.getExtSettings();
+        this.cmakeInfo = new CMakeInfo(this.extSettings);
+        try {
+            await this.cmakeInfo.init();
+        } catch (e: any) {
+            this.connection.window.showErrorMessage(e.message);
+        }
+        this.logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
     }
 
     private async onHover(params: HoverParams): Promise<Hover | null> {
@@ -428,7 +422,7 @@ export class CMakeLanguageServer {
             return Promise.resolve(null);
         }
 
-        if (!this.initParams.workspaceFolders?.length) {
+        if (!this.initParams?.workspaceFolders?.length) {
             return Promise.resolve(null);
         }
         const workspaceFolder = this.initParams.workspaceFolders[0].uri;
@@ -568,7 +562,7 @@ export class CMakeLanguageServer {
             ]
         };
 
-        if (this.extSettings.cmdCaseDiagnostics) {
+        if (this.extSettings?.cmdCaseDiagnostics) {
             const cmdCaseChecker = new CommandCaseChecker(this.cmakeInfo);
             ParseTreeWalker.DEFAULT.walk(cmdCaseChecker, simpleFileContext);
             diagnostics.diagnostics.push(...cmdCaseChecker.getCmdCaseDdiagnostics());
@@ -578,13 +572,21 @@ export class CMakeLanguageServer {
         this.buildProjectInfo(event);
     }
 
+    private onShutdown() {
+        this.disposables.forEach((disposable) => {
+            disposable.dispose();
+        });
+    }
+
+    // #endregion
+
     /**
      * Build project info when file changed
      * 
      * @param event 
      */
     private buildProjectInfo(event: TextDocumentChangeEvent<TextDocument>) {
-        if (!(this.initParams.workspaceFolders && this.initParams.workspaceFolders.length === 1)) {
+        if (!(this.initParams?.workspaceFolders && this.initParams.workspaceFolders.length === 1)) {
             return;
         }
 
@@ -705,9 +707,15 @@ export class CMakeLanguageServer {
         return this.simpleTokenStreams.get(uri)!;
     }
 
-    private onShutdown() {
-        this.disposables.forEach((disposable) => {
-            disposable.dispose();
+    private execFilePromise(file: string, args: string[]): Promise<{ stdout: string, stderr: string }> {
+        return new Promise((resolve, reject) => {
+            execFile(file, args, (error, stdout, stderr) => {
+                if (error) {
+                    reject({ error, stderr });
+                } else {
+                    resolve({ stdout, stderr });
+                }
+            });
         });
     }
 }

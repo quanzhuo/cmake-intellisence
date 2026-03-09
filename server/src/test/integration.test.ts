@@ -57,8 +57,22 @@ suite('LSP Integration Tests', () => {
         );
         connection.listen();
 
+        let configurationRequested: () => void;
+        const configurationPromise = new Promise<void>(resolve => {
+            configurationRequested = resolve;
+        });
+
         // Handle server-initiated requests that would otherwise crash the server
         connection.onRequest(RegistrationRequest.type, () => { });
+        connection.onRequest('workspace/configuration', () => {
+            configurationRequested();
+            return [
+                extSettings.cmakePath,
+                extSettings.loggingLevel,
+                extSettings.cmdCaseDiagnostics,
+                extSettings.pkgConfigPath
+            ];
+        });
 
         // Collect diagnostics via EventEmitter so each test can wait independently
         connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
@@ -75,11 +89,7 @@ suite('LSP Integration Tests', () => {
                 }
             },
             rootUri: 'file:///test-workspace',
-            initializationOptions: {
-                extensionPath: path.resolve(__dirname, '..', '..', '..'),
-                language: 'en',
-                extSettings
-            },
+            locale: 'en',
             workspaceFolders: [
                 { uri: 'file:///test-workspace', name: 'test' }
             ]
@@ -98,6 +108,9 @@ suite('LSP Integration Tests', () => {
         assert(result.capabilities.codeActionProvider);
 
         connection.sendNotification(InitializedNotification.type, {});
+        await configurationPromise;
+        // give it some time to finish cmakeInfo.init
+        await new Promise(resolve => setTimeout(resolve, 3000));
     });
 
     suiteTeardown(async function () {

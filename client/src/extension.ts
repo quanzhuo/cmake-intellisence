@@ -9,19 +9,12 @@ export const SERVER_NAME = 'CMake Language Server';
 
 let client: LanguageClient | undefined;
 
-interface ExtensionSettings {
-    loggingLevel: string;
-    cmakePath: string;
-    pkgConfigPath: string;
-    cmdCaseDiagnostics: boolean;
-}
-
 export async function activate(context: vscode.ExtensionContext) {
     const channel = vscode.window.createOutputChannel('CMake IntelliSence');
     context.subscriptions.push(channel);
+
     const logger = new Logger(channel);
     logger.setLogLevel(getConfigLogLevel(vscode.workspace.getConfiguration(SERVER_ID)));
-    const serverModule = context.asAbsolutePath(path.join('dist', 'server.js'));
 
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async (e) => {
         if (e.affectsConfiguration(`${SERVER_ID}.loggingLevel`)) {
@@ -41,7 +34,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
     async function checkAndStart(cmakePath: string | null) {
         if (cmakePath) {
-            startLanguageServer(context.extensionPath, cmakePath, serverModule, channel, logger);
+            const serverModule = context.asAbsolutePath(path.join('dist', 'server.js'));
+            startLanguageServer(cmakePath, serverModule, channel, logger);
         } else {
             const selected = await vscode.window.showErrorMessage<string>(vscode.l10n.t('cmakeNotFound'), vscode.l10n.t('settings'));
             if (selected) {
@@ -60,7 +54,7 @@ async function getCMakePath(): Promise<string | null> {
     return null;
 }
 
-function startLanguageServer(extensionPath: string, cmakePath: string, serverModule: string, channel: vscode.OutputChannel, logger: Logger) {
+function startLanguageServer(cmakePath: string, serverModule: string, channel: vscode.OutputChannel, logger: Logger) {
     // The debug options for the server
     // --inspect-brk=6009: runs the server in Node's Inspector mode so VS Code can attach to the server for debugging
     // 该参数会让 Node.js 在执行 Server 入口文件（即你的 server.js）的第一行代码前挂起，直到有外部调试器（VS Code）连接进来才会继续执行。
@@ -80,28 +74,13 @@ function startLanguageServer(extensionPath: string, cmakePath: string, serverMod
         }
     };
 
-    function getExtensionSettings(): ExtensionSettings {
-        const config = vscode.workspace.getConfiguration(SERVER_ID);
-        return {
-            loggingLevel: config.get<string>('loggingLevel', 'info'),
-            cmakePath: cmakePath,
-            pkgConfigPath: config.get<string>('pkgConfigPath', 'pkg-config'),
-            cmdCaseDiagnostics: config.get<boolean>('cmdCaseDiagnostics', true),
-        };
-    }
-
     // Options to control the language client
     const clientOptions: LanguageClientOptions = {
         documentSelector: [
             { language: 'cmake', scheme: 'file' },
             { language: 'cmake', scheme: 'untitled' }
         ],
-        outputChannel: channel,
-        initializationOptions: {
-            language: vscode.env.language,
-            extensionPath,
-            extSettings: getExtensionSettings(),
-        }
+        outputChannel: channel
     };
 
     client = new LanguageClient(SERVER_ID, SERVER_NAME, serverOptions, clientOptions);
