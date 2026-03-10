@@ -103,4 +103,64 @@ export class SymbolIndex {
     clear(): void {
         this.fileCaches.clear();
     }
+
+    /**
+     * Returns the array of file URIs whose variables are visible from the targetUri
+     * precisely simulating CMake's dynamic scoping (include vs add_subdirectory).
+     */
+    public getVisibleFilesForVariable(startUri: string, targetUri: string): string[] {
+        let resultPath: string[] | null = null;
+        const visited = new Set<string>();
+
+        const simulateExecution = (currentUri: string, visibleFiles: string[]): boolean => {
+            if (visited.has(currentUri)) {
+                return false;
+            }
+            visited.add(currentUri);
+
+            visibleFiles.push(currentUri);
+
+            if (currentUri === targetUri) {
+                const targetCache = this.getCache(currentUri);
+                if (targetCache) {
+                    const gatherIncludes = (u: string) => {
+                        const c = this.getCache(u);
+                        if (!c) { return; }
+                        for (const dep of c.dependencies) {
+                            if (dep.type === "include" && !visited.has(dep.uri)) {
+                                visited.add(dep.uri);
+                                visibleFiles.push(dep.uri);
+                                gatherIncludes(dep.uri);
+                            }
+                        }
+                    };
+                    gatherIncludes(currentUri);
+                }
+
+                resultPath = [...visibleFiles];
+                return true;
+            }
+
+            const cache = this.getCache(currentUri);
+            if (!cache) { return false; }
+
+            for (const dep of cache.dependencies) {
+                if (dep.type === "include") {
+                    if (simulateExecution(dep.uri, visibleFiles)) {
+                        return true;
+                    }
+                } else {
+                    const childScope = [...visibleFiles];
+                    if (simulateExecution(dep.uri, childScope)) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        };
+
+        simulateExecution(startUri, []);
+        return resultPath || [];
+    }
 }

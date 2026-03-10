@@ -263,8 +263,35 @@ export class CMakeLanguageServer {
         if (!document) {
             return Promise.resolve(null);
         }
+
+        let workspaceFolderStr = URI.file(path.dirname(URI.parse(params.textDocument.uri).fsPath)).toString();
+        if (this.initParams?.workspaceFolders && this.initParams.workspaceFolders.length > 0) {
+            workspaceFolderStr = this.initParams.workspaceFolders[0].uri;
+        }
+
+        const entryCMakeLists = Utils.joinPath(URI.parse(workspaceFolderStr), "CMakeLists.txt");
+        let entryFile = URI.parse(params.textDocument.uri);
+        if (fs.existsSync(entryCMakeLists.fsPath)) {
+            entryFile = entryCMakeLists;
+        }
+
+        // Ensure the index is somewhat populated top-down so we have visible files
+        const populateIndexTopDown = (uri: string, visited: Set<string>) => {
+            if (visited.has(uri)) { return; }
+            visited.add(uri);
+
+            this.getFlatCommands(uri); // Causes symbolIndex to cache this file
+            const cache = this.symbolIndex.getCache(uri);
+            if (!cache) { return; }
+
+            for (const dep of cache.dependencies) {
+                populateIndexTopDown(dep.uri, visited);
+            }
+        };
+        populateIndexTopDown(entryFile.toString(), new Set());
+
         const word = getWordAtPosition(document, params.position).text;
-        const completion = new Completion(this.cmakeInfo, this.flatCommandsMap, this.tokenStreams, this.projectInfo, word, this.logger);
+        const completion = new Completion(this.cmakeInfo, this.flatCommandsMap, this.tokenStreams, this.projectInfo, word, this.logger, this.symbolIndex, params.textDocument.uri, entryFile.toString());
         return completion.onCompletion(params);
     }
 

@@ -7,8 +7,8 @@ import * as builtinCmds from './builtin-cmds.json';
 import { CMakeInfo } from "./cmakeInfo";
 import { FlatCommand } from "./flatCommands";
 import CMakeLexer from "./generated/CMakeLexer";
-import { ArgumentContext } from "./generated/CMakeParser";
 import { Logger } from "./logging";
+import { SymbolIndex, SymbolKind } from "./symbolIndex";
 
 export { builtinCmds };
 
@@ -260,6 +260,9 @@ export default class Completion {
         private projectInfo: ProjectInfo = {} as ProjectInfo,
         private word: string,
         private logger: Logger,
+        private symbolIndex?: SymbolIndex,
+        private currentUri?: string,
+        private entryUri?: string,
     ) { }
 
     private getCommandSuggestion(commandName: string, type: CompletionItemType): CompletionItem {
@@ -364,10 +367,25 @@ export default class Completion {
     }
 
     private getCommandSuggestions(word: string): CompletionItem[] {
+        const userFunctions = new Set<string>(this.projectInfo.functions ?? []);
+        const userMacros = new Set<string>(this.projectInfo.macros ?? []);
+
+        if (this.symbolIndex) {
+            for (const cache of this.symbolIndex.getAllCaches()) {
+                for (const [cmdName, symbols] of cache.commands.entries()) {
+                    if (symbols.length > 0) {
+                        const kind = symbols[0].kind;
+                        if (kind === SymbolKind.Function) { userFunctions.add(cmdName); }
+                        else if (kind === SymbolKind.Macro) { userMacros.add(cmdName); }
+                    }
+                }
+            }
+        }
+
         const allCommands = [
             ...Array.from(this.cmakeInfo.commands).map(value => { return { name: value, type: CompletionItemType.BuiltInCommand }; }),
-            ...Array.from(this.projectInfo.functions ?? new Set<string>()).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
-            ...Array.from(this.projectInfo.macros ?? new Set<string>()).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
+            ...Array.from(userFunctions).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
+            ...Array.from(userMacros).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
         ];
         const similarCmds = allCommands.filter(cmd => { return cmd.name.toLowerCase().includes(word.toLowerCase()); });
         const similarNames = similarCmds.map(cmd => cmd.name);
@@ -489,6 +507,23 @@ export default class Completion {
     }
 
     private getVariableSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
+        const userVariables = new Set<string>();
+
+        if (this.symbolIndex && this.entryUri && this.currentUri) {
+            const visibleFiles = this.symbolIndex.getVisibleFilesForVariable(this.entryUri, this.currentUri);
+            if (!visibleFiles.includes(this.currentUri)) {
+                visibleFiles.push(this.currentUri);
+            }
+            for (const uri of visibleFiles) {
+                const cache = this.symbolIndex.getCache(uri);
+                if (cache) {
+                    for (const varName of cache.variables.keys()) {
+                        userVariables.add(varName);
+                    }
+                }
+            }
+        }
+
         let similar = Array.from(this.cmakeInfo.variables).filter(candidate => {
             return candidate.includes(word);
         });
@@ -512,7 +547,17 @@ export default class Completion {
             };
         });
 
-        return [...suggestions, ...envVariables];
+        const userVarSuggestions: CompletionItem[] = Array.from(userVariables)
+            .filter(v => v.includes(word))
+            .map(value => {
+                return {
+                    label: value,
+                    kind: CompletionItemKind.Variable,
+                    data: CompletionItemType.UserDefinedVariable,
+                };
+            });
+
+        return [...suggestions, ...envVariables, ...userVarSuggestions];
     }
 
     private getTargetsSuggestion(info: CMakeCompletionInfo): CompletionItem[] | undefined {

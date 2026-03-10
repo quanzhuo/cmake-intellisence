@@ -39,7 +39,7 @@ export class DefinitionResolver extends SymbolResolverBase {
             }
         } else {
             // Variables use dynamic scoping paths
-            const visibleFiles = this.getVisibleFilesForVariable(this.entryFile.toString(), this.curFile.toString());
+            const visibleFiles = this.symbolIndex.getVisibleFilesForVariable(this.entryFile.toString(), this.curFile.toString());
             // If current file wasn't reachable from root, at least check current file itself
             if (!visibleFiles.includes(this.curFile.toString())) {
                 visibleFiles.push(this.curFile.toString());
@@ -66,74 +66,6 @@ export class DefinitionResolver extends SymbolResolverBase {
 
         this.logger.info(`Returning ${results.length} results for ${searchName}`);
         return Promise.resolve(results.length > 0 ? results : null);
-    }
-
-    /**
-     * Returns the array of file URIs whose variables are visible from the targetUri
-     * precisely simulating CMake's dynamic scoping (include vs add_subdirectory).
-     */
-    private getVisibleFilesForVariable(startUri: string, targetUri: string): string[] {
-        let resultPath: string[] | null = null;
-        const visited = new Set<string>();
-
-        const simulateExecution = (currentUri: string, visibleFiles: string[]): boolean => {
-            if (visited.has(currentUri)) {
-                // If we've seen it, don't execute full depth again, but
-                // in true CMake we might execute includes multiple times.
-                // For Symbol indexing, it's safer to avoid infinite loops.
-                return false;
-            }
-            visited.add(currentUri);
-
-            visibleFiles.push(currentUri);
-
-            if (currentUri === targetUri) {
-                // Target found. Also include files that the target itself includes
-                // since they are logically part of the same scope.
-                const targetCache = this.symbolIndex.getCache(currentUri);
-                if (targetCache) {
-                    const gatherIncludes = (u: string) => {
-                        const c = this.symbolIndex.getCache(u);
-                        if (!c) { return; }
-                        for (const dep of c.dependencies) {
-                            if (dep.type === "include" && !visited.has(dep.uri)) {
-                                visited.add(dep.uri);
-                                visibleFiles.push(dep.uri);
-                                gatherIncludes(dep.uri);
-                            }
-                        }
-                    };
-                    gatherIncludes(currentUri);
-                }
-
-                resultPath = [...visibleFiles];
-                return true;
-            }
-
-            const cache = this.symbolIndex.getCache(currentUri);
-            if (!cache) { return false; }
-
-            for (const dep of cache.dependencies) {
-                if (dep.type === "include") {
-                    // include: mutates the current scope exactly like in-place replacement
-                    if (simulateExecution(dep.uri, visibleFiles)) {
-                        return true;
-                    }
-                } else {
-                    // add_subdirectory: duplicates the scope downwards, variables block at return
-                    const childScope = [...visibleFiles];
-                    if (simulateExecution(dep.uri, childScope)) {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        };
-
-        simulateExecution(startUri, []);
-        this.logger.info(`Visible files for ${targetUri} starting from ${startUri}:\n${JSON.stringify(resultPath, null, 2)}`);
-        return resultPath || [];
     }
 }
 
