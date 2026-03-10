@@ -1,76 +1,33 @@
-import * as fs from 'fs';
-import * as path from "path";
-import { DefinitionParams, Location, LocationLink, TextDocuments } from "vscode-languageserver";
-import { Position, TextDocument } from "vscode-languageserver-textdocument";
-import { URI, Utils } from "vscode-uri";
-import { CMakeInfo } from "./cmakeInfo";
-import { builtinCmds } from "./completion";
-import { FlatCommand } from "./flatCommands";
-import { Logger } from "./logging";
-import { getWordAtPosition } from "./server";
-import { SymbolIndex } from "./symbolIndex";
+import { DefinitionParams, Location, LocationLink } from "vscode-languageserver";
+import { DestinationType, SymbolResolverBase } from "./symbolResolverBase";
 
-export enum DestinationType {
-    Command,
-    Variable,
-}
+export { DestinationType };
 
-export class DefinitionResolver {
-    private baseDir: URI;
-
-    constructor(
-        private documents: TextDocuments<TextDocument>,
-        private symbolIndex: SymbolIndex,
-        private getFlatCommands: (uri: string) => FlatCommand[],
-        private cmakeInfo: CMakeInfo,
-        private workspaceFolder: string,
-        private curFile: URI,
-        private command: FlatCommand,
-        private logger: Logger,
-    ) {
-        const dir = path.dirname(curFile.fsPath);
-        this.baseDir = URI.file(dir);
-    }
-
-    private findDestinationType(command: FlatCommand, pos: Position): DestinationType {
-        const commandToken = command.ID().symbol;
-        if ((pos.line + 1 === commandToken.line) && (pos.character <= commandToken.column + commandToken.text.length)) {
-            return DestinationType.Command;
-        }
-        return DestinationType.Variable;
-    }
+export class DefinitionResolver extends SymbolResolverBase {
 
     public resolve(params: DefinitionParams): Promise<Location | Location[] | LocationLink[] | null> {
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
             return Promise.resolve(null);
         }
-        const word = getWordAtPosition(document, params.position);
-        if (word.text.length === 0) {
+
+        const targetWord = this.getTargetWord(document, params.position);
+        if (!targetWord) {
             return Promise.resolve(null);
         }
 
-        let entryFile = this.curFile;
-        const entryCMakeLists = Utils.joinPath(URI.parse(this.workspaceFolder), 'CMakeLists.txt');
-        if (fs.existsSync(entryCMakeLists.fsPath)) {
-            entryFile = entryCMakeLists;
-            this.baseDir = URI.parse(this.workspaceFolder);
-        }
+        this.determineContextAndRoot();
 
-        const destType = this.findDestinationType(this.command, params.position);
-        if (destType === DestinationType.Command) {
-            const commandName = this.command.ID().getText();
-            if (commandName in builtinCmds) {
+        const isCommand = this.isQueryingCommand(this.command, targetWord, params.position);
+        const searchName = isCommand ? targetWord.toLowerCase() : targetWord;
+
+        if (isCommand) {
+            if (this.isBuiltinCommand(searchName)) {
                 return Promise.resolve(null);
             }
         }
 
-        // Ensure the symbol index is fully populated starting from the root file
-        this.populateIndexTopDown(entryFile.toString(), new Set());
-
         const results: Location[] = [];
-        const isCommand = destType === DestinationType.Command;
-        const searchName = isCommand ? word.text.toLowerCase() : word.text;
 
         if (isCommand) {
             // CMake functions & macros are broadly globally available once executed.
@@ -82,7 +39,7 @@ export class DefinitionResolver {
             }
         } else {
             // Variables use dynamic scoping paths
-            const visibleFiles = this.getVisibleFilesForVariable(entryFile.toString(), this.curFile.toString());
+            const visibleFiles = this.getVisibleFilesForVariable(this.entryFile.toString(), this.curFile.toString());
             // If current file wasn't reachable from root, at least check current file itself
             if (!visibleFiles.includes(this.curFile.toString())) {
                 visibleFiles.push(this.curFile.toString());
@@ -109,19 +66,6 @@ export class DefinitionResolver {
 
         this.logger.info(`Returning ${results.length} results for ${searchName}`);
         return Promise.resolve(results.length > 0 ? results : null);
-    }
-
-    private populateIndexTopDown(uri: string, visited: Set<string>) {
-        if (visited.has(uri)) { return; }
-        visited.add(uri);
-
-        this.getFlatCommands(uri); // Causes symbolIndex to cache this file
-        const cache = this.symbolIndex.getCache(uri);
-        if (!cache) { return; }
-
-        for (const dep of cache.dependencies) {
-            this.populateIndexTopDown(dep.uri, visited);
-        }
     }
 
     /**
@@ -152,7 +96,7 @@ export class DefinitionResolver {
                         const c = this.symbolIndex.getCache(u);
                         if (!c) { return; }
                         for (const dep of c.dependencies) {
-                            if (dep.type === 'include' && !visited.has(dep.uri)) {
+                            if (dep.type === "include" && !visited.has(dep.uri)) {
                                 visited.add(dep.uri);
                                 visibleFiles.push(dep.uri);
                                 gatherIncludes(dep.uri);
@@ -170,7 +114,7 @@ export class DefinitionResolver {
             if (!cache) { return false; }
 
             for (const dep of cache.dependencies) {
-                if (dep.type === 'include') {
+                if (dep.type === "include") {
                     // include: mutates the current scope exactly like in-place replacement
                     if (simulateExecution(dep.uri, visibleFiles)) {
                         return true;
@@ -192,3 +136,4 @@ export class DefinitionResolver {
         return resultPath || [];
     }
 }
+

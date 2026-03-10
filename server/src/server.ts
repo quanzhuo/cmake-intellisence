@@ -5,13 +5,12 @@ import * as path from 'path';
 import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams } from 'vscode-languageserver-protocol';
 import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocument';
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
-import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, createConnection } from 'vscode-languageserver/node';
+import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import { CMakeInfo, ExtensionSettings, ProjectInfoListener } from './cmakeInfo';
 import Completion, { CompletionItemType, ProjectInfo, builtinCmds, findCommandAtPosition, inComments } from './completion';
 import { CMAKE_DOC_BASE_URL, DIAG_CODE_CMD_CASE } from './consts';
 import { DefinitionResolver } from './defination';
-import { ReferenceResolver } from './references';
 import SemanticDiagnosticsListener, { CommandCaseChecker, SyntaxErrorListener } from './diagnostics';
 import { DocumentLinkInfo } from './docLink';
 import { SymbolListener } from './docSymbols';
@@ -21,6 +20,8 @@ import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
 import localize, { localizeInitializer } from './localize';
 import { Logger, createLogger } from './logging';
+import { ReferenceResolver } from './references';
+import { RenameResolver } from './rename';
 import { SemanticTokenListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
 import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex } from './symbolIndex';
@@ -91,6 +92,7 @@ export class CMakeLanguageServer {
             this.connection.onDocumentSymbol(this.onDocumentSymbol.bind(this)),
             this.connection.onDefinition(this.onDefinition.bind(this)),
             this.connection.onReferences(this.onReferences.bind(this)),
+            this.connection.onRenameRequest(this.onRename.bind(this)),
             this.connection.onCodeAction(this.onCodeAction.bind(this)),
             this.connection.onDidChangeConfiguration(this.onDidChangeConfiguration.bind(this)),
             this.connection.onDocumentLinks(this.onDocumentLinks.bind(this)),
@@ -131,6 +133,7 @@ export class CMakeLanguageServer {
                 documentSymbolProvider: true,
                 definitionProvider: true,
                 referencesProvider: true,
+                renameProvider: { prepareProvider: false },
                 semanticTokensProvider: {
                     legend: {
                         tokenTypes: getTokenTypes(params),
@@ -468,6 +471,37 @@ export class CMakeLanguageServer {
             this.logger
         );
         return resolver.resolve(params);
+    }
+
+    private onRename(params: RenameParams): Promise<WorkspaceEdit | null> {
+        const uri: string = params.textDocument.uri;
+        const comments = this.getComments(uri);
+        if (inComments(params.position, comments)) {
+            return Promise.resolve(null);
+        }
+
+        const commands = this.getFlatCommands(uri);
+        const command = findCommandAtPosition(commands, params.position);
+        if (command === null) {
+            return Promise.resolve(null);
+        }
+
+        if (!this.initParams?.workspaceFolders?.length) {
+            return Promise.resolve(null);
+        }
+        const workspaceFolder = this.initParams.workspaceFolders[0].uri;
+        const refResolver = new ReferenceResolver(
+            this.documents,
+            this.symbolIndex,
+            this.getFlatCommands.bind(this),
+            this.cmakeInfo,
+            workspaceFolder,
+            URI.parse(uri),
+            command,
+            this.logger
+        );
+        const renameResolver = new RenameResolver(refResolver);
+        return renameResolver.resolve(params);
     }
 
     private onSemanticTokens(params: SemanticTokensParams): Promise<SemanticTokens> {
