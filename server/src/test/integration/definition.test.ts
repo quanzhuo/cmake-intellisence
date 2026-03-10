@@ -206,8 +206,8 @@ suite('Definition Integration Tests', () => {
 
     test('root function used in subdirectory file', async function () {
         const uri = await openFixture('src/CMakeLists.txt');
-        // line 8: root_func(${ROOT_VAR})   — cursor on "root_func"
-        const result = await getDefinition(uri, 8, 3);
+        // line 9: root_func(${ROOT_VAR})   — cursor on "root_func"
+        const result = await getDefinition(uri, 9, 3);
 
         assert(result !== null, 'Definition should not be null');
         const locs = (Array.isArray(result) ? result : [result]) as Location[];
@@ -219,8 +219,8 @@ suite('Definition Integration Tests', () => {
 
     test('root variable used in subdirectory file', async function () {
         const uri = await openFixture('src/CMakeLists.txt');
-        // line 8: root_func(${ROOT_VAR})  — cursor on "ROOT_VAR"
-        const result = await getDefinition(uri, 8, 16);
+        // line 9: root_func(${ROOT_VAR})  — cursor on "ROOT_VAR"
+        const result = await getDefinition(uri, 9, 16);
 
         assert(result !== null, 'Definition should not be null');
         const locs = (Array.isArray(result) ? result : [result]) as Location[];
@@ -232,8 +232,8 @@ suite('Definition Integration Tests', () => {
 
     test('function defined and used in same subdirectory', async function () {
         const uri = await openFixture('src/CMakeLists.txt');
-        // line 9: src_func(${SRC_VAR})  — cursor on "src_func"
-        const result = await getDefinition(uri, 9, 3);
+        // line 10: src_func(${SRC_VAR})  — cursor on "src_func"
+        const result = await getDefinition(uri, 10, 3);
 
         assert(result !== null, 'Definition should not be null');
         const locs = (Array.isArray(result) ? result : [result]) as Location[];
@@ -300,5 +300,50 @@ suite('Definition Integration Tests', () => {
         assert(locs.length > 0);
         assert.strictEqual(locs[0].uri, fileUri('include/helpers.cmake'));
         assert.strictEqual(locs[0].range.start.line, 6, 'helper_macro defined at line 6');
+    });
+
+    // ── Missing Coverage: Edge Cases and Negative Scopes ───────────────────────
+
+    test('function scoping is global (subdirectory function called from root)', async function () {
+        const uri = await openFixture('CMakeLists.txt');
+        // line 18: lib_func(${LIB_VAR}) — cursor on "lib_func"
+        const result = await getDefinition(uri, 18, 3);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find lib_func globally');
+        assert.strictEqual(locs[0].uri, fileUri('src/lib/CMakeLists.txt'));
+        assert.strictEqual(locs[0].range.start.line, 2);
+    });
+
+    test('variable scoping isolates upward pollution (subdirectory var accessed from root)', async function () {
+        const uri = await openFixture('CMakeLists.txt');
+        // line 18: lib_func(${LIB_VAR}) — cursor on "LIB_VAR"
+        const result = await getDefinition(uri, 18, 12);
+
+        assert.strictEqual(result, null, 'LIB_VAR from subdirectory should NOT be visible in root');
+    });
+
+    test('variable scoping isolates parallel subdirectories (lib2 var accessed from src)', async function () {
+        const uri = await openFixture('src/CMakeLists.txt');
+        // line 13: message(${LIB_VAR}) — cursor on "LIB_VAR"
+        const result1 = await getDefinition(uri, 13, 11);
+        assert.strictEqual(result1, null, 'LIB_VAR from child should NOT be visible in parent');
+
+        // line 14: message(${LIB2_VAR}) — cursor on "LIB2_VAR"
+        const result2 = await getDefinition(uri, 14, 11);
+        assert.strictEqual(result2, null, 'LIB2_VAR from child should NOT be visible in parent');
+    });
+
+    test('circular includes should resolve without max call stack and find variables', async function () {
+        const uri = await openFixture('CMakeLists.txt');
+        // line 22: message(${LOOP_VAR}) — cursor on "LOOP_VAR"
+        const result = await getDefinition(uri, 22, 11);
+
+        assert(result !== null, 'Definition should be resolved inside circular included files');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0);
+        assert.strictEqual(locs[0].uri, fileUri('include/loop1.cmake'));
+        assert.strictEqual(locs[0].range.start.line, 0);
     });
 });

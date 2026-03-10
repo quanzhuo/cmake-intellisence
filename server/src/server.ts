@@ -1,6 +1,7 @@
 import { CharStreams, CommonTokenStream, ParseTreeWalker, Token } from 'antlr4';
 import { execFile } from 'child_process';
 import * as fs from 'fs';
+import * as path from 'path';
 import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams } from 'vscode-languageserver-protocol';
 import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocument';
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
@@ -20,6 +21,8 @@ import CMakeParser, { FileContext } from './generated/CMakeParser';
 import localize, { localizeInitializer } from './localize';
 import { Logger, createLogger } from './logging';
 import { SemanticTokenListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
+import { extractSymbols } from './symbolExtractor';
+import { SymbolIndex } from './symbolIndex';
 import { getFileContent } from './utils';
 
 type Word = {
@@ -57,6 +60,7 @@ export class CMakeLanguageServer {
     private tokenStreams: Map<string, CommonTokenStream> = new Map();
     private flatCommandsMap: Map<string, FlatCommand[]> = new Map();
     private commentsMap: Map<string, Token[]> = new Map();
+    public symbolIndex: SymbolIndex = new SymbolIndex();
     private projectInfo?: ProjectInfo;
     private logger: Logger = createLogger('cmake-intellisence', 'off');
 
@@ -420,7 +424,16 @@ export class CMakeLanguageServer {
             return Promise.resolve(null);
         }
         const workspaceFolder = this.initParams.workspaceFolders[0].uri;
-        const resolver = new DefinitionResolver(this.fileContexts, this.documents, this.cmakeInfo, workspaceFolder, URI.parse(uri), command, this.logger);
+        const resolver = new DefinitionResolver(
+            this.documents,
+            this.symbolIndex,
+            this.getFlatCommands.bind(this),
+            this.cmakeInfo,
+            workspaceFolder,
+            URI.parse(uri),
+            command,
+            this.logger
+        );
         return resolver.resolve(params);
     }
 
@@ -537,6 +550,11 @@ export class CMakeLanguageServer {
         // Extract flat commands for binary search
         const flatCommands = extractFlatCommands(fileContext);
         this.flatCommandsMap.set(event.document.uri, flatCommands);
+
+        // Update Symbol Index
+        const baseDir = URI.file(path.dirname(URI.parse(event.document.uri).fsPath));
+        const fileSymbolCache = extractSymbols(event.document.uri, flatCommands, baseDir, this.cmakeInfo);
+        this.symbolIndex.setCache(event.document.uri, fileSymbolCache);
 
         // Cache comment tokens
         const commentsChannel = CMakeLexer.channelNames.indexOf("COMMENTS");
@@ -682,6 +700,12 @@ export class CMakeLanguageServer {
         const fileContext = this.getFileContext(uri);
         const flatCommands = extractFlatCommands(fileContext);
         this.flatCommandsMap.set(uri, flatCommands);
+
+        // Update Symbol Index
+        const baseDir = URI.file(path.dirname(URI.parse(uri).fsPath));
+        const fileSymbolCache = extractSymbols(uri, flatCommands, baseDir, this.cmakeInfo);
+        this.symbolIndex.setCache(uri, fileSymbolCache);
+
         return flatCommands;
     }
 

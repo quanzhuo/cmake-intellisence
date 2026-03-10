@@ -1,0 +1,1 @@
+set(LIB2_VAR "lib2")

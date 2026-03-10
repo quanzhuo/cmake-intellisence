@@ -1,4 +1,3 @@
-import { ParserRuleContext, Token } from "antlr4";
 import * as fs from 'fs';
 import * as path from "path";
 import { DefinitionParams, Location, LocationLink, TextDocuments } from "vscode-languageserver";
@@ -7,12 +6,9 @@ import { URI, Utils } from "vscode-uri";
 import { CMakeInfo } from "./cmakeInfo";
 import { builtinCmds } from "./completion";
 import { FlatCommand } from "./flatCommands";
-import { AddSubDirectoryCmdContext, ArgumentContext, FileContext, FunctionCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext } from "./generated/CMakeParser";
-import CMakeParserVisitor from "./generated/CMakeParserVisitor";
 import { Logger } from "./logging";
 import { getWordAtPosition } from "./server";
-import { FileScope, Scope, Symbol, SymbolKind } from "./symbolTable";
-import { getFileContent, getFileContext, getIncludeFileUri } from "./utils";
+import { SymbolIndex } from "./symbolIndex";
 
 export enum DestinationType {
     Command,
@@ -20,12 +16,12 @@ export enum DestinationType {
 }
 
 export class DefinitionResolver {
-    // the directory which current cmake file is in
     private baseDir: URI;
 
     constructor(
-        private fileContexts: Map<string, FileContext>,
         private documents: TextDocuments<TextDocument>,
+        private symbolIndex: SymbolIndex,
+        private getFlatCommands: (uri: string) => FlatCommand[],
         private cmakeInfo: CMakeInfo,
         private workspaceFolder: string,
         private curFile: URI,
@@ -37,7 +33,7 @@ export class DefinitionResolver {
     }
 
     private findDestinationType(command: FlatCommand, pos: Position): DestinationType {
-        const commandToken: Token = command.ID().symbol;
+        const commandToken = command.ID().symbol;
         if ((pos.line + 1 === commandToken.line) && (pos.character <= commandToken.column + commandToken.text.length)) {
             return DestinationType.Command;
         }
@@ -62,243 +58,137 @@ export class DefinitionResolver {
         }
 
         const destType = this.findDestinationType(this.command, params.position);
-        let visitor: BaseDefinitionVisitor;
         if (destType === DestinationType.Command) {
             const commandName = this.command.ID().getText();
             if (commandName in builtinCmds) {
                 return Promise.resolve(null);
             }
-            const symbolToFind = new Symbol(commandName, SymbolKind.Function, this.curFile, word.line, word.col);
-            visitor = new FunctionDefinitionVisitor(symbolToFind, new FileScope(null), entryFile, this.baseDir, this.cmakeInfo, this.documents, this.fileContexts);
-        } else {
-            const symbolToFind = new Symbol(word.text, SymbolKind.Variable, this.curFile, word.line, word.col);
-            visitor = new VariableDefinitionVisitor(symbolToFind, new FileScope(null), entryFile, this.baseDir, this.cmakeInfo, this.documents, this.fileContexts);
         }
 
-        let tree: FileContext | undefined;
-        if (!this.fileContexts.has(entryFile.toString())) {
-            tree = getFileContext(getFileContent(this.documents, entryFile));
-            this.fileContexts.set(entryFile.toString(), tree);
+        // Ensure the symbol index is fully populated starting from the root file
+        this.populateIndexTopDown(entryFile.toString(), new Set());
+
+        const results: Location[] = [];
+        const isCommand = destType === DestinationType.Command;
+        const searchName = isCommand ? word.text.toLowerCase() : word.text;
+
+        if (isCommand) {
+            // CMake functions & macros are broadly globally available once executed.
+            for (const cache of this.symbolIndex.getAllCaches()) {
+                const symbols = cache.commands.get(searchName);
+                if (symbols) {
+                    results.push(...symbols.map(s => s.getLocation()));
+                }
+            }
         } else {
-            tree = this.fileContexts.get(entryFile.toString());
-        }
-        if (!tree) {
-            return Promise.resolve(null);
+            // Variables use dynamic scoping paths
+            const visibleFiles = this.getVisibleFilesForVariable(entryFile.toString(), this.curFile.toString());
+            // If current file wasn't reachable from root, at least check current file itself
+            if (!visibleFiles.includes(this.curFile.toString())) {
+                visibleFiles.push(this.curFile.toString());
+            }
+
+            for (const uri of visibleFiles) {
+                const cache = this.symbolIndex.getCache(uri);
+                if (cache) {
+                    const symbols = cache.variables.get(searchName);
+                    if (symbols) {
+                        // Do not jump to variable assignments that appear after current line in same file!
+                        const validSymbols = uri === this.curFile.toString()
+                            ? symbols.filter(s => s.line <= params.position.line)
+                            : symbols;
+                        this.logger.info(`Found valid symbols for ${searchName} in ${uri}: ${validSymbols.length}`);
+                        results.push(...validSymbols.map(s => s.getLocation()));
+                    }
+                }
+            }
+
+            // To be accurate and helpful, reverse the array so the "closest" lexical definitions show up first
+            results.reverse();
         }
 
-        const result = visitor.visit(tree) as Symbol[] | null;
-        if (result && result.length > 0) {
-            return Promise.resolve(result.map(sym => sym.getLocation()));
-        }
-        // If visitor completed without finding the symbol, check accumulated foundSymbols
-        if (visitor.foundSymbols.length > 0) {
-            return Promise.resolve(visitor.foundSymbols.map(sym => sym.getLocation()));
-        }
-        return Promise.resolve(null);
+        this.logger.info(`Returning ${results.length} results for ${searchName}`);
+        return Promise.resolve(results.length > 0 ? results : null);
     }
-}
 
-/**
- * Base Visitor for go-to-definition.
- *
- * Uses Visitor instead of Listener to support natural early termination:
- * visit methods return Symbol[] when found (stop immediately) or null (continue).
- * The overridden visitChildren iterates children one by one and stops as soon as
- * a non-null result is returned, avoiding the exception-based control flow
- * that was previously used with the Listener pattern.
- */
-class BaseDefinitionVisitor extends CMakeParserVisitor<Symbol[] | null> {
-    protected symbolToFind: Symbol;
-    protected currentScope: Scope;
-    protected curFile: URI;
-    protected curDir: URI;
-    protected cmakeInfo: CMakeInfo;
-    protected documents: TextDocuments<TextDocument>;
-    protected fileContexts: Map<string, FileContext>;
-    foundSymbols: Symbol[] = [];
+    private populateIndexTopDown(uri: string, visited: Set<string>) {
+        if (visited.has(uri)) { return; }
+        visited.add(uri);
 
-    constructor(symbol: Symbol, scope: Scope, file: URI, curDir: URI, cmakeInfo: CMakeInfo, documents: TextDocuments<TextDocument>, fileContexts: Map<string, FileContext>) {
-        super();
-        this.symbolToFind = symbol;
-        this.currentScope = scope;
-        this.curFile = file;
-        this.curDir = curDir;
-        this.cmakeInfo = cmakeInfo;
-        this.documents = documents;
-        this.fileContexts = fileContexts;
+        this.getFlatCommands(uri); // Causes symbolIndex to cache this file
+        const cache = this.symbolIndex.getCache(uri);
+        if (!cache) { return; }
+
+        for (const dep of cache.dependencies) {
+            this.populateIndexTopDown(dep.uri, visited);
+        }
     }
 
     /**
-     * Override visitChildren for early termination.
-     * Iterates children one by one; returns immediately when a child returns non-null.
-     *
-     * Note: antlr4's base visitTerminal() returns undefined (not null),
-     * so we must check for both null and undefined to avoid stopping
-     * on terminal nodes like NL tokens.
+     * Returns the array of file URIs whose variables are visible from the targetUri
+     * precisely simulating CMake's dynamic scoping (include vs add_subdirectory).
      */
-    override visitChildren(ctx: ParserRuleContext): Symbol[] | null {
-        if (!ctx.children) { return null; }
-        for (const child of ctx.children) {
-            const result = this.visit(child);
-            if (result !== null && result !== undefined) { return result; }
-        }
-        return null;
-    }
+    private getVisibleFilesForVariable(startUri: string, targetUri: string): string[] {
+        let resultPath: string[] | null = null;
+        const visited = new Set<string>();
 
-    /** Create a visitor of the same concrete type for cross-file traversal. */
-    protected createVisitor(scope: Scope, file: URI, curDir: URI): BaseDefinitionVisitor {
-        return new FunctionDefinitionVisitor(this.symbolToFind, scope, file, curDir, this.cmakeInfo, this.documents, this.fileContexts);
-    }
-
-    protected registerFunction(ctx: FunctionCmdContext): void {
-        const funcNameToken: Token = ctx.argument(0)?.start;
-        if (funcNameToken !== undefined) {
-            const funcSymbol: Symbol = new Symbol(funcNameToken.text, SymbolKind.Function, this.curFile, funcNameToken.line - 1, funcNameToken.column);
-            this.currentScope.define(funcSymbol);
-        }
-    }
-
-    protected registerMacro(ctx: MacroCmdContext): void {
-        const macroNameToken: Token = ctx.argument(0)?.start;
-        if (macroNameToken !== undefined) {
-            const macroSymbol: Symbol = new Symbol(macroNameToken.text, SymbolKind.Macro, this.curFile, macroNameToken.line - 1, macroNameToken.column);
-            this.currentScope.define(macroSymbol);
-        }
-    }
-
-    visitFunctionCmd = (ctx: FunctionCmdContext): Symbol[] | null => {
-        this.registerFunction(ctx);
-        return null;
-    };
-
-    visitMacroCmd = (ctx: MacroCmdContext): Symbol[] | null => {
-        this.registerMacro(ctx);
-        return null;
-    };
-
-    visitIncludeCmd = (ctx: IncludeCmdContext): Symbol[] | null => {
-        const nameToken = ctx.argument(0)?.start;
-        if (nameToken === undefined) {
-            return null;
-        }
-
-        const incUri: URI | null = getIncludeFileUri(this.cmakeInfo, this.curDir, nameToken.text);
-        if (!incUri) {
-            return null;
-        }
-
-        let tree: FileContext;
-        if (!this.fileContexts.has(incUri.toString())) {
-            tree = getFileContext(getFileContent(this.documents, incUri));
-            this.fileContexts.set(incUri.toString(), tree);
-        } else {
-            tree = this.fileContexts.get(incUri.toString())!;
-        }
-
-        const definitionVisitor = this.createVisitor(this.currentScope, incUri, this.curDir);
-        return definitionVisitor.visit(tree) as Symbol[] | null;
-    };
-
-    visitAddSubDirectoryCmd = (ctx: AddSubDirectoryCmdContext): Symbol[] | null => {
-        const dirToken = ctx.argument(0)?.start;
-        if (dirToken === undefined) {
-            return null;
-        }
-
-        const subDir = dirToken.text;
-        const subCMakeListsUri: URI = Utils.joinPath(this.curDir, subDir, 'CMakeLists.txt');
-        if (!fs.existsSync(subCMakeListsUri.fsPath)) {
-            return null;
-        }
-
-        let tree: FileContext;
-        if (!this.fileContexts.has(subCMakeListsUri.toString())) {
-            tree = getFileContext(getFileContent(this.documents, subCMakeListsUri));
-            this.fileContexts.set(subCMakeListsUri.toString(), tree);
-        } else {
-            tree = this.fileContexts.get(subCMakeListsUri.toString())!;
-        }
-
-        const subDirScope: Scope = new FileScope(this.currentScope);
-        const subBaseDir = Utils.joinPath(this.curDir, subDir);
-        const definitionVisitor = this.createVisitor(subDirScope, subCMakeListsUri, subBaseDir);
-        return definitionVisitor.visit(tree) as Symbol[] | null;
-    };
-}
-
-class FunctionDefinitionVisitor extends BaseDefinitionVisitor {
-    visitOtherCmd = (ctx: OtherCmdContext): Symbol[] | null => {
-        const commandToken = ctx.ID().symbol;
-        if (commandToken.line === this.symbolToFind.getLine() + 1 &&
-            commandToken.column === this.symbolToFind.getColumn() &&
-            commandToken.text === this.symbolToFind.getName()) {
-            const sym = this.currentScope.resolve(this.symbolToFind.getName(), SymbolKind.Function);
-            if (sym !== null) {
-                this.foundSymbols.push(sym);
+        const simulateExecution = (currentUri: string, visibleFiles: string[]): boolean => {
+            if (visited.has(currentUri)) {
+                // If we've seen it, don't execute full depth again, but
+                // in true CMake we might execute includes multiple times.
+                // For Symbol indexing, it's safer to avoid infinite loops.
+                return false;
             }
-            return this.foundSymbols; // early exit: found usage site
-        }
-        return null;
-    };
-}
+            visited.add(currentUri);
 
-class VariableDefinitionVisitor extends BaseDefinitionVisitor {
-    protected override createVisitor(scope: Scope, file: URI, curDir: URI): BaseDefinitionVisitor {
-        return new VariableDefinitionVisitor(this.symbolToFind, scope, file, curDir, this.cmakeInfo, this.documents, this.fileContexts);
-    }
+            visibleFiles.push(currentUri);
 
-    // Override: need to visit children of functionCmd to reach argument nodes
-    visitFunctionCmd = (ctx: FunctionCmdContext): Symbol[] | null => {
-        this.registerFunction(ctx);
-        return this.visitChildren(ctx);
-    };
+            if (currentUri === targetUri) {
+                // Target found. Also include files that the target itself includes
+                // since they are logically part of the same scope.
+                const targetCache = this.symbolIndex.getCache(currentUri);
+                if (targetCache) {
+                    const gatherIncludes = (u: string) => {
+                        const c = this.symbolIndex.getCache(u);
+                        if (!c) { return; }
+                        for (const dep of c.dependencies) {
+                            if (dep.type === 'include' && !visited.has(dep.uri)) {
+                                visited.add(dep.uri);
+                                visibleFiles.push(dep.uri);
+                                gatherIncludes(dep.uri);
+                            }
+                        }
+                    };
+                    gatherIncludes(currentUri);
+                }
 
-    visitSetCmd = (ctx: SetCmdContext): Symbol[] | null => {
-        const varToken: Token = ctx.argument(0)?.start;
-        if (varToken !== undefined) {
-            const varSymbol: Symbol = new Symbol(varToken.text, SymbolKind.Variable, this.curFile, varToken.line - 1, varToken.column);
-            this.currentScope.define(varSymbol);
-        }
-        return this.visitChildren(ctx);
-    };
-
-    visitOptionCmd = (ctx: OptionCmdContext): Symbol[] | null => {
-        return this.visitSetCmd(ctx as unknown as SetCmdContext);
-    };
-
-    visitArgument = (ctx: ArgumentContext): Symbol[] | null => {
-        if (ctx.getChildCount() !== 1) {
-            return null;
-        }
-
-        // skip the arguments in include() and add_subdirectory()
-        if (ctx.parentCtx instanceof IncludeCmdContext || ctx.parentCtx instanceof AddSubDirectoryCmdContext) {
-            return null;
-        }
-
-        const argToken: Token = ctx.start;
-        const findLine = this.symbolToFind.getLine() + 1;
-        const findCol = this.symbolToFind.getColumn();
-        const findName = this.symbolToFind.getName();
-
-        if (argToken.line !== findLine) {
-            return null;
-        }
-
-        // Match bare variable name (e.g. first arg of set()) or ${VAR} reference
-        const tokenText = argToken.text;
-        const tokenCol = argToken.column;
-        const isDirectMatch = tokenCol === findCol && tokenText === findName;
-        const isVarRefMatch = tokenText === '${' + findName + '}' &&
-            findCol === tokenCol + 2; // skip "${"
-
-        if (isDirectMatch || isVarRefMatch) {
-            const sym = this.currentScope.resolve(findName, SymbolKind.Variable);
-            if (sym !== null) {
-                this.foundSymbols.push(sym);
+                resultPath = [...visibleFiles];
+                return true;
             }
-            return this.foundSymbols; // early exit: found usage site
-        }
-        return null;
-    };
+
+            const cache = this.symbolIndex.getCache(currentUri);
+            if (!cache) { return false; }
+
+            for (const dep of cache.dependencies) {
+                if (dep.type === 'include') {
+                    // include: mutates the current scope exactly like in-place replacement
+                    if (simulateExecution(dep.uri, visibleFiles)) {
+                        return true;
+                    }
+                } else {
+                    // add_subdirectory: duplicates the scope downwards, variables block at return
+                    const childScope = [...visibleFiles];
+                    if (simulateExecution(dep.uri, childScope)) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        };
+
+        simulateExecution(startUri, []);
+        this.logger.info(`Visible files for ${targetUri} starting from ${startUri}:\n${JSON.stringify(resultPath, null, 2)}`);
+        return resultPath || [];
+    }
 }
