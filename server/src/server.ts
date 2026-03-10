@@ -5,7 +5,7 @@ import * as path from 'path';
 import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams } from 'vscode-languageserver-protocol';
 import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocument';
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
-import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, createConnection } from 'vscode-languageserver/node';
+import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import { CMakeInfo, ExtensionSettings, ProjectInfoListener } from './cmakeInfo';
 import Completion, { CompletionItemType, ProjectInfo, builtinCmds, findCommandAtPosition, inComments } from './completion';
@@ -26,6 +26,7 @@ import { SemanticTokenListener, getTokenBuilder, getTokenModifiers, getTokenType
 import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex } from './symbolIndex';
 import { getFileContent } from './utils';
+import { WorkspaceSymbolResolver } from './workspaceSymbol';
 
 type Word = {
     text: string,
@@ -93,6 +94,7 @@ export class CMakeLanguageServer {
             this.connection.onDefinition(this.onDefinition.bind(this)),
             this.connection.onReferences(this.onReferences.bind(this)),
             this.connection.onRenameRequest(this.onRename.bind(this)),
+            this.connection.onWorkspaceSymbol(this.onWorkspaceSymbol.bind(this)),
             this.connection.onCodeAction(this.onCodeAction.bind(this)),
             this.connection.onDidChangeConfiguration(this.onDidChangeConfiguration.bind(this)),
             this.connection.onDocumentLinks(this.onDocumentLinks.bind(this)),
@@ -134,6 +136,7 @@ export class CMakeLanguageServer {
                 definitionProvider: true,
                 referencesProvider: true,
                 renameProvider: { prepareProvider: false },
+                workspaceSymbolProvider: true,
                 semanticTokensProvider: {
                     legend: {
                         tokenTypes: getTokenTypes(params),
@@ -502,6 +505,14 @@ export class CMakeLanguageServer {
         );
         const renameResolver = new RenameResolver(refResolver);
         return renameResolver.resolve(params);
+    }
+
+    private onWorkspaceSymbol(params: WorkspaceSymbolParams): SymbolInformation[] | null {
+        // If the index isn't fully populated we could try to find the root and populate, 
+        // string-based fallback isn't needed here if the user's workspace is mostly loaded.
+        // Or we could proactively scan it in initialization. For now, rely on parsed documents.
+        const resolver = new WorkspaceSymbolResolver(this.symbolIndex);
+        return resolver.resolve(params);
     }
 
     private onSemanticTokens(params: SemanticTokensParams): Promise<SemanticTokens> {
