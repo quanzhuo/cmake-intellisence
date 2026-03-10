@@ -73,11 +73,11 @@ suite("References Integration Tests", () => {
         return uri;
     }
 
-    async function getReferences(uri: string, line: number, character: number) {
+    async function getReferences(uri: string, line: number, character: number, includeDeclaration = true) {
         return connection.sendRequest(ReferencesRequest.type, {
             textDocument: { uri },
             position: { line, character },
-            context: { includeDeclaration: true }
+            context: { includeDeclaration }
         });
     }
 
@@ -187,6 +187,23 @@ suite("References Integration Tests", () => {
         // we should get the exact same results as the previous test
         assert.ok(locs && locs.length > 0, "Should find references regardless of where we click");
         assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 7), "Should still map back to definition");
+    });
+
+    test("should exclude declarations when includeDeclaration is false", async function () {
+        const uri = await openFixture("CMakeLists.txt");
+        await openFixture("utils.cmake");
+
+        const variableResult = await getReferences(uri, 3, 5, false);
+        const variableLocs = (Array.isArray(variableResult) ? variableResult : [variableResult]) as Location[];
+        assert.ok(variableLocs.length > 0, "Should still find variable usages");
+        assert.ok(!variableLocs.some(l => l.uri === uri && l.range.start.line === 3), "Variable declaration should be excluded");
+        assert.ok(variableLocs.some(l => l.uri === uri && l.range.start.line === 4), "Variable usages should remain");
+
+        const commandResult = await getReferences(uri, 7, 10, false);
+        const commandLocs = (Array.isArray(commandResult) ? commandResult : [commandResult]) as Location[];
+        assert.ok(commandLocs.length > 0, "Should still find command usages");
+        assert.ok(!commandLocs.some(l => l.uri === uri && l.range.start.line === 7), "Function declaration should be excluded");
+        assert.ok(commandLocs.some(l => l.uri === uri && l.range.start.line === 12), "Function call sites should remain");
     });
 
 });

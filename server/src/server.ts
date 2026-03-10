@@ -64,7 +64,7 @@ export class CMakeLanguageServer {
     private flatCommandsMap: Map<string, FlatCommand[]> = new Map();
     private commentsMap: Map<string, Token[]> = new Map();
     public symbolIndex: SymbolIndex = new SymbolIndex();
-    private projectInfo?: ProjectInfo;
+    private projectInfos: Map<string, ProjectInfo> = new Map();
     private logger: Logger = createLogger('cmake-intellisence', 'off');
 
     private extSettings: ExtensionSettings = {
@@ -73,11 +73,6 @@ export class CMakeLanguageServer {
         cmdCaseDiagnostics: false,
         pkgConfigPath: 'pkg-config',
     };
-
-    /**
-     * Files whose ProjectInfo is already parsed
-     */
-    private parsedFiles = new Set<string>();
 
     constructor() {
         this.disposables.push(
@@ -257,12 +252,8 @@ export class CMakeLanguageServer {
     }
 
     private getEntryFilePath(docUri: string): string {
-        let workspaceFolderStr = URI.file(path.dirname(URI.parse(docUri).fsPath)).toString();
-        if (this.initParams?.workspaceFolders && this.initParams.workspaceFolders.length > 0) {
-            workspaceFolderStr = this.initParams.workspaceFolders[0].uri;
-        }
-
-        const entryCMakeLists = Utils.joinPath(URI.parse(workspaceFolderStr), "CMakeLists.txt");
+        const workspaceFolder = this.getWorkspaceFolderForUri(docUri);
+        const entryCMakeLists = Utils.joinPath(workspaceFolder, "CMakeLists.txt");
         if (fs.existsSync(entryCMakeLists.fsPath)) {
             return entryCMakeLists.toString();
         }
@@ -299,7 +290,8 @@ export class CMakeLanguageServer {
         populateIndexTopDown(entryFileSource, new Set());
 
         const word = getWordAtPosition(document, params.position).text;
-        const completion = new Completion(this.flatCommandsMap, this.tokenStreams, this.projectInfo, word, this.logger, this.symbolIndex, params.textDocument.uri, entryFileSource);
+        const projectInfo = this.getProjectInfoForUri(params.textDocument.uri, entryFileSource);
+        const completion = new Completion(this.flatCommandsMap, this.tokenStreams, projectInfo, word, this.logger, this.symbolIndex, params.textDocument.uri, entryFileSource);
         return completion.onCompletion(params);
     }
 
@@ -464,10 +456,7 @@ export class CMakeLanguageServer {
             return Promise.resolve(null);
         }
 
-        if (!this.initParams?.workspaceFolders?.length) {
-            return Promise.resolve(null);
-        }
-        const workspaceFolder = this.initParams.workspaceFolders[0].uri;
+        const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
         const resolver = new DefinitionResolver(
             this.documents,
             this.symbolIndex,
@@ -493,10 +482,7 @@ export class CMakeLanguageServer {
             return Promise.resolve(null);
         }
 
-        if (!this.initParams?.workspaceFolders?.length) {
-            return Promise.resolve(null);
-        }
-        const workspaceFolder = this.initParams.workspaceFolders[0].uri;
+        const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
         const resolver = new ReferenceResolver(
             this.documents,
             this.symbolIndex,
@@ -522,10 +508,7 @@ export class CMakeLanguageServer {
             return Promise.resolve(null);
         }
 
-        if (!this.initParams?.workspaceFolders?.length) {
-            return Promise.resolve(null);
-        }
-        const workspaceFolder = this.initParams.workspaceFolders[0].uri;
+        const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
         const refResolver = new ReferenceResolver(
             this.documents,
             this.symbolIndex,
@@ -708,41 +691,7 @@ export class CMakeLanguageServer {
      * @param event 
      */
     private buildProjectInfo(event: TextDocumentChangeEvent<TextDocument>) {
-        if (!(this.initParams?.workspaceFolders && this.initParams.workspaceFolders.length === 1)) {
-            return;
-        }
-
-        const workspaceFolder = URI.parse(this.initParams.workspaceFolders[0].uri);
-        let entryCMake: string = event.document.uri;
-        const projectRootCMake: URI = Utils.joinPath(workspaceFolder, 'CMakeLists.txt');
-        if (fs.existsSync(projectRootCMake.fsPath) && this.projectInfo === undefined) {
-            entryCMake = projectRootCMake.toString();
-        }
-
-        const commands = this.getFlatCommands(entryCMake.toString());
-        const projectInfoListener = new ProjectInfoListener(this.symbolIndex, entryCMake.toString(), workspaceFolder.fsPath, this.fileContexts, this.documents, this.parsedFiles, workspaceFolder.fsPath);
-        projectInfoListener.processCommands(commands);
-        if (!this.projectInfo) {
-            this.projectInfo = projectInfoListener.projectInfo;
-        } else {
-            const newProjectInfo = projectInfoListener.projectInfo;
-            for (const key in newProjectInfo) {
-                if (Object.prototype.hasOwnProperty.call(newProjectInfo, key)) {
-                    const k = key as keyof ProjectInfo;
-                    const newValue = newProjectInfo[k];
-                    if (newValue instanceof Set) {
-                        if (!(this.projectInfo![k] instanceof Set)) {
-                            (this.projectInfo![k] as any) = new Set<string>();
-                        }
-                        for (const value of newValue) {
-                            (this.projectInfo![k] as Set<string>).add(value);
-                        }
-                    } else {
-                        (this.projectInfo![k] as any) = newValue;
-                    }
-                }
-            }
-        }
+        this.rebuildProjectInfoForUri(event.document.uri);
     }
 
     private onDocumentLinks(params: DocumentLinkParams): Promise<DocumentLink[] | null> {
@@ -758,6 +707,85 @@ export class CMakeLanguageServer {
         this.tokenStreams.delete(uri);
         this.flatCommandsMap.delete(uri);
         this.commentsMap.delete(uri);
+        this.symbolIndex.deleteCache(uri);
+        const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
+        this.projectInfos.delete(workspaceFolder);
+    }
+
+    private getWorkspaceFolderForUri(docUri: string): URI {
+        const documentUri = URI.parse(docUri);
+        const workspaceFolders = this.initParams?.workspaceFolders?.map(folder => URI.parse(folder.uri))
+            ?? (this.initParams?.rootUri ? [URI.parse(this.initParams.rootUri)] : []);
+
+        if (workspaceFolders.length === 0) {
+            return URI.file(path.dirname(documentUri.fsPath));
+        }
+
+        let bestMatch: URI | undefined;
+        for (const workspaceFolder of workspaceFolders) {
+            const relativePath = path.relative(workspaceFolder.fsPath, documentUri.fsPath);
+            const isInsideWorkspace = relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+            if (!isInsideWorkspace) {
+                continue;
+            }
+            if (!bestMatch || workspaceFolder.fsPath.length > bestMatch.fsPath.length) {
+                bestMatch = workspaceFolder;
+            }
+        }
+
+        return bestMatch ?? workspaceFolders[0];
+    }
+
+    private rebuildProjectInfoForUri(docUri: string): ProjectInfo {
+        const workspaceFolder = this.getWorkspaceFolderForUri(docUri);
+        const workspaceKey = workspaceFolder.toString();
+        const projectRootCMake = Utils.joinPath(workspaceFolder, 'CMakeLists.txt');
+        const entryCMake = fs.existsSync(projectRootCMake.fsPath)
+            ? projectRootCMake.toString()
+            : this.getEntryFilePath(docUri);
+        const commands = this.getFlatCommands(entryCMake);
+        const projectInfoListener = new ProjectInfoListener(
+            this.symbolIndex,
+            entryCMake,
+            workspaceFolder.fsPath,
+            this.fileContexts,
+            this.documents,
+            new Set<string>(),
+            workspaceFolder.fsPath,
+        );
+        projectInfoListener.processCommands(commands);
+        this.projectInfos.set(workspaceKey, projectInfoListener.projectInfo);
+        return projectInfoListener.projectInfo;
+    }
+
+    private getProjectInfoForUri(docUri: string, entryUri?: string): ProjectInfo {
+        const workspaceFolder = this.getWorkspaceFolderForUri(docUri);
+        const workspaceKey = workspaceFolder.toString();
+        const projectInfo = this.projectInfos.get(workspaceKey);
+        if (projectInfo) {
+            return projectInfo;
+        }
+
+        if (entryUri) {
+            const projectRootCMake = Utils.joinPath(workspaceFolder, 'CMakeLists.txt');
+            if (!fs.existsSync(projectRootCMake.fsPath) && entryUri !== docUri) {
+                const commands = this.getFlatCommands(entryUri);
+                const projectInfoListener = new ProjectInfoListener(
+                    this.symbolIndex,
+                    entryUri,
+                    workspaceFolder.fsPath,
+                    this.fileContexts,
+                    this.documents,
+                    new Set<string>(),
+                    workspaceFolder.fsPath,
+                );
+                projectInfoListener.processCommands(commands);
+                this.projectInfos.set(workspaceKey, projectInfoListener.projectInfo);
+                return projectInfoListener.projectInfo;
+            }
+        }
+
+        return this.rebuildProjectInfoForUri(docUri);
     }
 
     private async getExtSettings(): Promise<ExtensionSettings> {

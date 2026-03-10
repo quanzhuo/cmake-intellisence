@@ -307,12 +307,24 @@ export class ProjectInfoListener {
     private functionOrMacro(ctx: FlatCommand): void {
         const args = ctx.argument_list();
         if (args.length > 0) {
+            const commandName = ctx.commandName.toLowerCase();
+            if (commandName === 'macro') {
+                this.projectInfo.macros = this.projectInfo.macros ?? new Set<string>();
+                this.projectInfo.macros.add(args[0].getText());
+                return;
+            }
+
             this.projectInfo.functions = this.projectInfo.functions ?? new Set<string>();
             this.projectInfo.functions.add(args[0].getText());
         }
     }
 
     processCommands(commands: FlatCommand[]): void {
+        if (this.parsedFiles.has(this.currentCMake)) {
+            return;
+        }
+        this.parsedFiles.add(this.currentCMake);
+
         for (const cmd of commands) {
             const commandName: string = cmd.commandName.toLowerCase();
             switch (commandName) {

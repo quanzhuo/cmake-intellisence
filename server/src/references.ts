@@ -4,6 +4,23 @@ import { DestinationType, SymbolResolverBase } from "./symbolResolverBase";
 export { DestinationType };
 
 export class ReferenceResolver extends SymbolResolverBase {
+    private isVariableDeclaration(cmd: import("./flatCommands").FlatCommand, argIndex: number): boolean {
+        const commandName = cmd.ID().symbol.text.toLowerCase();
+        switch (commandName) {
+            case 'set':
+            case 'unset':
+            case 'option':
+            case 'foreach':
+                return argIndex === 0;
+            case 'function':
+            case 'macro':
+                return argIndex > 0;
+            case 'math':
+                return argIndex === 0;
+            default:
+                return false;
+        }
+    }
 
     public async resolve(params: ReferenceParams): Promise<Location[] | null> {
         const document = this.documents.get(params.textDocument.uri);
@@ -16,6 +33,7 @@ export class ReferenceResolver extends SymbolResolverBase {
 
         const isCommand = this.isQueryingCommand(this.command, targetWord, params.position);
         const searchName = isCommand ? targetWord.toLowerCase() : targetWord;
+        const includeDeclaration = params.context.includeDeclaration;
 
         if (isCommand) {
             if (this.isBuiltinCommand(searchName)) { return null; }
@@ -46,7 +64,7 @@ export class ReferenceResolver extends SymbolResolverBase {
                         const args = cmd.argument_list();
                         if (args.length > 0) {
                             const argToken = args[0].start;
-                            if (argToken && argToken.text.toLowerCase() === searchName) {
+                            if (includeDeclaration && argToken && argToken.text.toLowerCase() === searchName) {
                                 results.push({
                                     uri,
                                     range: {
@@ -59,9 +77,13 @@ export class ReferenceResolver extends SymbolResolverBase {
                     }
                 } else {
                     const args = cmd.argument_list();
-                    for (const arg of args) {
+                    for (const [argIndex, arg] of args.entries()) {
                         const token = arg.start;
                         if (!token) { continue; }
+
+                        if (!includeDeclaration && this.isVariableDeclaration(cmd, argIndex)) {
+                            continue;
+                        }
 
                         // Naively match variable in arguments
                         const text = token.text;
