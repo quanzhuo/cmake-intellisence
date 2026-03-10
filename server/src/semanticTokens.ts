@@ -1,10 +1,9 @@
 import { Token } from "antlr4";
 import { InitializeParams, SemanticTokens, SemanticTokensBuilder } from "vscode-languageserver";
-import { URI } from "vscode-uri";
 import * as builtinCmds from './builtin-cmds.json';
-import { CMakeInfo } from "./cmakeInfo";
 import { AddSubDirectoryCmdContext, ArgumentContext, ElseIfCmdContext, ForeachCmdContext, FunctionCmdContext, IfCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext, WhileCmdContext } from "./generated/CMakeParser";
 import CMakeParserListener from "./generated/CMakeParserListener";
+import { SymbolIndex, SymbolKind } from "./symbolIndex";
 
 const defaultTokenTypes = [
     'namespace',
@@ -92,8 +91,10 @@ export function getTokenModifiers(initParams: InitializeParams): string[] {
 export class SemanticTokenListener extends CMakeParserListener {
     // private _data: number[] = [];
     private _builder: SemanticTokensBuilder;
-    private _uri: URI;
-    private cmakeInfo: CMakeInfo;
+    private _uri: string;
+    private symbolIndex: SymbolIndex;
+    private entryUri: string;
+    private _visibleFiles: string[] | null = null;
 
     private _operator: Set<string> = new Set([
         'EXISTS', 'COMMAND', 'DEFINED',
@@ -104,11 +105,12 @@ export class SemanticTokenListener extends CMakeParserListener {
         'AND', 'NOT', 'OR'
     ]);
 
-    constructor(uri: URI, cmakeInfo: CMakeInfo) {
+    constructor(uri: string, symbolIndex: SymbolIndex, entryUri: string) {
         super();
         this._uri = uri;
-        this.cmakeInfo = cmakeInfo;
-        this._builder = getTokenBuilder(uri.toString());
+        this.symbolIndex = symbolIndex;
+        this.entryUri = entryUri;
+        this._builder = getTokenBuilder(uri);
     }
 
     private isOperator(token: string): boolean {
@@ -116,7 +118,24 @@ export class SemanticTokenListener extends CMakeParserListener {
     }
 
     private isVariable(token: string): boolean {
-        return this.cmakeInfo.variables.has(token);
+        if (this._visibleFiles === null) {
+            this._visibleFiles = this.symbolIndex.getVisibleFilesForVariable(this.entryUri, this._uri);
+        }
+
+        // Fast path: if the variable is defined in the current file
+        const currentCache = this.symbolIndex.getCache(this._uri);
+        if (currentCache && currentCache.variables.has(token)) {
+            return true;
+        }
+
+        // Global path: check visible files
+        for (const uri of this._visibleFiles) {
+            const cache = this.symbolIndex.getCache(uri);
+            if (cache && cache.variables.has(token)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private getModifiers(modifiers: TokenModifiers[]): number {
@@ -280,11 +299,22 @@ export class SemanticTokenListener extends CMakeParserListener {
                 }
             });
         } else {
+            // Differentiate functions vs macros via SymbolIndex
+            let isMacro = false;
+            for (const cache of this.symbolIndex.getAllCaches()) {
+                const commandSymbols = cache.commands.get(cmdNameLower);
+                if (commandSymbols && commandSymbols.some(s => s.kind === SymbolKind.Macro)) {
+                    isMacro = true;
+                    break;
+                }
+            }
+            const tokenType = isMacro ? TokenTypes.macro : TokenTypes.function;
+
             this._builder.push(
                 commandToken.line - 1,
                 commandToken.column,
                 commandToken.text.length,
-                tokenTypes.indexOf(TokenTypes.function),
+                tokenTypes.indexOf(tokenType),
                 this.getModifiers([])
             );
         }

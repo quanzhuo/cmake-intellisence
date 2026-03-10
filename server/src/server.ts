@@ -258,22 +258,26 @@ export class CMakeLanguageServer {
         return null;
     }
 
+    private getEntryFilePath(docUri: string): string {
+        let workspaceFolderStr = URI.file(path.dirname(URI.parse(docUri).fsPath)).toString();
+        if (this.initParams?.workspaceFolders && this.initParams.workspaceFolders.length > 0) {
+            workspaceFolderStr = this.initParams.workspaceFolders[0].uri;
+        }
+
+        const entryCMakeLists = Utils.joinPath(URI.parse(workspaceFolderStr), "CMakeLists.txt");
+        if (fs.existsSync(entryCMakeLists.fsPath)) {
+            return entryCMakeLists.toString();
+        }
+        return docUri;
+    }
+
     private onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
             return Promise.resolve(null);
         }
 
-        let workspaceFolderStr = URI.file(path.dirname(URI.parse(params.textDocument.uri).fsPath)).toString();
-        if (this.initParams?.workspaceFolders && this.initParams.workspaceFolders.length > 0) {
-            workspaceFolderStr = this.initParams.workspaceFolders[0].uri;
-        }
-
-        const entryCMakeLists = Utils.joinPath(URI.parse(workspaceFolderStr), "CMakeLists.txt");
-        let entryFile = URI.parse(params.textDocument.uri);
-        if (fs.existsSync(entryCMakeLists.fsPath)) {
-            entryFile = entryCMakeLists;
-        }
+        const entryFileSource = this.getEntryFilePath(params.textDocument.uri);
 
         // Ensure the index is somewhat populated top-down so we have visible files
         const populateIndexTopDown = (uri: string, visited: Set<string>) => {
@@ -288,10 +292,10 @@ export class CMakeLanguageServer {
                 populateIndexTopDown(dep.uri, visited);
             }
         };
-        populateIndexTopDown(entryFile.toString(), new Set());
+        populateIndexTopDown(entryFileSource, new Set());
 
         const word = getWordAtPosition(document, params.position).text;
-        const completion = new Completion(this.cmakeInfo, this.flatCommandsMap, this.tokenStreams, this.projectInfo, word, this.logger, this.symbolIndex, params.textDocument.uri, entryFile.toString());
+        const completion = new Completion(this.cmakeInfo, this.flatCommandsMap, this.tokenStreams, this.projectInfo, word, this.logger, this.symbolIndex, params.textDocument.uri, entryFileSource);
         return completion.onCompletion(params);
     }
 
@@ -548,7 +552,8 @@ export class CMakeLanguageServer {
             return Promise.resolve({ data: [] });
         }
         const docUri: URI = URI.parse(params.textDocument.uri);
-        const semanticListener = new SemanticTokenListener(docUri, this.cmakeInfo);
+        const entryUri = this.getEntryFilePath(params.textDocument.uri);
+        const semanticListener = new SemanticTokenListener(docUri.toString(), this.symbolIndex, entryUri);
         ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(params.textDocument.uri));
         return Promise.resolve(semanticListener.getSemanticTokens());
     }
@@ -562,7 +567,8 @@ export class CMakeLanguageServer {
         const builder = getTokenBuilder(document.uri);
         builder.previousResult(params.previousResultId);
         const docUri: URI = URI.parse(document.uri);
-        const semanticListener = new SemanticTokenListener(docUri, this.cmakeInfo);
+        const entryUri = this.getEntryFilePath(document.uri);
+        const semanticListener = new SemanticTokenListener(docUri.toString(), this.symbolIndex, entryUri);
         ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(document.uri));
         return Promise.resolve(semanticListener.buildEdits());
     }

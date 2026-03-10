@@ -2,7 +2,6 @@ import * as assert from 'assert';
 import * as cp from 'child_process';
 import { EventEmitter } from 'events';
 import * as path from 'path';
-import { CMakeInfo, ExtensionSettings } from '../../cmakeInfo';
 import {
     CompletionItemKind,
     CompletionRequest,
@@ -12,20 +11,21 @@ import {
     DocumentSymbolRequest,
     ExitNotification,
     HoverRequest,
-    InitializeRequest,
-    InitializeParams,
-    InitializedNotification,
     IPCMessageReader,
     IPCMessageWriter,
+    InitializeParams,
+    InitializeRequest,
+    InitializedNotification,
+    ProtocolConnection,
     PublishDiagnosticsNotification,
     PublishDiagnosticsParams,
     RegistrationRequest,
     SemanticTokensRequest,
     ShutdownRequest,
     SignatureHelpRequest,
-    ProtocolConnection,
     createProtocolConnection,
 } from 'vscode-languageserver-protocol/node';
+import { CMakeInfo, ExtensionSettings } from '../../cmakeInfo';
 
 suite('LSP Integration Tests', () => {
     let connection: ProtocolConnection;
@@ -413,6 +413,76 @@ suite('LSP Integration Tests', () => {
         assert(result !== null);
         assert(result!.data !== undefined);
         assert(result!.data.length > 0, 'Should have semantic token data');
+    });
+
+    test('should differentiate between functions and macros', async function () {
+        const uri = 'file:///test-workspace/semantic_funcs_macros.txt';
+        const content = [
+            'function(my_custom_func arg1)',
+            'endfunction()',
+            'macro(my_custom_macro arg1)',
+            'endmacro()',
+            'my_custom_func(a)',
+            'my_custom_macro(b)'
+        ].join('\n');
+        openDocument(uri, content);
+
+        // Let the index hydrate top-down by requesting completion once for cache warming
+        await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 5, character: 0 }
+        });
+
+        const result = await connection.sendRequest(SemanticTokensRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(result !== null && result.data !== undefined);
+        // data array format: [line_delta, char_delta, length, token_type, token_modifiers]
+        // You usually map these back, but for a simple structural check we scan the payload 
+        // to see if at least one function type index (7) and macro type index (8) were output.
+        // Based on SemanticTokenListener: defaultTokenTypes.indexOf('function') = 7, 'macro' = 8
+        const typesUsed = new Set<number>();
+        for (let i = 3; i < result.data.length; i += 5) {
+            typesUsed.add(result.data[i]);
+        }
+
+        // Assert that both function (7) and macro (8) indices exist in the serialized token data.
+        assert(typesUsed.has(7), 'Should have generated a function token');
+        assert(typesUsed.has(8), 'Should have generated a macro token');
+    });
+
+    test('should provide semantic tokens for scoped visible variables', async function () {
+        const parentUri = 'file:///test-workspace/semantic_parent.txt';
+        const childUri = 'file:///test-workspace/semantic_child.txt';
+
+        openDocument(parentUri, 'set(GLOBAL_VAR "data")\ninclude(semantic_child.txt)');
+        openDocument(childUri, 'message(STATUS ${GLOBAL_VAR})\nmessage(STATUS ${UNSEEN_VAR})');
+
+        // Warm up the caches
+        await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri: parentUri },
+            position: { line: 0, character: 0 }
+        });
+
+        const result = await connection.sendRequest(SemanticTokensRequest.type, {
+            textDocument: { uri: childUri }
+        });
+
+        assert(result !== null && result.data !== undefined);
+
+        // Default variable index is 5
+        let variableTokens = 0;
+        for (let i = 3; i < result.data.length; i += 5) {
+            if (result.data[i] === 5) { // 'variable' type
+                variableTokens++;
+            }
+        }
+
+        // Expected: GLOBAL_VAR should be highlighted as a variable.
+        // Notice we might have multiple tokens, but we expect at least 1 since we have "GLOBAL_VAR".
+        // If UNSEEN_VAR is correctly omitted because it's not in the visible files, there should strictly be 1 match for line 0.
+        assert(variableTokens > 0, 'Should generate variable token for GLOBAL_VAR derived from parent via SymbolIndex');
     });
 
     //#endregion ── Semantic Tokens ────────────────────────────────────────
