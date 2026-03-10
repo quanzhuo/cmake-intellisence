@@ -1,9 +1,9 @@
 import { CharStreams, CommonTokenStream } from 'antlr4';
 import * as assert from 'assert';
-import { extractFlatCommands } from '../flatCommands';
-import { Formatter } from '../format';
-import CMakeLexer from '../generated/CMakeLexer';
-import CMakeParser from '../generated/CMakeParser';
+import { extractFlatCommands } from '../../flatCommands';
+import { Formatter } from '../../format';
+import CMakeLexer from '../../generated/CMakeLexer';
+import CMakeParser from '../../generated/CMakeParser';
 import { SyntaxErrorListener } from './cmakeSimple.test';
 
 suite('Formatter Tests', () => {

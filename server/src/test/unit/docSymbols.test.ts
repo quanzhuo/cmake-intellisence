@@ -1,10 +1,10 @@
 import * as assert from 'assert';
 import { DocumentSymbol, SymbolKind } from 'vscode-languageserver';
 import * as antlr4 from 'antlr4';
-import { SymbolListener } from '../docSymbols';
+import { SymbolListener } from '../../docSymbols';
 import { ParseTreeWalker } from 'antlr4';
-import CMakeLexer from '../generated/CMakeLexer';
-import CMakeParser from '../generated/CMakeParser';
+import CMakeLexer from '../../generated/CMakeLexer';
+import CMakeParser from '../../generated/CMakeParser';
 
 suite('SymbolListener Comprehensive Tests', () => {
     test('should handle nested macros', () => {

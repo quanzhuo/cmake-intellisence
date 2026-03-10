@@ -1,7 +1,7 @@
-import * as builtinCmds from '../builtin-cmds.json';
+import * as builtinCmds from '../../builtin-cmds.json';
 import * as assert from 'assert';
-import { CMakeInfo } from '../cmakeInfo';
-import { getCmdKeyWords } from '../utils';
+import { CMakeInfo } from '../../cmakeInfo';
+import { getCmdKeyWords } from '../../utils';
 
 type BuiltinCommand = {
     sig: string[];

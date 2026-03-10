@@ -1,9 +1,9 @@
 import * as assert from 'assert';
 import { before } from "mocha";
-import { CMakeInfo } from "../cmakeInfo";
-import { CMakeCompletionType, getCompletionInfoAtCursor, isCursorWithinParentheses } from "../completion";
-import { extractFlatCommands } from "../flatCommands";
-import { getFileContext } from "../utils";
+import { CMakeInfo } from "../../cmakeInfo";
+import { CMakeCompletionType, getCompletionInfoAtCursor, isCursorWithinParentheses } from "../../completion";
+import { extractFlatCommands } from "../../flatCommands";
+import { getFileContext } from "../../utils";
 
 suite('Completion Tests', () => {
     let cmakeInfo: CMakeInfo;

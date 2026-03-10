@@ -1,8 +1,8 @@
 import { CharStreams, CommonTokenStream, ErrorListener, RecognitionException, Recognizer, Token } from 'antlr4';
 import * as assert from 'assert';
-import { extractFlatCommands, FlatCommand } from '../flatCommands';
-import CMakeLexer from '../generated/CMakeLexer';
-import CMakeParser from '../generated/CMakeParser';
+import { extractFlatCommands, FlatCommand } from '../../flatCommands';
+import CMakeLexer from '../../generated/CMakeLexer';
+import CMakeParser from '../../generated/CMakeParser';
 
 export class SyntaxErrorListener extends ErrorListener<Token> {
     private _errors = 0;

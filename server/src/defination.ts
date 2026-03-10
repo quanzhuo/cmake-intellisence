@@ -131,14 +131,23 @@ class BaseDefinitionVisitor extends CMakeParserVisitor<Symbol[] | null> {
     /**
      * Override visitChildren for early termination.
      * Iterates children one by one; returns immediately when a child returns non-null.
+     *
+     * Note: antlr4's base visitTerminal() returns undefined (not null),
+     * so we must check for both null and undefined to avoid stopping
+     * on terminal nodes like NL tokens.
      */
     override visitChildren(ctx: ParserRuleContext): Symbol[] | null {
         if (!ctx.children) { return null; }
         for (const child of ctx.children) {
             const result = this.visit(child);
-            if (result !== null) { return result; }
+            if (result !== null && result !== undefined) { return result; }
         }
         return null;
+    }
+
+    /** Create a visitor of the same concrete type for cross-file traversal. */
+    protected createVisitor(scope: Scope, file: URI, curDir: URI): BaseDefinitionVisitor {
+        return new FunctionDefinitionVisitor(this.symbolToFind, scope, file, curDir, this.cmakeInfo, this.documents, this.fileContexts);
     }
 
     protected registerFunction(ctx: FunctionCmdContext): void {
@@ -186,7 +195,7 @@ class BaseDefinitionVisitor extends CMakeParserVisitor<Symbol[] | null> {
             tree = this.fileContexts.get(incUri.toString())!;
         }
 
-        const definitionVisitor = new FunctionDefinitionVisitor(this.symbolToFind, this.currentScope, incUri, this.curDir, this.cmakeInfo, this.documents, this.fileContexts);
+        const definitionVisitor = this.createVisitor(this.currentScope, incUri, this.curDir);
         return definitionVisitor.visit(tree) as Symbol[] | null;
     };
 
@@ -212,7 +221,7 @@ class BaseDefinitionVisitor extends CMakeParserVisitor<Symbol[] | null> {
 
         const subDirScope: Scope = new FileScope(this.currentScope);
         const subBaseDir = Utils.joinPath(this.curDir, subDir);
-        const definitionVisitor = new FunctionDefinitionVisitor(this.symbolToFind, subDirScope, subCMakeListsUri, subBaseDir, this.cmakeInfo, this.documents, this.fileContexts);
+        const definitionVisitor = this.createVisitor(subDirScope, subCMakeListsUri, subBaseDir);
         return definitionVisitor.visit(tree) as Symbol[] | null;
     };
 }
@@ -234,6 +243,10 @@ class FunctionDefinitionVisitor extends BaseDefinitionVisitor {
 }
 
 class VariableDefinitionVisitor extends BaseDefinitionVisitor {
+    protected override createVisitor(scope: Scope, file: URI, curDir: URI): BaseDefinitionVisitor {
+        return new VariableDefinitionVisitor(this.symbolToFind, scope, file, curDir, this.cmakeInfo, this.documents, this.fileContexts);
+    }
+
     // Override: need to visit children of functionCmd to reach argument nodes
     visitFunctionCmd = (ctx: FunctionCmdContext): Symbol[] | null => {
         this.registerFunction(ctx);
@@ -264,10 +277,23 @@ class VariableDefinitionVisitor extends BaseDefinitionVisitor {
         }
 
         const argToken: Token = ctx.start;
-        if (argToken.line === this.symbolToFind.getLine() + 1 &&
-            argToken.column === this.symbolToFind.getColumn() &&
-            argToken.text === this.symbolToFind.getName()) {
-            const sym = this.currentScope.resolve(this.symbolToFind.getName(), SymbolKind.Variable);
+        const findLine = this.symbolToFind.getLine() + 1;
+        const findCol = this.symbolToFind.getColumn();
+        const findName = this.symbolToFind.getName();
+
+        if (argToken.line !== findLine) {
+            return null;
+        }
+
+        // Match bare variable name (e.g. first arg of set()) or ${VAR} reference
+        const tokenText = argToken.text;
+        const tokenCol = argToken.column;
+        const isDirectMatch = tokenCol === findCol && tokenText === findName;
+        const isVarRefMatch = tokenText === '${' + findName + '}' &&
+            findCol === tokenCol + 2; // skip "${"
+
+        if (isDirectMatch || isVarRefMatch) {
+            const sym = this.currentScope.resolve(findName, SymbolKind.Variable);
             if (sym !== null) {
                 this.foundSymbols.push(sym);
             }

@@ -1,0 +1,304 @@
+import * as assert from 'assert';
+import * as cp from 'child_process';
+import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as path from 'path';
+import { ExtensionSettings } from '../../cmakeInfo';
+import {
+    DefinitionRequest,
+    DidOpenTextDocumentNotification,
+    ExitNotification,
+    InitializeRequest,
+    InitializeParams,
+    InitializedNotification,
+    IPCMessageReader,
+    IPCMessageWriter,
+    PublishDiagnosticsNotification,
+    PublishDiagnosticsParams,
+    RegistrationRequest,
+    ShutdownRequest,
+    ProtocolConnection,
+    createProtocolConnection,
+    Location,
+} from 'vscode-languageserver-protocol/node';
+import { URI } from 'vscode-uri';
+
+/**
+ * Integration tests for Go-to-Definition across multiple files.
+ *
+ * Fixture files live in server/src/test/fixtures/definition/ so that test
+ * data is easy to read, review, and extend without touching test code.
+ */
+suite('Definition Integration Tests', () => {
+    let connection: ProtocolConnection;
+    let serverProcess: cp.ChildProcess;
+    let docVersion = 0;
+    const diagnosticEmitter = new EventEmitter();
+
+    // Fixture directory – source tree, not the compiled output tree
+    // __dirname at runtime = server/out/test/integration/
+    const fixtureDir = path.resolve(__dirname, '..', '..', '..', 'src', 'test', 'integration', 'fixtures', 'definition');
+    const fixtureUri = URI.file(fixtureDir).toString();
+
+    const extSettings: ExtensionSettings = {
+        cmakePath: 'cmake',
+        pkgConfigPath: '',
+        cmdCaseDiagnostics: false,
+        loggingLevel: 'off'
+    };
+
+    // ── helpers ────────────────────────────────────────────────
+
+    function fileUri(relativePath: string): string {
+        return URI.file(path.join(fixtureDir, relativePath)).toString();
+    }
+
+    function openDocument(uri: string, content: string): void {
+        docVersion++;
+        connection.sendNotification(DidOpenTextDocumentNotification.type, {
+            textDocument: { uri, languageId: 'cmake', version: docVersion, text: content }
+        });
+    }
+
+    function waitForDiagnostics(uri: string, timeout = 5000): Promise<PublishDiagnosticsParams> {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                diagnosticEmitter.removeListener(uri, handler);
+                reject(new Error(`Timeout waiting for diagnostics on ${uri}`));
+            }, timeout);
+            function handler(params: PublishDiagnosticsParams) {
+                clearTimeout(timer);
+                resolve(params);
+            }
+            diagnosticEmitter.once(uri, handler);
+        });
+    }
+
+    /** Open a fixture file from the fixtures directory, wait for server to process it. */
+    async function openFixture(relativePath: string): Promise<string> {
+        const abs = path.join(fixtureDir, relativePath);
+        const uri = fileUri(relativePath);
+        const diagPromise = waitForDiagnostics(uri);
+        openDocument(uri, fs.readFileSync(abs, 'utf-8'));
+        await diagPromise;
+        return uri;
+    }
+
+    async function getDefinition(uri: string, line: number, character: number) {
+        return connection.sendRequest(DefinitionRequest.type, {
+            textDocument: { uri },
+            position: { line, character }
+        });
+    }
+
+    // ── lifecycle ──────────────────────────────────────────────
+
+    suiteSetup(async function () {
+        this.timeout(30000);
+
+        // Start the language server
+        const serverModule = path.resolve(__dirname, '..', '..', 'server.js');
+        serverProcess = cp.fork(serverModule, ['--node-ipc'], {
+            stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+        });
+
+        connection = createProtocolConnection(
+            new IPCMessageReader(serverProcess),
+            new IPCMessageWriter(serverProcess)
+        );
+        connection.listen();
+
+        let configurationRequested: () => void;
+        const configurationPromise = new Promise<void>(r => { configurationRequested = r; });
+
+        connection.onRequest(RegistrationRequest.type, () => { });
+        connection.onRequest('workspace/configuration', () => {
+            configurationRequested();
+            return [
+                extSettings.cmakePath,
+                extSettings.loggingLevel,
+                extSettings.cmdCaseDiagnostics,
+                extSettings.pkgConfigPath
+            ];
+        });
+        connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
+            diagnosticEmitter.emit(params.uri, params);
+        });
+
+        const initParams: InitializeParams = {
+            processId: process.pid,
+            capabilities: { textDocument: { completion: { completionItem: { snippetSupport: true } } } },
+            rootUri: fixtureUri,
+            locale: 'en',
+            workspaceFolders: [{ uri: fixtureUri, name: 'def-test' }]
+        };
+
+        await connection.sendRequest(InitializeRequest.type, initParams);
+        connection.sendNotification(InitializedNotification.type, {});
+        await configurationPromise;
+        await new Promise(r => setTimeout(r, 3000));
+    });
+
+    suiteTeardown(async function () {
+        if (connection) {
+            await connection.sendRequest(ShutdownRequest.type);
+            connection.sendNotification(ExitNotification.type);
+            connection.dispose();
+        }
+        if (serverProcess) { serverProcess.kill(); }
+    });
+
+    // ── Single-file definition ─────────────────────────────────
+
+    test('function defined and used in same file', async function () {
+        const uri = await openFixture('CMakeLists.txt');
+        // line 13: root_func(${ROOT_VAR})   — cursor on "root_func"
+        const result = await getDefinition(uri, 13, 3);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find at least one definition');
+        assert.strictEqual(locs[0].uri, uri, 'Definition should be in root CMakeLists.txt');
+        assert.strictEqual(locs[0].range.start.line, 5, 'Function defined at line 5');
+    });
+
+    test('variable defined and used in same file', async function () {
+        const uri = await openFixture('CMakeLists.txt');
+        // line 13: root_func(${ROOT_VAR})   — cursor on "ROOT_VAR"
+        const result = await getDefinition(uri, 13, 17);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0);
+        assert.strictEqual(locs[0].uri, uri);
+        assert.strictEqual(locs[0].range.start.line, 3, 'ROOT_VAR defined at line 3');
+    });
+
+    // ── Cross-file: include() ──────────────────────────────────
+
+    test('function defined in included file, used in root', async function () {
+        const uri = await openFixture('CMakeLists.txt');
+        // line 14: helper_func(${HELPER_VAR})  — cursor on "helper_func"
+        const result = await getDefinition(uri, 14, 3);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0);
+        assert.strictEqual(locs[0].uri, fileUri('include/helpers.cmake'),
+            'Definition should be in include/helpers.cmake');
+        assert.strictEqual(locs[0].range.start.line, 2, 'helper_func defined at line 2');
+    });
+
+    test('variable defined in included file, used in root', async function () {
+        const uri = await openFixture('CMakeLists.txt');
+        // line 14: helper_func(${HELPER_VAR})  — cursor on "HELPER_VAR"
+        const result = await getDefinition(uri, 14, 18);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0);
+        assert.strictEqual(locs[0].uri, fileUri('include/helpers.cmake'),
+            'Definition should be in include/helpers.cmake');
+        assert.strictEqual(locs[0].range.start.line, 0, 'HELPER_VAR defined at line 0');
+    });
+
+    // ── Cross-file: add_subdirectory() ─────────────────────────
+
+    test('root function used in subdirectory file', async function () {
+        const uri = await openFixture('src/CMakeLists.txt');
+        // line 8: root_func(${ROOT_VAR})   — cursor on "root_func"
+        const result = await getDefinition(uri, 8, 3);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0);
+        assert.strictEqual(locs[0].uri, fileUri('CMakeLists.txt'),
+            'root_func should resolve to root CMakeLists.txt');
+        assert.strictEqual(locs[0].range.start.line, 5);
+    });
+
+    test('root variable used in subdirectory file', async function () {
+        const uri = await openFixture('src/CMakeLists.txt');
+        // line 8: root_func(${ROOT_VAR})  — cursor on "ROOT_VAR"
+        const result = await getDefinition(uri, 8, 16);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0);
+        assert.strictEqual(locs[0].uri, fileUri('CMakeLists.txt'),
+            'ROOT_VAR should resolve to root CMakeLists.txt');
+        assert.strictEqual(locs[0].range.start.line, 3);
+    });
+
+    test('function defined and used in same subdirectory', async function () {
+        const uri = await openFixture('src/CMakeLists.txt');
+        // line 9: src_func(${SRC_VAR})  — cursor on "src_func"
+        const result = await getDefinition(uri, 9, 3);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0);
+        assert.strictEqual(locs[0].uri, fileUri('src/CMakeLists.txt'));
+        assert.strictEqual(locs[0].range.start.line, 2);
+    });
+
+    // ── Cross-file: nested add_subdirectory() ──────────────────
+
+    test('root function used in deeply nested subdirectory', async function () {
+        const uri = await openFixture('src/lib/CMakeLists.txt');
+        // line 6: root_func(${ROOT_VAR})   — cursor on "root_func"
+        const result = await getDefinition(uri, 6, 3);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0);
+        assert.strictEqual(locs[0].uri, fileUri('CMakeLists.txt'),
+            'root_func should resolve all the way back to root');
+        assert.strictEqual(locs[0].range.start.line, 5);
+    });
+
+    test('variable defined in deeply nested subdirectory, used locally', async function () {
+        const uri = await openFixture('src/lib/CMakeLists.txt');
+        // line 7: lib_func(${LIB_VAR})  — cursor on "LIB_VAR"
+        const result = await getDefinition(uri, 7, 14);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0);
+        assert.strictEqual(locs[0].uri, fileUri('src/lib/CMakeLists.txt'));
+        assert.strictEqual(locs[0].range.start.line, 0, 'LIB_VAR defined at line 0');
+    });
+
+    test('function defined in deeply nested subdirectory, used locally', async function () {
+        const uri = await openFixture('src/lib/CMakeLists.txt');
+        // line 7: lib_func(${LIB_VAR})  — cursor on "lib_func"
+        const result = await getDefinition(uri, 7, 3);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0);
+        assert.strictEqual(locs[0].uri, fileUri('src/lib/CMakeLists.txt'));
+        assert.strictEqual(locs[0].range.start.line, 2, 'lib_func defined at line 2');
+    });
+
+    // ── Edge cases ─────────────────────────────────────────────
+
+    test('builtin command should return null', async function () {
+        const uri = await openFixture('CMakeLists.txt');
+        // line 0: cmake_minimum_required(VERSION 3.10) — cursor on builtin cmd
+        const result = await getDefinition(uri, 0, 5);
+        assert.strictEqual(result, null, 'Builtin command should not have a definition');
+    });
+
+    test('macro definition and usage across files', async function () {
+        const uri = await openFixture('CMakeLists.txt');
+        // line 15: helper_macro(hello) — cursor on "helper_macro"
+        const result = await getDefinition(uri, 15, 3);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0);
+        assert.strictEqual(locs[0].uri, fileUri('include/helpers.cmake'));
+        assert.strictEqual(locs[0].range.start.line, 6, 'helper_macro defined at line 6');
+    });
+});

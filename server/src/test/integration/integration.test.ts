@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as cp from 'child_process';
 import { EventEmitter } from 'events';
 import * as path from 'path';
-import { CMakeInfo, ExtensionSettings } from '../cmakeInfo';
+import { CMakeInfo, ExtensionSettings } from '../../cmakeInfo';
 import {
     CompletionItemKind,
     CompletionRequest,
@@ -44,7 +44,7 @@ suite('LSP Integration Tests', () => {
         cmakeInfo = new CMakeInfo(extSettings);
         await cmakeInfo.init();
 
-        const serverModule = path.resolve(__dirname, '..', 'server.js');
+        const serverModule = path.resolve(__dirname, '..', '..', 'server.js');
         const debugArgs = process.execArgv.some(arg => /--inspect/.test(arg)) ? ['--inspect-brk=6009'] : [];
         serverProcess = cp.fork(serverModule, ['--node-ipc'], {
             stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
@@ -150,7 +150,7 @@ suite('LSP Integration Tests', () => {
         });
     }
 
-    // ── Completion ─────────────────────────────────────────────
+    //#region  ── Completion ─────────────────────────────────────────────
 
     test('should suggest all builtin commands', async function () {
         const uri = 'file:///test-workspace/completion-all-cmds.txt';
@@ -211,7 +211,7 @@ suite('LSP Integration Tests', () => {
 
     test('should provide keyword completion for all builtin commands', async function () {
         this.timeout(120000);
-        const cmds: Record<string, { keyword?: string[] }> = require('../builtin-cmds.json');
+        const cmds: Record<string, { keyword?: string[] }> = require('../../builtin-cmds.json');
 
         // These commands always override keyword completion with custom suggestions
         const skipCommands = new Set([
@@ -256,11 +256,13 @@ suite('LSP Integration Tests', () => {
         }
     });
 
-    // ── Hover ──────────────────────────────────────────────────
+    //#endregion ── Completion ─────────────────────────────────────────────
+
+    //#region    ── Hover ──────────────────────────────────────────────────
 
     test('should provide hover information for commands', async function () {
         const uri = 'file:///test-workspace/hover.txt';
-        openDocument(uri, 'project(MyProject)');
+        openDocument(uri, 'add_subdirectory(Subdir)');
 
         const result = await connection.sendRequest(HoverRequest.type, {
             textDocument: { uri },
@@ -271,7 +273,9 @@ suite('LSP Integration Tests', () => {
         assert(result!.contents !== undefined);
     });
 
-    // ── Formatting ─────────────────────────────────────────────
+    //#endregion ── Hover ──────────────────────────────────────────────────
+
+    //#region ── Formatting ─────────────────────────────────────────────
 
     test('should format document', async function () {
         const uri = 'file:///test-workspace/format.txt';
@@ -291,7 +295,9 @@ suite('LSP Integration Tests', () => {
         assert(formatted.includes('    project'), 'Nested command should be indented');
     });
 
-    // ── Document Symbols ───────────────────────────────────────
+    //#endregion ── Formatting ─────────────────────────────────────────────
+
+    //#region ── Document Symbols ───────────────────────────────────────
 
     test('should provide document symbols', async function () {
         const uri = 'file:///test-workspace/symbols.txt';
@@ -320,7 +326,9 @@ suite('LSP Integration Tests', () => {
         assert(macroSymbol !== undefined, 'Should find my_macro symbol');
     });
 
-    // ── Signature Help ─────────────────────────────────────────
+    //#endregion ── Document Symbols ───────────────────────────────────────
+
+    //#region ── Signature Help ─────────────────────────────────────────
 
     test('should provide signature help', async function () {
         const uri = 'file:///test-workspace/signature.txt';
@@ -335,7 +343,9 @@ suite('LSP Integration Tests', () => {
         assert(result!.signatures.length > 0, 'Should have at least one signature');
     });
 
-    // ── Document Links ─────────────────────────────────────────
+    //#endregion ── Signature Help ─────────────────────────────────────────
+
+    //#region ── Document Links ─────────────────────────────────────────
 
     test('should provide document links', async function () {
         const uri = 'file:///test-workspace/links.txt';
@@ -349,7 +359,9 @@ suite('LSP Integration Tests', () => {
         assert(Array.isArray(links));
     });
 
-    // ── Diagnostics ────────────────────────────────────────────
+    //#endregion ── Document Links ─────────────────────────────────────────
+
+    //#region ── Diagnostics ────────────────────────────────────────────
 
     test('should publish diagnostics on document open', async function () {
         const uri = 'file:///test-workspace/diag-clean.txt';
@@ -386,7 +398,9 @@ suite('LSP Integration Tests', () => {
         assert(result.diagnostics.length > 0, 'Unclosed if() should produce diagnostics');
     });
 
-    // ── Semantic Tokens ────────────────────────────────────────
+    //#endregion ── Diagnostics ────────────────────────────────────────────
+
+    //#region ── Semantic Tokens ────────────────────────────────────────
 
     test('should provide semantic tokens', async function () {
         const uri = 'file:///test-workspace/semantic.txt';
@@ -400,4 +414,6 @@ suite('LSP Integration Tests', () => {
         assert(result!.data !== undefined);
         assert(result!.data.length > 0, 'Should have semantic token data');
     });
+
+    //#endregion ── Semantic Tokens ────────────────────────────────────────
 });

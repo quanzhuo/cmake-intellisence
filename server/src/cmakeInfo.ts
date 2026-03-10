@@ -96,19 +96,11 @@ export class CMakeInfo {
                 }
             }
         } catch (error) {
-            // On Windows, if msvc is not installed, cmake --system-information may fail with follwing error:
-
-            // -- Building for: NMake Makefiles
-            // CMake Error at CMakeLists.txt:6 (project):
-            //   Running
-            //    'nmake' '-?'
-            //   failed with:
-            //    no such file or directory
-            // CMake Error: CMAKE_C_COMPILER not set, after EnableLanguage
-            // CMake Error: CMAKE_CXX_COMPILER not set, after EnableLanguage
-            // Error: --system-information failed on internal CMake!
-            const message = JSON.stringify(error);
-            if (process.platform === 'win32' && message.includes('nmake') && message.includes('no such file or directory')) {
+            // On Windows, cmake --system-information may fail if no proper
+            // build environment is available (e.g. nmake not found, MSBuild
+            // misconfigured, etc.). Fall back to locating CMAKE_ROOT via the
+            // cmake binary's install layout.
+            if (process.platform === 'win32') {
                 for (const dir of ['cmake', `cmake-${this.major}.${this.minor}`]) {
                     const cmakeRoot = path.join(path.dirname(this.cmakePath), '..', 'share', dir);
                     if (fs.existsSync(cmakeRoot)) {
