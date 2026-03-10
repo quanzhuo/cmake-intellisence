@@ -7,7 +7,7 @@ import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocumen
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
-import { CMakeInfo, ExtensionSettings, ProjectInfoListener } from './cmakeInfo';
+import { ExtensionSettings, ProjectInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
 import Completion, { CompletionItemType, ProjectInfo, builtinCmds, findCommandAtPosition, inComments } from './completion';
 import { CMAKE_DOC_BASE_URL, DIAG_CODE_CMD_CASE } from './consts';
 import { DefinitionResolver } from './defination';
@@ -73,8 +73,6 @@ export class CMakeLanguageServer {
         cmdCaseDiagnostics: false,
         pkgConfigPath: 'pkg-config',
     };
-
-    private cmakeInfo: CMakeInfo = new CMakeInfo(this.extSettings);
 
     /**
      * Files whose ProjectInfo is already parsed
@@ -166,9 +164,8 @@ export class CMakeLanguageServer {
     private async onInitialized(params: InitializedParams) {
         this.connection.client.register(DidChangeConfigurationNotification.type, undefined);
         this.extSettings = await this.getExtSettings();
-        this.cmakeInfo = new CMakeInfo(this.extSettings);
         try {
-            await this.cmakeInfo.init();
+            await initializeCMakeEnvironment(this.extSettings, this.symbolIndex);
         } catch (e: any) {
             this.connection.window.showErrorMessage(e.message);
         }
@@ -199,29 +196,30 @@ export class CMakeLanguageServer {
         }
 
         let arg = '', category = '';
+        const systemCache = this.symbolIndex.getSystemCache();
         if ((params.position.line + 1 === commandToken.line) &&
             (params.position.character <= commandToken.column + commandToken.text.length) &&
-            this.cmakeInfo.commands.has(commandName)) {
+            systemCache.commands.has(commandName.toLowerCase())) {
             arg = '--help-command';
             category = 'command';
             word = commandName;
-        } else if (commandName === 'include' && this.cmakeInfo.modules.has(word)) {
+        } else if (commandName === 'include' && systemCache.modules.has(word)) {
             arg = '--help-module';
             category = 'module';
-        } else if (commandName === 'cmake_policy' && this.cmakeInfo.policies.has(word)) {
+        } else if (commandName === 'cmake_policy' && systemCache.policies.has(word)) {
             arg = '--help-policy';
             category = 'policy';
-        } else if (this.cmakeInfo.variables.has(word)) {
+        } else if (systemCache.variables.has(word)) {
             arg = '--help-variable';
             category = 'variable';
-        } else if (this.cmakeInfo.properties.has(word)) {
+        } else if (systemCache.properties.has(word)) {
             arg = '--help-property';
             category = 'property';
         }
 
         if (arg.length !== 0) {
             try {
-                const { stdout } = await this.execFilePromise(this.cmakeInfo.cmakePath, [arg, word]);
+                const { stdout } = await this.execFilePromise(this.symbolIndex.cmakePath, [arg, word]);
                 let value: string;
                 if (category === 'property') {
                     value = stdout;
@@ -241,7 +239,7 @@ export class CMakeLanguageServer {
                 if (pattern.test(word)) {
                     const modifiedWord = word.replace(pattern, '_<LANG>$2');
                     try {
-                        const { stdout: modifiedStdout } = await this.execFilePromise(this.cmakeInfo.cmakePath, [arg, modifiedWord]);
+                        const { stdout: modifiedStdout } = await this.execFilePromise(this.symbolIndex.cmakePath, [arg, modifiedWord]);
                         return {
                             contents: {
                                 kind: 'markdown',
@@ -268,6 +266,12 @@ export class CMakeLanguageServer {
         if (fs.existsSync(entryCMakeLists.fsPath)) {
             return entryCMakeLists.toString();
         }
+
+        const indexedEntryFile = this.symbolIndex.findEntryFile(docUri);
+        if (indexedEntryFile) {
+            return indexedEntryFile;
+        }
+
         return docUri;
     }
 
@@ -295,7 +299,7 @@ export class CMakeLanguageServer {
         populateIndexTopDown(entryFileSource, new Set());
 
         const word = getWordAtPosition(document, params.position).text;
-        const completion = new Completion(this.cmakeInfo, this.flatCommandsMap, this.tokenStreams, this.projectInfo, word, this.logger, this.symbolIndex, params.textDocument.uri, entryFileSource);
+        const completion = new Completion(this.flatCommandsMap, this.tokenStreams, this.projectInfo, word, this.logger, this.symbolIndex, params.textDocument.uri, entryFileSource);
         return completion.onCompletion(params);
     }
 
@@ -306,7 +310,7 @@ export class CMakeLanguageServer {
         }
 
         if (item.data === CompletionItemType.PkgConfigModules) {
-            item.documentation = this.cmakeInfo.pkgConfigModules.get(item.label);
+            item.documentation = this.symbolIndex.pkgConfigModules.get(item.label);
             return Promise.resolve(item);
         }
 
@@ -330,9 +334,9 @@ export class CMakeLanguageServer {
             default:
                 return Promise.resolve(item);
         }
-        const command = `"${this.cmakeInfo.cmakePath}" ${helpArg} "${item.label}"`;
+        const command = `"${this.symbolIndex.cmakePath}" ${helpArg} "${item.label}"`;
         return new Promise((resolve, reject) => {
-            execFile(this.cmakeInfo.cmakePath, [helpArg, item.label], (error, stdout, stderr) => {
+            execFile(this.symbolIndex.cmakePath, [helpArg, item.label], (error, stdout, stderr) => {
                 if (error) {
                     this.logger.error(`Failed to get help for ${item.label}: ${stderr}`);
                 } else {
@@ -468,7 +472,6 @@ export class CMakeLanguageServer {
             this.documents,
             this.symbolIndex,
             this.getFlatCommands.bind(this),
-            this.cmakeInfo,
             workspaceFolder,
             URI.parse(uri),
             command,
@@ -498,7 +501,6 @@ export class CMakeLanguageServer {
             this.documents,
             this.symbolIndex,
             this.getFlatCommands.bind(this),
-            this.cmakeInfo,
             workspaceFolder,
             URI.parse(uri),
             command,
@@ -528,7 +530,6 @@ export class CMakeLanguageServer {
             this.documents,
             this.symbolIndex,
             this.getFlatCommands.bind(this),
-            this.cmakeInfo,
             workspaceFolder,
             URI.parse(uri),
             command,
@@ -626,10 +627,9 @@ export class CMakeLanguageServer {
      */
     private async onDidChangeConfiguration(params: DidChangeConfigurationParams) {
         const extSettings = await this.getExtSettings();
-        if (extSettings.cmakePath !== this.extSettings.cmakePath) {
-            this.cmakeInfo = new CMakeInfo(extSettings);
+        if (extSettings.cmakePath !== this.extSettings.cmakePath || extSettings.pkgConfigPath !== this.extSettings.pkgConfigPath) {
             try {
-                await this.cmakeInfo.init();
+                await initializeCMakeEnvironment(extSettings, this.symbolIndex);
             } catch (e: any) {
                 this.connection.window.showErrorMessage(e.message);
             }
@@ -664,7 +664,7 @@ export class CMakeLanguageServer {
 
         // Update Symbol Index
         const baseDir = URI.file(path.dirname(URI.parse(event.document.uri).fsPath));
-        const fileSymbolCache = extractSymbols(event.document.uri, flatCommands, baseDir, this.cmakeInfo);
+        const fileSymbolCache = extractSymbols(event.document.uri, flatCommands, baseDir, this.symbolIndex);
         this.symbolIndex.setCache(event.document.uri, fileSymbolCache);
 
         // Cache comment tokens
@@ -685,7 +685,7 @@ export class CMakeLanguageServer {
         };
 
         if (this.extSettings?.cmdCaseDiagnostics) {
-            const cmdCaseChecker = new CommandCaseChecker(this.cmakeInfo);
+            const cmdCaseChecker = new CommandCaseChecker(this.symbolIndex);
             cmdCaseChecker.check(flatCommands);
             diagnostics.diagnostics.push(...cmdCaseChecker.getCmdCaseDdiagnostics());
         }
@@ -720,7 +720,7 @@ export class CMakeLanguageServer {
         }
 
         const commands = this.getFlatCommands(entryCMake.toString());
-        const projectInfoListener = new ProjectInfoListener(this.cmakeInfo, entryCMake.toString(), workspaceFolder.fsPath, this.fileContexts, this.documents, this.parsedFiles, workspaceFolder.fsPath);
+        const projectInfoListener = new ProjectInfoListener(this.symbolIndex, entryCMake.toString(), workspaceFolder.fsPath, this.fileContexts, this.documents, this.parsedFiles, workspaceFolder.fsPath);
         projectInfoListener.processCommands(commands);
         if (!this.projectInfo) {
             this.projectInfo = projectInfoListener.projectInfo;
@@ -747,7 +747,7 @@ export class CMakeLanguageServer {
 
     private onDocumentLinks(params: DocumentLinkParams): Promise<DocumentLink[] | null> {
         const commands = this.getFlatCommands(params.textDocument.uri);
-        const linkInfo = new DocumentLinkInfo(commands, params.textDocument.uri, this.cmakeInfo);
+        const linkInfo = new DocumentLinkInfo(commands, params.textDocument.uri, this.symbolIndex);
         return Promise.resolve(linkInfo.links);
     }
 
@@ -806,7 +806,11 @@ export class CMakeLanguageServer {
 
     public getFlatCommands(uri: string): FlatCommand[] {
         if (this.flatCommandsMap.has(uri)) {
-            return this.flatCommandsMap.get(uri)!;
+            const flatCommands = this.flatCommandsMap.get(uri)!;
+            const baseDir = URI.file(path.dirname(URI.parse(uri).fsPath));
+            const fileSymbolCache = extractSymbols(uri, flatCommands, baseDir, this.symbolIndex);
+            this.symbolIndex.setCache(uri, fileSymbolCache);
+            return flatCommands;
         }
         const fileContext = this.getFileContext(uri);
         const flatCommands = extractFlatCommands(fileContext);
@@ -814,7 +818,7 @@ export class CMakeLanguageServer {
 
         // Update Symbol Index
         const baseDir = URI.file(path.dirname(URI.parse(uri).fsPath));
-        const fileSymbolCache = extractSymbols(uri, flatCommands, baseDir, this.cmakeInfo);
+        const fileSymbolCache = extractSymbols(uri, flatCommands, baseDir, this.symbolIndex);
         this.symbolIndex.setCache(uri, fileSymbolCache);
 
         return flatCommands;

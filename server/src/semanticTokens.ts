@@ -75,16 +75,24 @@ export function getTokenBuilder(uri: string): SemanticTokensBuilder {
 }
 
 export function getTokenTypes(initParams: InitializeParams): string[] {
-    tokenTypes = defaultTokenTypes.filter(value => {
-        return initParams.capabilities.textDocument?.semanticTokens?.tokenTypes.includes(value);
-    });
+    const supportedTokenTypes = initParams.capabilities.textDocument?.semanticTokens?.tokenTypes;
+    if (!supportedTokenTypes || supportedTokenTypes.length === 0) {
+        tokenTypes = [...defaultTokenTypes];
+        return tokenTypes;
+    }
+
+    tokenTypes = defaultTokenTypes.filter(value => supportedTokenTypes.includes(value));
     return tokenTypes;
 }
 
 export function getTokenModifiers(initParams: InitializeParams): string[] {
-    tokenModifiers = defaultTokenModifiers.filter(value => {
-        return initParams.capabilities.textDocument?.semanticTokens?.tokenModifiers.includes(value);
-    });
+    const supportedTokenModifiers = initParams.capabilities.textDocument?.semanticTokens?.tokenModifiers;
+    if (!supportedTokenModifiers || supportedTokenModifiers.length === 0) {
+        tokenModifiers = [...defaultTokenModifiers];
+        return tokenModifiers;
+    }
+
+    tokenModifiers = defaultTokenModifiers.filter(value => supportedTokenModifiers.includes(value));
     return tokenModifiers;
 }
 
@@ -95,6 +103,7 @@ export class SemanticTokenListener extends CMakeParserListener {
     private symbolIndex: SymbolIndex;
     private entryUri: string;
     private _visibleFiles: string[] | null = null;
+    private emittedTokens: Set<string> = new Set();
 
     private _operator: Set<string> = new Set([
         'EXISTS', 'COMMAND', 'DEFINED',
@@ -117,7 +126,14 @@ export class SemanticTokenListener extends CMakeParserListener {
         return this._operator.has(token);
     }
 
+    private normalizeVariableName(token: string): string {
+        const match = token.match(/^\$\{(.+)\}$/);
+        return match ? match[1] : token;
+    }
+
     private isVariable(token: string): boolean {
+        token = this.normalizeVariableName(token);
+
         if (this._visibleFiles === null) {
             this._visibleFiles = this.symbolIndex.getVisibleFilesForVariable(this.entryUri, this._uri);
         }
@@ -135,7 +151,35 @@ export class SemanticTokenListener extends CMakeParserListener {
                 return true;
             }
         }
+
+        // Fallback: check built-in system cache variables (and properties if needed)
+        const systemCache = this.symbolIndex.getSystemCache();
+        if (systemCache && systemCache.variables.has(token)) {
+            return true;
+        }
+
         return false;
+    }
+
+    private tokenVariableReferences(argCtx: ArgumentContext): void {
+        const text = argCtx.getText();
+        const variablePattern = /\$\{([^}]+)\}/g;
+        let match: RegExpExecArray | null;
+
+        while ((match = variablePattern.exec(text)) !== null) {
+            const variableName = match[1];
+            if (!this.isVariable(variableName)) {
+                continue;
+            }
+
+            this.pushToken(
+                argCtx.start.line - 1,
+                argCtx.start.column + match.index + 2,
+                variableName.length,
+                TokenTypes.variable,
+                []
+            );
+        }
     }
 
     private getModifiers(modifiers: TokenModifiers[]): number {
@@ -151,6 +195,22 @@ export class SemanticTokenListener extends CMakeParserListener {
         return this._builder.buildEdits();
     }
 
+    private pushToken(line: number, column: number, length: number, tokenType: string, modifiers: TokenModifiers[]): void {
+        const tokenTypeIndex = tokenTypes.indexOf(tokenType);
+        if (tokenTypeIndex === -1) {
+            return;
+        }
+
+        const modifiersValue = this.getModifiers(modifiers);
+        const key = `${line}:${column}:${length}:${tokenTypeIndex}:${modifiersValue}`;
+        if (this.emittedTokens.has(key)) {
+            return;
+        }
+
+        this.emittedTokens.add(key);
+        this._builder.push(line, column, length, tokenTypeIndex, modifiersValue);
+    }
+
     private tokenInConditional(context: IfCmdContext | ElseIfCmdContext | WhileCmdContext): void {
         context.argument_list().forEach((argCtx: ArgumentContext) => {
             if (argCtx.getChildCount() === 1) {
@@ -162,10 +222,7 @@ export class SemanticTokenListener extends CMakeParserListener {
                 //     argToken.text.length, tokenTypes.indexOf(TokenTypes.keyword),
                 //     this.getModifiers([]));
             } else if (this.isVariable(argToken.text)) {
-                this._builder.push(argToken.line - 1, argToken.column, argToken.text.length,
-                    tokenTypes.indexOf(TokenTypes.variable),
-                    this.getModifiers([])
-                );
+                this.pushToken(argToken.line - 1, argToken.column, argToken.text.length, TokenTypes.variable, []);
             }
         });
     }
@@ -175,23 +232,23 @@ export class SemanticTokenListener extends CMakeParserListener {
         if (argCount > 0) {
             const varCtx = ctx.argument(0);
             const varToken: Token = varCtx.start;
-            this._builder.push(
+            this.pushToken(
                 varToken.line - 1,
                 varToken.column,
                 varToken.text.length,
-                tokenTypes.indexOf(tokenType),
-                this.getModifiers([TokenModifiers.declaration, TokenModifiers.definition])
+                tokenType,
+                [TokenModifiers.declaration, TokenModifiers.definition]
             );
             if (argCount > 1) {
                 ctx.argument_list().slice(1).forEach(argCtx => {
                     if (argCtx.getChildCount() === 1) {
                         const argToken: Token = argCtx.start;
-                        this._builder.push(
+                        this.pushToken(
                             argToken.line - 1,
                             argToken.column,
                             argToken.text.length,
-                            tokenTypes.indexOf(TokenTypes.parameter),
-                            this.getModifiers([])
+                            TokenTypes.parameter,
+                            []
                         );
                     }
                 });
@@ -215,6 +272,10 @@ export class SemanticTokenListener extends CMakeParserListener {
         this.tokenInConditional(ctx);
     };
 
+    enterArgument = (ctx: ArgumentContext): void => {
+        this.tokenVariableReferences(ctx);
+    };
+
     enterFunctionCmd = (ctx: FunctionCmdContext): void => {
         this.tokenInFunctionOrMacro(ctx, TokenTypes.function);
     };
@@ -228,9 +289,9 @@ export class SemanticTokenListener extends CMakeParserListener {
         if (argCount > 0) {
             const varCtx = ctx.argument(0);
             const varToken: Token = varCtx.start;
-            this._builder.push(varToken.line - 1, varToken.column, varToken.text.length,
-                tokenTypes.indexOf(TokenTypes.variable),
-                this.getModifiers([TokenModifiers.declaration, TokenModifiers.definition]));
+            this.pushToken(varToken.line - 1, varToken.column, varToken.text.length,
+                TokenTypes.variable,
+                [TokenModifiers.declaration, TokenModifiers.definition]);
         }
     };
 
@@ -268,12 +329,12 @@ export class SemanticTokenListener extends CMakeParserListener {
                     const args: ArgumentContext[] = ctx.argument_list();
                     if (args.length > 0) {
                         const targetToken: Token = args[0].start;
-                        this._builder.push(
+                        this.pushToken(
                             targetToken.line - 1,
                             targetToken.column,
                             targetToken.text.length,
-                            tokenTypes.indexOf(TokenTypes.string),
-                            this.getModifiers([TokenModifiers.declaration, TokenModifiers.definition])
+                            TokenTypes.string,
+                            [TokenModifiers.declaration, TokenModifiers.definition]
                         );
                     }
                 }
@@ -289,12 +350,12 @@ export class SemanticTokenListener extends CMakeParserListener {
                 const text = argCtx.getText();
                 const argToken: Token = argCtx.start;
                 if (keywords.includes(text)) {
-                    this._builder.push(
+                    this.pushToken(
                         argToken.line - 1,
                         argToken.column,
                         argToken.text.length,
-                        tokenTypes.indexOf(TokenTypes.type),
-                        this.getModifiers([])
+                        TokenTypes.type,
+                        []
                     );
                 }
             });
@@ -310,12 +371,12 @@ export class SemanticTokenListener extends CMakeParserListener {
             }
             const tokenType = isMacro ? TokenTypes.macro : TokenTypes.function;
 
-            this._builder.push(
+            this.pushToken(
                 commandToken.line - 1,
                 commandToken.column,
                 commandToken.text.length,
-                tokenTypes.indexOf(tokenType),
-                this.getModifiers([])
+                tokenType,
+                []
             );
         }
     };

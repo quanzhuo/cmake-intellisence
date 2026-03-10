@@ -4,7 +4,6 @@ import * as path from 'path';
 import { CompletionItem, CompletionItemKind, CompletionItemTag, CompletionList, CompletionParams, InsertTextFormat, Position } from "vscode-languageserver";
 import { URI } from "vscode-uri";
 import * as builtinCmds from './builtin-cmds.json';
-import { CMakeInfo } from "./cmakeInfo";
 import { FlatCommand } from "./flatCommands";
 import CMakeLexer from "./generated/CMakeLexer";
 import { Logger } from "./logging";
@@ -254,7 +253,6 @@ export default class Completion {
     private completionParams?: CompletionParams;
 
     constructor(
-        private cmakeInfo: CMakeInfo,
         private flatCommandsMap: Map<string, FlatCommand[]>,
         private tokenStreams: Map<string, CommonTokenStream>,
         private projectInfo: ProjectInfo = {} as ProjectInfo,
@@ -382,8 +380,11 @@ export default class Completion {
             }
         }
 
+        const internalCommands = this.symbolIndex
+            ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.BuiltinCommand))
+            : [];
         const allCommands = [
-            ...Array.from(this.cmakeInfo.commands).map(value => { return { name: value, type: CompletionItemType.BuiltInCommand }; }),
+            ...internalCommands.map(value => { return { name: value, type: CompletionItemType.BuiltInCommand }; }),
             ...Array.from(userFunctions).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
             ...Array.from(userMacros).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
         ];
@@ -451,7 +452,10 @@ export default class Completion {
     }
 
     private getModuleSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
-        const similar = Array.from(this.cmakeInfo.modules).filter(candidate => {
+        const modules = this.symbolIndex
+            ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.Module))
+            : [];
+        const similar = modules.filter(candidate => {
             return candidate.includes(word);
         });
 
@@ -524,7 +528,10 @@ export default class Completion {
             }
         }
 
-        let similar = Array.from(this.cmakeInfo.variables).filter(candidate => {
+        const variables = this.symbolIndex
+            ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.BuiltinVariable))
+            : [];
+        let similar = variables.filter(candidate => {
             return candidate.includes(word);
         });
 
@@ -573,7 +580,10 @@ export default class Completion {
     }
 
     private getPropertySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
-        let similar = Array.from(this.cmakeInfo.properties).filter(candidate => {
+        const properties = this.symbolIndex
+            ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.Property))
+            : [];
+        let similar = properties.filter(candidate => {
             return candidate.includes(word);
         });
 
@@ -594,7 +604,7 @@ export default class Completion {
         }
 
         const keywords = ['REQUIRED', 'QUIET', 'NO_CMAKE_PATH', 'NO_CMAKE_ENVIRONMENT_PATH', 'IMPORTED_TARGET', 'GLOBAL',];
-        const pkgConfigModules = this.cmakeInfo.pkgConfigModules.keys();
+        const pkgConfigModules = this.symbolIndex?.pkgConfigModules.keys() ?? [];
         const items = [...keywords, ...pkgConfigModules];
         const similar = items.filter(candidate => {
             return candidate.includes(word);
@@ -730,7 +740,10 @@ export default class Completion {
     }
 
     private getPolicySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
-        let similar = Array.from(this.cmakeInfo.policies).filter(candidate => {
+        const policies = this.symbolIndex
+            ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.Policy))
+            : [];
+        let similar = policies.filter(candidate => {
             return candidate.includes(word);
         });
 

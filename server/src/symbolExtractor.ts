@@ -1,15 +1,14 @@
 import * as fs from 'fs';
 import { URI, Utils } from 'vscode-uri';
-import { CMakeInfo } from './cmakeInfo';
 import { FlatCommand } from './flatCommands';
-import { FileSymbolCache, Symbol, SymbolKind } from './symbolIndex';
+import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
 import { getIncludeFileUri } from './utils';
 
 export function extractSymbols(
     uri: string,
     commands: FlatCommand[],
     baseDir: URI,
-    cmakeInfo: CMakeInfo
+    symbolIndex: SymbolIndex
 ): FileSymbolCache {
     const cache = new FileSymbolCache(uri);
 
@@ -28,7 +27,7 @@ export function extractSymbols(
                 extractVariable(cmd, cache, uri);
                 break;
             case 'include':
-                extractInclude(cmd, cache, baseDir, cmakeInfo);
+                extractInclude(cmd, cache, baseDir, symbolIndex);
                 break;
             case 'add_subdirectory':
                 extractAddSubdirectory(cmd, cache, baseDir);
@@ -61,12 +60,12 @@ function extractVariable(cmd: FlatCommand, cache: FileSymbolCache, uri: string) 
     }
 }
 
-function extractInclude(cmd: FlatCommand, cache: FileSymbolCache, baseDir: URI, cmakeInfo: CMakeInfo) {
+function extractInclude(cmd: FlatCommand, cache: FileSymbolCache, baseDir: URI, symbolIndex: SymbolIndex) {
     const args = cmd.argument_list();
     if (args.length > 0) {
         const nameToken = args[0].start;
         if (nameToken) {
-            const incUri = getIncludeFileUri(cmakeInfo, baseDir, nameToken.text);
+            const incUri = getIncludeFileUri(symbolIndex, baseDir, nameToken.text);
             if (incUri) {
                 cache.addDependency(incUri.toString(), 'include');
             }

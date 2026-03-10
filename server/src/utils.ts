@@ -4,9 +4,9 @@ import * as path from 'path';
 import { TextDocuments } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI, Utils } from 'vscode-uri';
-import { CMakeInfo } from './cmakeInfo';
 import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
+import { SymbolIndex } from './symbolIndex';
 
 export function getFileContext(text: string): FileContext {
     const input: CharStream = CharStreams.fromString(text);
@@ -25,13 +25,13 @@ export function getFileContent(documents: TextDocuments<TextDocument>, uri: URI)
     }
 }
 
-export function getIncludeFileUri(cmakeInfo: CMakeInfo, baseDir: URI, includeFileName: string): URI | null {
+export function getIncludeFileUri(symbolIndex: SymbolIndex, baseDir: URI, includeFileName: string): URI | null {
     const incFileUri: URI = Utils.joinPath(baseDir, includeFileName);
-    if (existsSync(incFileUri.fsPath)) {
+    if (existsSync(incFileUri.fsPath) || symbolIndex.getCache(incFileUri.toString())) {
         return incFileUri;
     }
 
-    const resPath = path.join(cmakeInfo.cmakeModulePath ?? '', `${includeFileName}.cmake`);
+    const resPath = path.join(symbolIndex.cmakeModulePath ?? '', `${includeFileName}.cmake`);
     if (existsSync(resPath)) {
         return URI.file(resPath);
     }

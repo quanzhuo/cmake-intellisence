@@ -25,12 +25,13 @@ import {
     SignatureHelpRequest,
     createProtocolConnection,
 } from 'vscode-languageserver-protocol/node';
-import { CMakeInfo, ExtensionSettings } from '../../cmakeInfo';
+import { ExtensionSettings, initializeCMakeEnvironment } from '../../cmakeEnvironment';
+import { SymbolIndex, SymbolKind } from '../../symbolIndex';
 
 suite('LSP Integration Tests', () => {
     let connection: ProtocolConnection;
     let serverProcess: cp.ChildProcess;
-    let cmakeInfo: CMakeInfo;
+    let symbolIndex: SymbolIndex;
     let docVersion = 0;
     const diagnosticEmitter = new EventEmitter();
     const extSettings: ExtensionSettings = {
@@ -41,8 +42,8 @@ suite('LSP Integration Tests', () => {
     };
 
     suiteSetup(async function () {
-        cmakeInfo = new CMakeInfo(extSettings);
-        await cmakeInfo.init();
+        symbolIndex = new SymbolIndex();
+        await initializeCMakeEnvironment(extSettings, symbolIndex);
 
         const serverModule = path.resolve(__dirname, '..', '..', 'server.js');
         const debugArgs = process.execArgv.some(arg => /--inspect/.test(arg)) ? ['--inspect-brk=6009'] : [];
@@ -109,7 +110,7 @@ suite('LSP Integration Tests', () => {
 
         connection.sendNotification(InitializedNotification.type, {});
         await configurationPromise;
-        // give it some time to finish cmakeInfo.init
+        // give it some time to finish environment initialization
         await new Promise(resolve => setTimeout(resolve, 3000));
     });
 
@@ -165,12 +166,13 @@ suite('LSP Integration Tests', () => {
         const items = Array.isArray(result) ? result : result!.items;
         assert(items.length > 0, 'Should return completion items');
 
-        cmakeInfo.commands.forEach(cmd => {
+        const builtinCommands = Array.from(symbolIndex.getAllSystemSymbols(SymbolKind.BuiltinCommand));
+        builtinCommands.forEach(cmd => {
             const suggest = items.find(i => i.label === cmd);
             assert(suggest !== undefined, `Should suggest "${cmd}" command`);
             assert.strictEqual(suggest.kind, CompletionItemKind.Function);
         });
-        assert(items.length > cmakeInfo.commands.size, 'Should have additional completion items beyond builtin commands');
+        assert(items.length > builtinCommands.length, 'Should have additional completion items beyond builtin commands');
     });
 
     test('should provide completion for empty document', async function () {

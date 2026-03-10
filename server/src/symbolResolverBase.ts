@@ -3,7 +3,6 @@ import * as path from "path";
 import { TextDocuments } from "vscode-languageserver";
 import { Position, TextDocument } from "vscode-languageserver-textdocument";
 import { URI, Utils } from "vscode-uri";
-import { CMakeInfo } from "./cmakeInfo";
 import { builtinCmds } from "./completion";
 import { FlatCommand } from "./flatCommands";
 import { Logger } from "./logging";
@@ -23,7 +22,6 @@ export abstract class SymbolResolverBase {
         protected documents: TextDocuments<TextDocument>,
         protected symbolIndex: SymbolIndex,
         protected getFlatCommands: (uri: string) => FlatCommand[],
-        protected cmakeInfo: CMakeInfo,
         protected workspaceFolder: string,
         protected curFile: URI,
         protected command: FlatCommand,

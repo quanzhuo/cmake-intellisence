@@ -22,7 +22,7 @@ import {
     WorkspaceSymbolRequest,
 } from "vscode-languageserver-protocol/node";
 import { URI } from "vscode-uri";
-import { ExtensionSettings } from "../../cmakeInfo";
+import { ExtensionSettings } from "../../cmakeEnvironment";
 
 suite("Workspace Symbol Integration Tests", () => {
     let connection: ProtocolConnection;

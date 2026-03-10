@@ -6,7 +6,17 @@ export enum SymbolKind {
     // eslint-disable-next-line @typescript-eslint/naming-convention
     Variable,
     // eslint-disable-next-line @typescript-eslint/naming-convention
-    Macro
+    Macro,
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    Module,
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    Policy,
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    Property,
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    BuiltinCommand,
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    BuiltinVariable
 }
 
 export class Symbol {
@@ -53,6 +63,10 @@ export class FileSymbolCache {
     // CMake variables are case-sensitive.
     public readonly variables: Map<string, Symbol[]> = new Map();
 
+    public readonly modules: Map<string, Symbol[]> = new Map();
+    public readonly policies: Map<string, Symbol[]> = new Map();
+    public readonly properties: Map<string, Symbol[]> = new Map();
+
     // Dependencies in exact order of declaration
     public readonly dependencies: Dependency[] = [];
 
@@ -73,6 +87,27 @@ export class FileSymbolCache {
         this.variables.get(symbol.name)!.push(symbol);
     }
 
+    addModule(symbol: Symbol) {
+        if (!this.modules.has(symbol.name)) {
+            this.modules.set(symbol.name, []);
+        }
+        this.modules.get(symbol.name)!.push(symbol);
+    }
+
+    addPolicy(symbol: Symbol) {
+        if (!this.policies.has(symbol.name)) {
+            this.policies.set(symbol.name, []);
+        }
+        this.policies.get(symbol.name)!.push(symbol);
+    }
+
+    addProperty(symbol: Symbol) {
+        if (!this.properties.has(symbol.name)) {
+            this.properties.set(symbol.name, []);
+        }
+        this.properties.get(symbol.name)!.push(symbol);
+    }
+
     addDependency(uri: string, type: DependencyType) {
         this.dependencies.push({ uri, type });
     }
@@ -82,7 +117,20 @@ export class FileSymbolCache {
  * Global index holding the symbol caches of all parsed files in the workspace.
  */
 export class SymbolIndex {
+    public cmakePath: string = '';
+    public cmakeModulePath: string | undefined;
+    public pkgConfigPath: string = '';
+    public pkgConfigModules: Map<string, string> = new Map();
     private fileCaches: Map<string, FileSymbolCache> = new Map();
+    private systemCache: FileSymbolCache = new FileSymbolCache('cmake-builtin://system');
+
+    setSystemCache(cache: FileSymbolCache): void {
+        this.systemCache = cache;
+    }
+
+    getSystemCache(): FileSymbolCache {
+        return this.systemCache;
+    }
 
     setCache(uri: string, cache: FileSymbolCache): void {
         this.fileCaches.set(uri, cache);
@@ -98,6 +146,86 @@ export class SymbolIndex {
 
     getAllCaches(): FileSymbolCache[] {
         return Array.from(this.fileCaches.values());
+    }
+
+    findEntryFile(targetUri: string): string | undefined {
+        const allCaches = this.getAllCaches();
+        const incomingDependencies = new Set<string>();
+
+        for (const cache of allCaches) {
+            for (const dependency of cache.dependencies) {
+                incomingDependencies.add(dependency.uri);
+            }
+        }
+
+        const canReachTarget = (startUri: string, visited: Set<string>): boolean => {
+            if (startUri === targetUri) {
+                return true;
+            }
+            if (visited.has(startUri)) {
+                return false;
+            }
+            visited.add(startUri);
+
+            const cache = this.getCache(startUri);
+            if (!cache) {
+                return false;
+            }
+
+            for (const dependency of cache.dependencies) {
+                if (canReachTarget(dependency.uri, visited)) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+
+        const rootCandidates = allCaches
+            .map(cache => cache.uri)
+            .filter(uri => !incomingDependencies.has(uri));
+
+        for (const rootUri of rootCandidates) {
+            if (canReachTarget(rootUri, new Set<string>())) {
+                return rootUri;
+            }
+        }
+
+        for (const cache of allCaches) {
+            if (canReachTarget(cache.uri, new Set<string>())) {
+                return cache.uri;
+            }
+        }
+
+        return undefined;
+    }
+
+    *getAllSystemSymbols(kind: SymbolKind): IterableIterator<string> {
+        const getNames = function* (map: Map<string, Symbol[]>) {
+            for (const symbols of map.values()) {
+                if (symbols.length > 0) {
+                    yield symbols[0].name;
+                }
+            }
+        };
+
+        switch (kind) {
+            case SymbolKind.BuiltinCommand:
+                yield* getNames(this.systemCache.commands);
+                break;
+            case SymbolKind.BuiltinVariable:
+                yield* getNames(this.systemCache.variables);
+                break;
+            case SymbolKind.Module:
+                yield* getNames(this.systemCache.modules);
+                break;
+            case SymbolKind.Policy:
+                yield* getNames(this.systemCache.policies);
+                break;
+            case SymbolKind.Property:
+                yield* getNames(this.systemCache.properties);
+                break;
+        }
     }
 
     clear(): void {

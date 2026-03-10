@@ -1,11 +1,11 @@
 import { ErrorListener, RecognitionException, Recognizer, Token } from "antlr4";
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver";
-import { CMakeInfo } from "./cmakeInfo";
 import { DIAG_CODE_CMD_CASE } from "./consts";
 import { FlatCommand } from "./flatCommands";
 import { BreakCmdContext, ContinueCmdContext, ForeachLoopContext, WhileLoopContext } from "./generated/CMakeParser";
 import CMakeListener from "./generated/CMakeParserListener";
 import localize from "./localize";
+import { SymbolIndex } from "./symbolIndex";
 
 export class SyntaxErrorListener extends ErrorListener<Token> {
     private diagnostics: Diagnostic[] = [];
@@ -101,9 +101,9 @@ export class CommandCaseChecker {
     private commands: Set<string>;
 
     constructor(
-        cmakeInfo: CMakeInfo,
+        symbolIndex: SymbolIndex,
     ) {
-        this.commands = cmakeInfo.commands;
+        this.commands = new Set(symbolIndex.getSystemCache().commands.keys());
     }
 
     check(flatCommands: FlatCommand[]): void {

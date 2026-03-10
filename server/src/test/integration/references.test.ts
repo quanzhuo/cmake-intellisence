@@ -3,25 +3,25 @@ import * as cp from "child_process";
 import { EventEmitter } from "events";
 import * as fs from "fs";
 import * as path from "path";
-import { ExtensionSettings } from "../../cmakeInfo";
 import {
-    ReferencesRequest,
+    createProtocolConnection,
     DidOpenTextDocumentNotification,
     ExitNotification,
-    InitializeRequest,
-    InitializeParams,
     InitializedNotification,
+    InitializeParams,
+    InitializeRequest,
     IPCMessageReader,
     IPCMessageWriter,
+    Location,
+    ProtocolConnection,
     PublishDiagnosticsNotification,
     PublishDiagnosticsParams,
+    ReferencesRequest,
     RegistrationRequest,
     ShutdownRequest,
-    ProtocolConnection,
-    createProtocolConnection,
-    Location,
 } from "vscode-languageserver-protocol/node";
 import { URI } from "vscode-uri";
+import { ExtensionSettings } from "../../cmakeEnvironment";
 
 suite("References Integration Tests", () => {
     let connection: ProtocolConnection;
@@ -141,9 +141,9 @@ suite("References Integration Tests", () => {
         // query from `set(MY_VAR "test_value")`
         let result = await getReferences(uri, 3, 5);
         let locs = (Array.isArray(result) ? result : [result]) as Location[];
-        
+
         assert.ok(locs && locs.length > 0, "Should find references");
-        
+
         // Assertions for CMakeLists.txt
         assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 3), "Definition on line 4");
         assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 4), "Usage inside set() on line 5");
@@ -161,11 +161,11 @@ suite("References Integration Tests", () => {
     test("find references of a custom macro/function (my_custom_macro)", async function () {
         const uri = await openFixture("CMakeLists.txt");
         await openFixture("utils.cmake");
-        
+
         // cursor on `function(my_custom_macro arg1)`
         let result = await getReferences(uri, 7, 10);
         let locs = (Array.isArray(result) ? result : [result]) as Location[];
-        
+
         assert.ok(locs && locs.length > 0, "Should find references for macro");
 
         assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 7), "Definition in CMakeLists.txt line 8");
@@ -179,9 +179,9 @@ suite("References Integration Tests", () => {
     test("find references of a macro/function ignoring casing (MY_CUSTOM_MACRO)", async function () {
         const uri = await openFixture("CMakeLists.txt");
         await openFixture("utils.cmake");
-        
+
         // request on the uppercase (CMake is case-insensitive for commands) - we just pick the lowercase which will get normalized
-        let result = await getReferences(uri, 12, 5); 
+        let result = await getReferences(uri, 12, 5);
         let locs = (Array.isArray(result) ? result : [result]) as Location[];
 
         // we should get the exact same results as the previous test

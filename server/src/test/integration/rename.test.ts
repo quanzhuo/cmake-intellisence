@@ -21,7 +21,7 @@ import {
     WorkspaceEdit,
 } from "vscode-languageserver-protocol/node";
 import { URI } from "vscode-uri";
-import { ExtensionSettings } from "../../cmakeInfo";
+import { ExtensionSettings } from "../../cmakeEnvironment";
 
 suite("Rename Integration Tests", () => {
     let connection: ProtocolConnection;

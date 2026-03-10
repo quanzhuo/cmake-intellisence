@@ -1,22 +1,24 @@
 import * as assert from 'assert';
 import { before } from "mocha";
-import { CMakeInfo } from "../../cmakeInfo";
+import { ExtensionSettings, initializeCMakeEnvironment } from "../../cmakeEnvironment";
 import { CMakeCompletionType, getCompletionInfoAtCursor, isCursorWithinParentheses } from "../../completion";
 import { extractFlatCommands } from "../../flatCommands";
+import { SymbolIndex, SymbolKind } from "../../symbolIndex";
 import { getFileContext } from "../../utils";
 
 suite('Completion Tests', () => {
-    let cmakeInfo: CMakeInfo;
+    let symbolIndex: SymbolIndex;
 
     before(async function () {
         this.timeout(10000);
-        cmakeInfo = new CMakeInfo({
+        symbolIndex = new SymbolIndex();
+        const extSettings: ExtensionSettings = {
             cmakePath: "cmake",
             pkgConfigPath: "",
             cmdCaseDiagnostics: false,
             loggingLevel: 'off'
-        });
-        await cmakeInfo.init();
+        };
+        await initializeCMakeEnvironment(extSettings, symbolIndex);
     });
 
     function findDuplicates(items: Iterable<string>): string[] {
@@ -33,27 +35,27 @@ suite('Completion Tests', () => {
     }
 
     test('variables should be unique', () => {
-        const duplicates = findDuplicates(cmakeInfo.variables);
+        const duplicates = findDuplicates(symbolIndex.getAllSystemSymbols(SymbolKind.BuiltinVariable));
         assert.strictEqual(duplicates.length, 0, `Duplicate variables found: ${duplicates.join(', ')}`);
     });
 
     test('modules should be unique', () => {
-        const duplicates = findDuplicates(cmakeInfo.modules);
+        const duplicates = findDuplicates(symbolIndex.getAllSystemSymbols(SymbolKind.Module));
         assert.strictEqual(duplicates.length, 0, `Duplicate modules found: ${duplicates.join(', ')}`);
     });
 
     test('policies should be unique', () => {
-        const duplicates = findDuplicates(cmakeInfo.policies);
+        const duplicates = findDuplicates(symbolIndex.getAllSystemSymbols(SymbolKind.Policy));
         assert.strictEqual(duplicates.length, 0, `Duplicate policies found: ${duplicates.join(', ')}`);
     });
 
     test('properties should be unique', () => {
-        const duplicates = findDuplicates(cmakeInfo.properties);
+        const duplicates = findDuplicates(symbolIndex.getAllSystemSymbols(SymbolKind.Property));
         assert.strictEqual(duplicates.length, 0, `Duplicate properties found: ${duplicates.join(', ')}`);
     });
 
     test('commands should be unique', () => {
-        const duplicates = findDuplicates(cmakeInfo.commands);
+        const duplicates = findDuplicates(symbolIndex.getAllSystemSymbols(SymbolKind.BuiltinCommand));
         assert.strictEqual(duplicates.length, 0, `Duplicate commands found: ${duplicates.join(', ')}`);
     });
 });

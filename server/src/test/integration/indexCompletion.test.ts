@@ -22,7 +22,7 @@ import {
     createProtocolConnection
 } from 'vscode-languageserver-protocol/node';
 import { URI } from 'vscode-uri';
-import { ExtensionSettings } from '../../cmakeInfo';
+import { ExtensionSettings } from '../../cmakeEnvironment';
 
 suite('Index Completion Integration Tests', () => {
     let connection: ProtocolConnection;

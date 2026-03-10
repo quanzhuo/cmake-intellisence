@@ -2,9 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DocumentLink, Range } from "vscode-languageserver";
 import { URI } from 'vscode-uri';
-import { CMakeInfo } from './cmakeInfo';
 import { FlatCommand } from './flatCommands';
 import { ArgumentContext } from './generated/CMakeParser';
+import { SymbolIndex } from './symbolIndex';
 
 export class DocumentLinkInfo {
     private _links: DocumentLink[] = [];
@@ -14,7 +14,7 @@ export class DocumentLinkInfo {
          * The uri of the current document
          */
         public uri: string,
-        public cmakeInfo: CMakeInfo,
+        public symbolIndex: SymbolIndex,
     ) {
         this.findLinks();
     }
@@ -120,7 +120,7 @@ export class DocumentLinkInfo {
 
         const firstArg: ArgumentContext = args[0];
         const argName = firstArg.getText();
-        if (this.cmakeInfo.modules.has(argName)) {
+        if (this.symbolIndex.getSystemCache().modules.has(argName)) {
             return this.includeSystemModule(firstArg);
         }
 
@@ -157,11 +157,11 @@ export class DocumentLinkInfo {
             throw new Error('Argument context stop token is missing.');
         }
         const argName = arg.getText();
-        if (!this.cmakeInfo.cmakeModulePath) {
+        if (!this.symbolIndex.cmakeModulePath) {
             return [];
         }
 
-        const modulePath = path.join(this.cmakeInfo.cmakeModulePath, moduleName);
+        const modulePath = path.join(this.symbolIndex.cmakeModulePath, moduleName);
         if (fs.existsSync(modulePath)) {
             return [{
                 range: Range.create(arg.start.line - 1, arg.start.column, arg.stop.line - 1, arg.stop.column + argName.length),

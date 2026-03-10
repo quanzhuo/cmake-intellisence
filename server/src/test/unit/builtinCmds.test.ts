@@ -1,6 +1,7 @@
-import * as builtinCmds from '../../builtin-cmds.json';
 import * as assert from 'assert';
-import { CMakeInfo } from '../../cmakeInfo';
+import * as builtinCmds from '../../builtin-cmds.json';
+import { initializeCMakeEnvironment } from '../../cmakeEnvironment';
+import { SymbolIndex, SymbolKind } from '../../symbolIndex';
 import { getCmdKeyWords } from '../../utils';
 
 type BuiltinCommand = {
@@ -47,17 +48,17 @@ suite('builtin-cmds.json tests', () => {
     });
 
     test('builtin-cmds.json should include all commands discovered from CMake', async () => {
-        const cmakeInfo = new CMakeInfo({
+        const symbolIndex = new SymbolIndex();
+        await initializeCMakeEnvironment({
             cmakePath: 'cmake',
             pkgConfigPath: '',
             cmdCaseDiagnostics: false,
             loggingLevel: 'off'
-        });
-        await cmakeInfo.init();
+        }, symbolIndex);
 
         const builtinCommandSet = new Set(Object.keys(commands).map(command => command.toLowerCase()));
         const missing = Array.from(new Set(
-            Array.from(cmakeInfo.commands).filter(command => !builtinCommandSet.has(command.toLowerCase()))
+            Array.from(symbolIndex.getAllSystemSymbols(SymbolKind.BuiltinCommand)).filter(command => !builtinCommandSet.has(command.toLowerCase()))
         )).sort();
 
         assert.strictEqual(

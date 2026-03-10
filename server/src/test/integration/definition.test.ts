@@ -3,25 +3,25 @@ import * as cp from 'child_process';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ExtensionSettings } from '../../cmakeInfo';
 import {
+    createProtocolConnection,
     DefinitionRequest,
     DidOpenTextDocumentNotification,
     ExitNotification,
-    InitializeRequest,
-    InitializeParams,
     InitializedNotification,
+    InitializeParams,
+    InitializeRequest,
     IPCMessageReader,
     IPCMessageWriter,
+    Location,
+    ProtocolConnection,
     PublishDiagnosticsNotification,
     PublishDiagnosticsParams,
     RegistrationRequest,
     ShutdownRequest,
-    ProtocolConnection,
-    createProtocolConnection,
-    Location,
 } from 'vscode-languageserver-protocol/node';
 import { URI } from 'vscode-uri';
+import { ExtensionSettings } from '../../cmakeEnvironment';
 
 /**
  * Integration tests for Go-to-Definition across multiple files.
