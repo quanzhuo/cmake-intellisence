@@ -4,16 +4,33 @@ import * as path from 'path';
 import { TextDocuments } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI, Utils } from 'vscode-uri';
+import { FlatCommand, extractFlatCommands } from './flatCommands';
 import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
 import { SymbolIndex } from './symbolIndex';
 
-export function getFileContext(text: string): FileContext {
+export interface ParsedCMakeFile {
+    fileContext: FileContext;
+    tokenStream: CommonTokenStream;
+    flatCommands: FlatCommand[];
+}
+
+export function parseCMakeText(text: string, configureParser?: (parser: CMakeParser) => void): ParsedCMakeFile {
     const input: CharStream = CharStreams.fromString(text);
     const lexer = new CMakeLexer(input);
     const tokenStream = new CommonTokenStream(lexer);
     const parser = new CMakeParser(tokenStream);
-    return parser.file();
+    configureParser?.(parser);
+    const fileContext = parser.file();
+    return {
+        fileContext,
+        tokenStream,
+        flatCommands: extractFlatCommands(fileContext),
+    };
+}
+
+export function getFileContext(text: string): FileContext {
+    return parseCMakeText(text).fileContext;
 }
 
 export function getFileContent(documents: TextDocuments<TextDocument>, uri: URI): string {
@@ -28,6 +45,11 @@ export function getFileContent(documents: TextDocuments<TextDocument>, uri: URI)
 export function getIncludeFileUri(symbolIndex: SymbolIndex, baseDir: URI, includeFileName: string): URI | null {
     const incFileUri: URI = Utils.joinPath(baseDir, includeFileName);
     if (existsSync(incFileUri.fsPath) || symbolIndex.getCache(incFileUri.toString())) {
+        return incFileUri;
+    }
+
+    // Keep explicit local include targets stable even before they exist on disk.
+    if (path.extname(includeFileName) !== '' || includeFileName.includes('/') || includeFileName.includes('\\')) {
         return incFileUri;
     }
 

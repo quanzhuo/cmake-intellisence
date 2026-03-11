@@ -41,10 +41,12 @@ export class ReferenceResolver extends SymbolResolverBase {
 
         const results: Location[] = [];
 
-        // Find all parsed files
-        const allFiles = this.symbolIndex.getAllCaches().map(c => c.uri);
+        const candidateFiles = this.symbolIndex.getReachableFiles(this.entryFile.toString());
+        if (!candidateFiles.includes(this.curFile.toString())) {
+            candidateFiles.push(this.curFile.toString());
+        }
 
-        for (const uri of allFiles) {
+        for (const uri of candidateFiles) {
             const commands = this.getFlatCommands(uri);
 
             for (const cmd of commands) {

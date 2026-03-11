@@ -26,6 +26,10 @@ export function extractSymbols(
             case 'option':
                 extractVariable(cmd, cache, uri);
                 break;
+            case 'add_executable':
+            case 'add_library':
+                extractTarget(cmd, cache, uri);
+                break;
             case 'include':
                 extractInclude(cmd, cache, baseDir, symbolIndex);
                 break;
@@ -56,6 +60,17 @@ function extractVariable(cmd: FlatCommand, cache: FileSymbolCache, uri: string) 
         if (token) {
             const symbol = new Symbol(token.text, SymbolKind.Variable, uri, token.line - 1, token.column);
             cache.addVariable(symbol);
+        }
+    }
+}
+
+function extractTarget(cmd: FlatCommand, cache: FileSymbolCache, uri: string) {
+    const args = cmd.argument_list();
+    if (args.length > 0) {
+        const token = args[0].start;
+        if (token) {
+            const symbol = new Symbol(token.text, SymbolKind.Target, uri, token.line - 1, token.column);
+            cache.addTarget(symbol);
         }
     }
 }

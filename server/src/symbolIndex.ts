@@ -1,4 +1,6 @@
+import { existsSync } from 'fs';
 import { Location } from 'vscode-languageserver';
+import { URI } from 'vscode-uri';
 
 export enum SymbolKind {
     // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -16,7 +18,9 @@ export enum SymbolKind {
     // eslint-disable-next-line @typescript-eslint/naming-convention
     BuiltinCommand,
     // eslint-disable-next-line @typescript-eslint/naming-convention
-    BuiltinVariable
+    BuiltinVariable,
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    Target
 }
 
 export class Symbol {
@@ -63,6 +67,9 @@ export class FileSymbolCache {
     // CMake variables are case-sensitive.
     public readonly variables: Map<string, Symbol[]> = new Map();
 
+    // Target names are case-sensitive.
+    public readonly targets: Map<string, Symbol[]> = new Map();
+
     public readonly modules: Map<string, Symbol[]> = new Map();
     public readonly policies: Map<string, Symbol[]> = new Map();
     public readonly properties: Map<string, Symbol[]> = new Map();
@@ -85,6 +92,13 @@ export class FileSymbolCache {
             this.variables.set(symbol.name, []);
         }
         this.variables.get(symbol.name)!.push(symbol);
+    }
+
+    addTarget(symbol: Symbol) {
+        if (!this.targets.has(symbol.name)) {
+            this.targets.set(symbol.name, []);
+        }
+        this.targets.get(symbol.name)!.push(symbol);
     }
 
     addModule(symbol: Symbol) {
@@ -148,12 +162,33 @@ export class SymbolIndex {
         return Array.from(this.fileCaches.values());
     }
 
+    private isUriLoadable(uri: string): boolean {
+        if (this.getCache(uri)) {
+            return true;
+        }
+
+        if (!uri.startsWith('file://')) {
+            return false;
+        }
+
+        return existsSync(URI.parse(uri).fsPath);
+    }
+
+    getAvailableDependencies(uri: string): Dependency[] {
+        const cache = this.getCache(uri);
+        if (!cache) {
+            return [];
+        }
+
+        return cache.dependencies.filter(dep => this.isUriLoadable(dep.uri));
+    }
+
     findEntryFile(targetUri: string): string | undefined {
         const allCaches = this.getAllCaches();
         const incomingDependencies = new Set<string>();
 
         for (const cache of allCaches) {
-            for (const dependency of cache.dependencies) {
+            for (const dependency of this.getAvailableDependencies(cache.uri)) {
                 incomingDependencies.add(dependency.uri);
             }
         }
@@ -172,7 +207,7 @@ export class SymbolIndex {
                 return false;
             }
 
-            for (const dependency of cache.dependencies) {
+            for (const dependency of this.getAvailableDependencies(cache.uri)) {
                 if (canReachTarget(dependency.uri, visited)) {
                     return true;
                 }
@@ -228,8 +263,80 @@ export class SymbolIndex {
         }
     }
 
+    *getAllWorkspaceSymbols(kind: SymbolKind): IterableIterator<string> {
+        const emitted = new Set<string>();
+
+        for (const cache of this.fileCaches.values()) {
+            switch (kind) {
+                case SymbolKind.Function:
+                case SymbolKind.Macro:
+                    for (const symbols of cache.commands.values()) {
+                        for (const symbol of symbols) {
+                            if (symbol.kind !== kind) {
+                                continue;
+                            }
+                            const key = symbol.name.toLowerCase();
+                            if (emitted.has(key)) {
+                                continue;
+                            }
+                            emitted.add(key);
+                            yield symbol.name;
+                        }
+                    }
+                    break;
+                case SymbolKind.Variable:
+                    for (const symbols of cache.variables.values()) {
+                        for (const symbol of symbols) {
+                            if (emitted.has(symbol.name)) {
+                                continue;
+                            }
+                            emitted.add(symbol.name);
+                            yield symbol.name;
+                        }
+                    }
+                    break;
+                case SymbolKind.Target:
+                    for (const symbols of cache.targets.values()) {
+                        for (const symbol of symbols) {
+                            if (emitted.has(symbol.name)) {
+                                continue;
+                            }
+                            emitted.add(symbol.name);
+                            yield symbol.name;
+                        }
+                    }
+                    break;
+            }
+        }
+    }
+
     clear(): void {
         this.fileCaches.clear();
+    }
+
+    public getReachableFiles(startUri: string): string[] {
+        const ordered: string[] = [];
+        const visited = new Set<string>();
+
+        const visit = (uri: string) => {
+            if (visited.has(uri)) {
+                return;
+            }
+            visited.add(uri);
+            ordered.push(uri);
+
+            const cache = this.getCache(uri);
+            if (!cache) {
+                return;
+            }
+
+            for (const dep of this.getAvailableDependencies(cache.uri)) {
+                visit(dep.uri);
+            }
+        };
+
+        visit(startUri);
+        return ordered;
     }
 
     /**
@@ -254,7 +361,7 @@ export class SymbolIndex {
                     const gatherIncludes = (u: string) => {
                         const c = this.getCache(u);
                         if (!c) { return; }
-                        for (const dep of c.dependencies) {
+                        for (const dep of this.getAvailableDependencies(c.uri)) {
                             if (dep.type === "include" && !visited.has(dep.uri)) {
                                 visited.add(dep.uri);
                                 visibleFiles.push(dep.uri);
@@ -272,7 +379,7 @@ export class SymbolIndex {
             const cache = this.getCache(currentUri);
             if (!cache) { return false; }
 
-            for (const dep of cache.dependencies) {
+            for (const dep of this.getAvailableDependencies(cache.uri)) {
                 if (dep.type === "include") {
                     if (simulateExecution(dep.uri, visibleFiles)) {
                         return true;

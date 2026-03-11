@@ -30,8 +30,17 @@ export class DefinitionResolver extends SymbolResolverBase {
         const results: Location[] = [];
 
         if (isCommand) {
-            // CMake functions & macros are broadly globally available once executed.
-            for (const cache of this.symbolIndex.getAllCaches()) {
+            const candidateFiles = this.symbolIndex.getReachableFiles(this.entryFile.toString());
+            if (!candidateFiles.includes(this.curFile.toString())) {
+                candidateFiles.push(this.curFile.toString());
+            }
+
+            // CMake functions & macros are broadly globally available once executed within the same entry tree.
+            for (const uri of candidateFiles) {
+                const cache = this.symbolIndex.getCache(uri);
+                if (!cache) {
+                    continue;
+                }
                 const symbols = cache.commands.get(searchName);
                 if (symbols) {
                     results.push(...symbols.map(s => s.getLocation()));

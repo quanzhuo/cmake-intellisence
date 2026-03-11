@@ -3,15 +3,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
-import { TextDocuments } from 'vscode-languageserver';
-import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
 import * as which from 'which';
-import { ProjectInfo } from './completion';
-import { FlatCommand, extractFlatCommands } from './flatCommands';
-import { FileContext } from './generated/CMakeParser';
+import { ProjectTargetInfo } from './completion';
+import { FlatCommand } from './flatCommands';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
-import { getFileContent, getFileContext } from './utils';
 
 type Modules = Set<string>;
 type Policies = Set<string>;
@@ -174,42 +170,34 @@ async function getPkgConfigModules(pkgConfigPath: string): Promise<Map<string, s
     return modules;
 }
 
-export class ProjectInfoListener {
-    projectInfo: ProjectInfo;
+export class ProjectTargetInfoListener {
+    targetInfo: ProjectTargetInfo;
 
     constructor(
         private symbolIndex: SymbolIndex,
         private currentCMake: string,
         private baseDirectory: string,
-        private fileContexts: Map<string, FileContext>,
-        private documents: TextDocuments<TextDocument>,
+        private loadFlatCommands: (uri: string) => FlatCommand[],
         private parsedFiles: Set<string>,
         private workspaceFolder: string,
-        projectInfo?: ProjectInfo,
+        targetInfo?: ProjectTargetInfo,
     ) {
-        this.projectInfo = projectInfo ?? {} as ProjectInfo;
-    }
-
-    private project(ctx: FlatCommand): void {
-        const args = ctx.argument_list();
-        if (args.length > 0) {
-            this.projectInfo.projectName = args[0].getText();
-        }
+        this.targetInfo = targetInfo ?? {} as ProjectTargetInfo;
     }
 
     private addExecutable(ctx: FlatCommand): void {
         const args = ctx.argument_list();
         if (args.length > 0) {
-            this.projectInfo.executables = this.projectInfo.executables ?? new Set<string>();
-            this.projectInfo.executables.add(args[0].getText());
+            this.targetInfo.executables = this.targetInfo.executables ?? new Set<string>();
+            this.targetInfo.executables.add(args[0].getText());
         }
     }
 
     private addLibrary(ctx: FlatCommand): void {
         const args = ctx.argument_list();
         if (args.length > 0) {
-            this.projectInfo.libraries = this.projectInfo.libraries ?? new Set<string>();
-            this.projectInfo.libraries.add(args[0].getText());
+            this.targetInfo.libraries = this.targetInfo.libraries ?? new Set<string>();
+            this.targetInfo.libraries.add(args[0].getText());
         }
     }
 
@@ -261,16 +249,10 @@ export class ProjectInfoListener {
             return;
         }
 
-        let tree: FileContext;
-        if (this.fileContexts.has(targetCMakeFile)) {
-            tree = this.fileContexts.get(targetCMakeFile)!;
-        } else {
-            tree = getFileContext(getFileContent(this.documents, URI.parse(targetCMakeFile)));
-            this.fileContexts.set(targetCMakeFile, tree);
-        }
-        const commands = extractFlatCommands(tree);
-        const projectInfoListener = new ProjectInfoListener(this.symbolIndex, targetCMakeFile, this.baseDirectory, this.fileContexts, this.documents, this.parsedFiles, this.workspaceFolder, this.projectInfo);
-        projectInfoListener.processCommands(commands);
+        const commands = this.loadFlatCommands(targetCMakeFile);
+        const nextBaseDirectory = path.dirname(URI.parse(targetCMakeFile).fsPath);
+        const targetInfoListener = new ProjectTargetInfoListener(this.symbolIndex, targetCMakeFile, nextBaseDirectory, this.loadFlatCommands, this.parsedFiles, this.workspaceFolder, this.targetInfo);
+        targetInfoListener.processCommands(commands);
     }
 
     private include(ctx: FlatCommand): void {
@@ -292,31 +274,10 @@ export class ProjectInfoListener {
             return;
         }
 
-        let tree: FileContext;
-        if (this.fileContexts.has(targetCMakeFile)) {
-            tree = this.fileContexts.get(targetCMakeFile)!;
-        } else {
-            tree = getFileContext(getFileContent(this.documents, URI.parse(targetCMakeFile)));
-            this.fileContexts.set(targetCMakeFile, tree);
-        }
-        const commands = extractFlatCommands(tree);
-        const projectInfoListener = new ProjectInfoListener(this.symbolIndex, targetCMakeFile, this.baseDirectory, this.fileContexts, this.documents, this.parsedFiles, this.workspaceFolder, this.projectInfo);
-        projectInfoListener.processCommands(commands);
-    }
-
-    private functionOrMacro(ctx: FlatCommand): void {
-        const args = ctx.argument_list();
-        if (args.length > 0) {
-            const commandName = ctx.commandName.toLowerCase();
-            if (commandName === 'macro') {
-                this.projectInfo.macros = this.projectInfo.macros ?? new Set<string>();
-                this.projectInfo.macros.add(args[0].getText());
-                return;
-            }
-
-            this.projectInfo.functions = this.projectInfo.functions ?? new Set<string>();
-            this.projectInfo.functions.add(args[0].getText());
-        }
+        const commands = this.loadFlatCommands(targetCMakeFile);
+        const nextBaseDirectory = path.dirname(URI.parse(targetCMakeFile).fsPath);
+        const targetInfoListener = new ProjectTargetInfoListener(this.symbolIndex, targetCMakeFile, nextBaseDirectory, this.loadFlatCommands, this.parsedFiles, this.workspaceFolder, this.targetInfo);
+        targetInfoListener.processCommands(commands);
     }
 
     processCommands(commands: FlatCommand[]): void {
@@ -328,9 +289,6 @@ export class ProjectInfoListener {
         for (const cmd of commands) {
             const commandName: string = cmd.commandName.toLowerCase();
             switch (commandName) {
-                case 'project':
-                    this.project(cmd);
-                    break;
                 case 'add_executable':
                     this.addExecutable(cmd);
                     break;
@@ -342,10 +300,6 @@ export class ProjectInfoListener {
                     break;
                 case 'include':
                     this.include(cmd);
-                    break;
-                case 'function':
-                case 'macro':
-                    this.functionOrMacro(cmd);
                     break;
                 default:
                     break;

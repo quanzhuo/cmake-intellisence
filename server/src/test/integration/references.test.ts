@@ -22,6 +22,7 @@ import {
 } from "vscode-languageserver-protocol/node";
 import { URI } from "vscode-uri";
 import { ExtensionSettings } from "../../cmakeEnvironment";
+import { waitForServerReady } from './testUtils';
 
 suite("References Integration Tests", () => {
     let connection: ProtocolConnection;
@@ -97,6 +98,7 @@ suite("References Integration Tests", () => {
 
         let configurationRequested: () => void;
         const configurationPromise = new Promise<void>(r => { configurationRequested = r; });
+        const readyPromise = waitForServerReady(connection);
 
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest("workspace/configuration", () => {
@@ -123,7 +125,7 @@ suite("References Integration Tests", () => {
         await connection.sendRequest(InitializeRequest.type, initParams);
         connection.sendNotification(InitializedNotification.type, {});
         await configurationPromise;
-        await new Promise(r => setTimeout(r, 3000));
+        await readyPromise;
     });
 
     suiteTeardown(async function () {
@@ -158,6 +160,31 @@ suite("References Integration Tests", () => {
         assert.ok(locs.some(l => l.uri === utilsUri && l.range.start.line === 1), "Usage in utils.cmake message on line 2");
     });
 
+    test("find references in unopened indexed files", async function () {
+        const uri = await openFixture("CMakeLists.txt");
+
+        const result = await getReferences(uri, 3, 5);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.ok(locs && locs.length > 0, "Should find references without opening dependent files");
+
+        const utilsUri = fileUri("utils.cmake");
+        assert.ok(locs.some(l => l.uri === utilsUri && l.range.start.line === 0), "Should include indexed overwrite in utils.cmake");
+        assert.ok(locs.some(l => l.uri === utilsUri && l.range.start.line === 1), "Should include indexed usage in utils.cmake");
+    });
+
+    test("should ignore references from cached files outside the reachable entry tree", async function () {
+        const uri = await openFixture("CMakeLists.txt");
+        await openFixture("utils.cmake");
+        const unrelatedUri = await openFixture("unrelated.cmake");
+
+        const result = await getReferences(uri, 3, 5);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.ok(locs.length > 0, "Should still find references in the project tree");
+        assert.ok(!locs.some(l => l.uri === unrelatedUri), "Should not include unrelated cached file references");
+    });
+
     test("find references of a custom macro/function (my_custom_macro)", async function () {
         const uri = await openFixture("CMakeLists.txt");
         await openFixture("utils.cmake");
@@ -174,6 +201,18 @@ suite("References Integration Tests", () => {
 
         const utilsUri = fileUri("utils.cmake");
         assert.ok(locs.some(l => l.uri === utilsUri && l.range.start.line === 3), "Usage in utils.cmake line 4");
+    });
+
+    test("should ignore command references from cached files outside the reachable entry tree", async function () {
+        const uri = await openFixture("CMakeLists.txt");
+        await openFixture("utils.cmake");
+        const unrelatedUri = await openFixture("unrelated.cmake");
+
+        const result = await getReferences(uri, 7, 10);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.ok(locs.length > 0, "Should still find command references in the project tree");
+        assert.ok(!locs.some(l => l.uri === unrelatedUri), "Should not include unrelated cached command references");
     });
 
     test("find references of a macro/function ignoring casing (MY_CUSTOM_MACRO)", async function () {

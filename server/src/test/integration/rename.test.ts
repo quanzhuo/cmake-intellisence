@@ -22,6 +22,7 @@ import {
 } from "vscode-languageserver-protocol/node";
 import { URI } from "vscode-uri";
 import { ExtensionSettings } from "../../cmakeEnvironment";
+import { waitForServerReady } from './testUtils';
 
 suite("Rename Integration Tests", () => {
     let connection: ProtocolConnection;
@@ -97,6 +98,7 @@ suite("Rename Integration Tests", () => {
 
         let configurationRequested: () => void;
         const configurationPromise = new Promise<void>(r => { configurationRequested = r; });
+        const readyPromise = waitForServerReady(connection);
 
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest("workspace/configuration", () => {
@@ -123,7 +125,7 @@ suite("Rename Integration Tests", () => {
         await connection.sendRequest(InitializeRequest.type, initParams);
         connection.sendNotification(InitializedNotification.type, {});
         await configurationPromise;
-        await new Promise(r => setTimeout(r, 3000));
+        await readyPromise;
     });
 
     suiteTeardown(async function () {
@@ -159,6 +161,19 @@ suite("Rename Integration Tests", () => {
         assert.ok(utilsChanges.some(c => c.range.start.line === 0), "Should edit utils.cmake line 1");
     });
 
+    test("rename should include unopened indexed files", async function () {
+        const uri = await openFixture("CMakeLists.txt");
+
+        const result = await renameSymbol(uri, 3, 5, "RENAMED_VAR") as WorkspaceEdit;
+
+        assert.ok(result && result.changes, "Should return WorkspaceEdit with changes");
+
+        const utilsUri = fileUri("utils.cmake");
+        const utilsChanges = result.changes![utilsUri];
+        assert.ok(utilsChanges && utilsChanges.length > 0, "Should modify indexed utils.cmake without opening it");
+        assert.ok(utilsChanges.some(c => c.range.start.line === 0), "Should include overwrite in utils.cmake line 1");
+    });
+
     test("rename a custom macro/function (my_custom_macro)", async function () {
         const uri = await openFixture("CMakeLists.txt");
         await openFixture("utils.cmake");
@@ -181,6 +196,16 @@ suite("Rename Integration Tests", () => {
         const utilsChanges = result.changes![utilsUri];
         assert.ok(utilsChanges && utilsChanges.length > 0, "Should modify usage in utils.cmake");
         assert.ok(utilsChanges.some(c => c.range.start.line === 3), "Should update my_custom_macro usage in utils");
+    });
+
+    test("rename should ignore cached files outside the reachable entry tree", async function () {
+        const uri = await openFixture("CMakeLists.txt");
+        await openFixture("utils.cmake");
+        const unrelatedUri = await openFixture("unrelated.cmake");
+
+        const result = await renameSymbol(uri, 3, 5, "RENAMED_VAR") as WorkspaceEdit;
+        assert.ok(result && result.changes, "Should return WorkspaceEdit with changes");
+        assert.ok(!result.changes![unrelatedUri], "Should not rename occurrences in unrelated cached file");
     });
 
     test("rename a builtin command should return null", async function () {

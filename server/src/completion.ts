@@ -51,29 +51,9 @@ export interface CMakeCompletionInfo {
     index?: number,
 }
 
-export interface ProjectInfo {
-    /**
-     * Project name
-     */
-    projectName?: string,
-
-    /**
-     * Languages used in the project
-     */
-    languages?: Set<string>,
-
+export interface ProjectTargetInfo {
     executables?: Set<string>,
     libraries?: Set<string>,
-
-    /**
-     * User defined functions
-     */
-    functions?: Set<string>,
-
-    /**
-     * User defined macros
-     */
-    macros?: Set<string>,
 }
 
 /**
@@ -255,13 +235,29 @@ export default class Completion {
     constructor(
         private flatCommandsMap: Map<string, FlatCommand[]>,
         private tokenStreams: Map<string, CommonTokenStream>,
-        private projectInfo: ProjectInfo = {} as ProjectInfo,
+        private targetInfo: ProjectTargetInfo = {} as ProjectTargetInfo,
         private word: string,
         private logger: Logger,
         private symbolIndex?: SymbolIndex,
         private currentUri?: string,
         private entryUri?: string,
     ) { }
+
+    private getIndexedSymbols(kind: SymbolKind): string[] {
+        if (!this.symbolIndex) {
+            return [];
+        }
+
+        return Array.from(this.symbolIndex.getAllWorkspaceSymbols(kind));
+    }
+
+    private getProjectTargetNames(): string[] {
+        return Array.from(new Set<string>([
+            ...this.getIndexedSymbols(SymbolKind.Target),
+            ...this.targetInfo.executables ?? [],
+            ...this.targetInfo.libraries ?? [],
+        ]));
+    }
 
     private getCommandSuggestion(commandName: string, type: CompletionItemType): CompletionItem {
         let item: CompletionItem;
@@ -365,20 +361,8 @@ export default class Completion {
     }
 
     private getCommandSuggestions(word: string): CompletionItem[] {
-        const userFunctions = new Set<string>(this.projectInfo.functions ?? []);
-        const userMacros = new Set<string>(this.projectInfo.macros ?? []);
-
-        if (this.symbolIndex) {
-            for (const cache of this.symbolIndex.getAllCaches()) {
-                for (const [cmdName, symbols] of cache.commands.entries()) {
-                    if (symbols.length > 0) {
-                        const kind = symbols[0].kind;
-                        if (kind === SymbolKind.Function) { userFunctions.add(cmdName); }
-                        else if (kind === SymbolKind.Macro) { userMacros.add(cmdName); }
-                    }
-                }
-            }
-        }
+        const userFunctions = new Set<string>(this.getIndexedSymbols(SymbolKind.Function));
+        const userMacros = new Set<string>(this.getIndexedSymbols(SymbolKind.Macro));
 
         const internalCommands = this.symbolIndex
             ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.BuiltinCommand))
@@ -568,7 +552,7 @@ export default class Completion {
     }
 
     private getTargetsSuggestion(info: CMakeCompletionInfo): CompletionItem[] | undefined {
-        const targets = [...this.projectInfo.executables ?? [], ...this.projectInfo.libraries ?? []];
+        const targets = this.getProjectTargetNames();
         if (targets.length > 0) {
             return targets.map((target) => {
                 return {
@@ -661,8 +645,7 @@ export default class Completion {
                     }
                 } else {
                     const items = [
-                        ...this.projectInfo.executables ?? [],
-                        ...this.projectInfo.libraries ?? [],
+                        ...this.getProjectTargetNames(),
                         'PRIVATE', 'PUBLIC', 'INTERFACE',
                         'LINK_INTERFACE_LIBRARIES',
                         'LINK_PRIVATE',

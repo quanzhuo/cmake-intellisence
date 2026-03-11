@@ -1,0 +1,1 @@
+export const READY_NOTIFICATION = 'cmakeIntelliSence/testing/ready';

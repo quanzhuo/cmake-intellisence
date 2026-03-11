@@ -5,6 +5,7 @@ import * as fs from "fs";
 import * as path from "path";
 import {
     createProtocolConnection,
+    DidCloseTextDocumentNotification,
     DidOpenTextDocumentNotification,
     ExitNotification,
     InitializedNotification,
@@ -23,6 +24,7 @@ import {
 } from "vscode-languageserver-protocol/node";
 import { URI } from "vscode-uri";
 import { ExtensionSettings } from "../../cmakeEnvironment";
+import { waitForServerReady } from './testUtils';
 
 suite("Workspace Symbol Integration Tests", () => {
     let connection: ProtocolConnection;
@@ -48,6 +50,12 @@ suite("Workspace Symbol Integration Tests", () => {
         docVersion++;
         connection.sendNotification(DidOpenTextDocumentNotification.type, {
             textDocument: { uri, languageId: "cmake", version: docVersion, text: content }
+        });
+    }
+
+    function closeDocument(uri: string): void {
+        connection.sendNotification(DidCloseTextDocumentNotification.type, {
+            textDocument: { uri }
         });
     }
 
@@ -94,6 +102,7 @@ suite("Workspace Symbol Integration Tests", () => {
 
         let configurationRequested: () => void;
         const configurationPromise = new Promise<void>(r => { configurationRequested = r; });
+        const readyPromise = waitForServerReady(connection);
 
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest("workspace/configuration", () => {
@@ -120,7 +129,7 @@ suite("Workspace Symbol Integration Tests", () => {
         await connection.sendRequest(InitializeRequest.type, initParams);
         connection.sendNotification(InitializedNotification.type, {});
         await configurationPromise;
-        await new Promise(r => setTimeout(r, 3000));
+        await readyPromise;
     });
 
     suiteTeardown(async function () {
@@ -130,6 +139,21 @@ suite("Workspace Symbol Integration Tests", () => {
             connection.dispose();
         }
         if (serverProcess) { serverProcess.kill(); }
+    });
+
+    test("should find symbols from unopened workspace files via background indexing", async function () {
+        const result = await getWorkspaceSymbols("utils_func") as SymbolInformation[];
+        assert.ok(result && result.length > 0, "Should find utils_func without opening utils.cmake");
+        assert.ok(result.some(s => s.name === "utils_func" && s.location.uri === fileUri("utils.cmake")));
+    });
+
+    test("should keep symbols after an indexed file is opened then closed", async function () {
+        const uri = await openFixture("utils.cmake");
+        closeDocument(uri);
+
+        const result = await getWorkspaceSymbols("utils_func") as SymbolInformation[];
+        assert.ok(result && result.length > 0, "Should still find utils_func after close");
+        assert.ok(result.some(s => s.name === "utils_func" && s.location.uri === uri));
     });
 
     test("should find workspace symbols by full name", async function () {

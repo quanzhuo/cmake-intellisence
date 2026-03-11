@@ -80,10 +80,7 @@ export abstract class SymbolResolverBase {
         visited.add(uri);
 
         this.getFlatCommands(uri); // Causes symbolIndex to cache this file
-        const cache = this.symbolIndex.getCache(uri);
-        if (!cache) { return; }
-
-        for (const dep of cache.dependencies) {
+        for (const dep of this.symbolIndex.getAvailableDependencies(uri)) {
             this.populateIndexTopDown(dep.uri, visited);
         }
     }

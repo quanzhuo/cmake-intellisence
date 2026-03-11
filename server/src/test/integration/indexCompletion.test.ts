@@ -23,6 +23,7 @@ import {
 } from 'vscode-languageserver-protocol/node';
 import { URI } from 'vscode-uri';
 import { ExtensionSettings } from '../../cmakeEnvironment';
+import { waitForServerReady } from './testUtils';
 
 suite('Index Completion Integration Tests', () => {
     let connection: ProtocolConnection;
@@ -97,6 +98,7 @@ suite('Index Completion Integration Tests', () => {
 
         let configurationRequested: () => void;
         const configurationPromise = new Promise<void>(r => { configurationRequested = r; });
+        const readyPromise = waitForServerReady(connection);
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest('workspace/configuration', () => {
             configurationRequested();
@@ -122,7 +124,7 @@ suite('Index Completion Integration Tests', () => {
         await connection.sendRequest(InitializeRequest.type, initParams);
         connection.sendNotification(InitializedNotification.type, {});
         await configurationPromise;
-        await new Promise(r => setTimeout(r, 3000));
+        await readyPromise;
 
         // Pre-warm the cache completely by opening the root file
         await openFixture('CMakeLists.txt');
@@ -171,6 +173,26 @@ suite('Index Completion Integration Tests', () => {
         const labelsSrc = listSrc.map(i => i.label);
 
         assert.ok(labelsSrc.includes('SRC_VAR'), 'Missing SRC_VAR from self scope');
+    });
+
+    test('should provide target completions from indexed workspace files', async () => {
+        const defsUri = fileUri('indexed-targets.cmake');
+        const defsDiagPromise = waitForDiagnostics(defsUri);
+        openDocument(defsUri, 'add_library(root_lib INTERFACE)\nadd_library(src_lib INTERFACE)\n');
+        await defsDiagPromise;
+
+        const uri = fileUri('target-completion.cmake');
+        const diagPromise = waitForDiagnostics(uri);
+        openDocument(uri, 'target_link_libraries(root )');
+        await diagPromise;
+
+        const completions = await getCompletions(uri, 0, 24);
+        const items = (completions as CompletionList | CompletionItem[] | null);
+        const list = Array.isArray(items) ? items : items?.items || [];
+        const labels = list.map(i => i.label);
+
+        assert.ok(labels.includes('root_lib'), 'Missing root_lib from indexed targets');
+        assert.ok(labels.includes('src_lib'), 'Missing src_lib from indexed targets');
     });
 
 });

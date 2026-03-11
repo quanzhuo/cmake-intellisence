@@ -5,6 +5,7 @@ import * as path from 'path';
 import {
     CompletionItemKind,
     CompletionRequest,
+    CompletionResolveRequest,
     DidOpenTextDocumentNotification,
     DocumentFormattingRequest,
     DocumentLinkRequest,
@@ -27,6 +28,7 @@ import {
 } from 'vscode-languageserver-protocol/node';
 import { ExtensionSettings, initializeCMakeEnvironment } from '../../cmakeEnvironment';
 import { SymbolIndex, SymbolKind } from '../../symbolIndex';
+import { waitForServerReady } from './testUtils';
 
 suite('LSP Integration Tests', () => {
     let connection: ProtocolConnection;
@@ -62,6 +64,7 @@ suite('LSP Integration Tests', () => {
         const configurationPromise = new Promise<void>(resolve => {
             configurationRequested = resolve;
         });
+        const readyPromise = waitForServerReady(connection);
 
         // Handle server-initiated requests that would otherwise crash the server
         connection.onRequest(RegistrationRequest.type, () => { });
@@ -110,8 +113,7 @@ suite('LSP Integration Tests', () => {
 
         connection.sendNotification(InitializedNotification.type, {});
         await configurationPromise;
-        // give it some time to finish environment initialization
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await readyPromise;
     });
 
     suiteTeardown(async function () {
@@ -209,6 +211,24 @@ suite('LSP Integration Tests', () => {
         const items = Array.isArray(result) ? result : result!.items;
         const match = items.find(i => i.label === 'cmake_minimum_required');
         assert(match !== undefined, 'Should suggest "cmake_minimum_required" for partial input');
+    });
+
+    test('should resolve builtin completion documentation', async function () {
+        const uri = 'file:///test-workspace/completion-resolve.txt';
+        openDocument(uri, 'add_sub');
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 7 }
+        });
+
+        assert(result !== null);
+        const items = Array.isArray(result) ? result : result!.items;
+        const match = items.find(i => i.label === 'add_subdirectory');
+        assert(match !== undefined, 'Should suggest add_subdirectory');
+
+        const resolved = await connection.sendRequest(CompletionResolveRequest.type, match!);
+        assert(resolved.documentation !== undefined, 'Resolved completion should include documentation');
     });
 
     test('should provide keyword completion for all builtin commands', async function () {
@@ -458,8 +478,11 @@ suite('LSP Integration Tests', () => {
         const parentUri = 'file:///test-workspace/semantic_parent.txt';
         const childUri = 'file:///test-workspace/semantic_child.txt';
 
+        const parentDiagnostics = waitForDiagnostics(parentUri);
+        const childDiagnostics = waitForDiagnostics(childUri);
         openDocument(parentUri, 'set(GLOBAL_VAR "data")\ninclude(semantic_child.txt)');
         openDocument(childUri, 'message(STATUS ${GLOBAL_VAR})\nmessage(STATUS ${UNSEEN_VAR})');
+        await Promise.all([parentDiagnostics, childDiagnostics]);
 
         // Warm up the caches
         await connection.sendRequest(CompletionRequest.type, {

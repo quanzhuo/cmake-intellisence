@@ -22,6 +22,7 @@ import {
 } from 'vscode-languageserver-protocol/node';
 import { URI } from 'vscode-uri';
 import { ExtensionSettings } from '../../cmakeEnvironment';
+import { waitForServerReady } from './testUtils';
 
 /**
  * Integration tests for Go-to-Definition across multiple files.
@@ -110,6 +111,7 @@ suite('Definition Integration Tests', () => {
 
         let configurationRequested: () => void;
         const configurationPromise = new Promise<void>(r => { configurationRequested = r; });
+        const readyPromise = waitForServerReady(connection);
 
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest('workspace/configuration', () => {
@@ -136,7 +138,7 @@ suite('Definition Integration Tests', () => {
         await connection.sendRequest(InitializeRequest.type, initParams);
         connection.sendNotification(InitializedNotification.type, {});
         await configurationPromise;
-        await new Promise(r => setTimeout(r, 3000));
+        await readyPromise;
     });
 
     suiteTeardown(async function () {
@@ -215,6 +217,17 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].uri, fileUri('CMakeLists.txt'),
             'root_func should resolve to root CMakeLists.txt');
         assert.strictEqual(locs[0].range.start.line, 5);
+    });
+
+    test('command definition should ignore cached files outside the reachable entry tree', async function () {
+        const uri = await openFixture('src/CMakeLists.txt');
+        const unrelatedUri = await openFixture('unrelated.cmake');
+        const result = await getDefinition(uri, 9, 3);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0);
+        assert.ok(!locs.some(l => l.uri === unrelatedUri), 'Should not include unrelated cached definitions');
     });
 
     test('root variable used in subdirectory file', async function () {
