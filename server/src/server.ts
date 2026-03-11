@@ -66,6 +66,7 @@ export class CMakeLanguageServer {
     public symbolIndex: SymbolIndex = new SymbolIndex();
     private projectInfos: Map<string, ProjectInfo> = new Map();
     private logger: Logger = createLogger('cmake-intellisence', 'off');
+    private environmentInitialization?: Promise<void>;
 
     private extSettings: ExtensionSettings = {
         cmakePath: 'cmake',
@@ -158,16 +159,12 @@ export class CMakeLanguageServer {
 
     private async onInitialized(params: InitializedParams) {
         this.connection.client.register(DidChangeConfigurationNotification.type, undefined);
-        this.extSettings = await this.getExtSettings();
-        try {
-            await initializeCMakeEnvironment(this.extSettings, this.symbolIndex);
-        } catch (e: any) {
-            this.connection.window.showErrorMessage(e.message);
-        }
-        this.logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
+        this.environmentInitialization = this.initializeEnvironment();
+        await this.environmentInitialization;
     }
 
     private async onHover(params: HoverParams): Promise<Hover | null> {
+        await this.ensureEnvironmentInitialized();
         const comments = this.getComments(params.textDocument.uri);
         if (inComments(params.position, comments)) {
             return null;
@@ -267,9 +264,15 @@ export class CMakeLanguageServer {
     }
 
     private onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
+        return this.handleCompletion(params);
+    }
+
+    private async handleCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
+        await this.ensureEnvironmentInitialized();
+
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
-            return Promise.resolve(null);
+            return null;
         }
 
         const entryFileSource = this.getEntryFilePath(params.textDocument.uri);
@@ -626,7 +629,9 @@ export class CMakeLanguageServer {
      * 
      * @param event 
      */
-    private onDidChangeContent(event: TextDocumentChangeEvent<TextDocument>) {
+    private async onDidChangeContent(event: TextDocumentChangeEvent<TextDocument>) {
+        await this.ensureEnvironmentInitialized();
+
         // check syntax errors
         const input = CharStreams.fromString(event.document.getText());
         const lexer = new CMakeLexer(input);
@@ -807,6 +812,29 @@ export class CMakeLanguageServer {
             cmdCaseDiagnostics,
             pkgConfigPath,
         };
+    }
+
+    private async initializeEnvironment(): Promise<void> {
+        this.extSettings = await this.getExtSettings();
+        try {
+            await initializeCMakeEnvironment(this.extSettings, this.symbolIndex);
+        } catch (e: any) {
+            this.connection.window.showErrorMessage(e.message);
+        }
+        this.logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
+    }
+
+    private async ensureEnvironmentInitialized(): Promise<void> {
+        if (this.environmentInitialization) {
+            await this.environmentInitialization;
+        }
+
+        if (this.symbolIndex.getSystemCache().commands.size > 0) {
+            return;
+        }
+
+        this.environmentInitialization = this.initializeEnvironment();
+        await this.environmentInitialization;
     }
 
     public getFileContext(uri: string): FileContext {

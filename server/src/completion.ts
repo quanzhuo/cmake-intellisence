@@ -761,8 +761,10 @@ export default class Completion {
     public async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
         this.completionParams = params;
         const tokenStream = this.tokenStreams.get(params.textDocument.uri);
-        if (!tokenStream) {
-            return null;
+        const fallbackCommands = this.flatCommandsMap.get(params.textDocument.uri);
+
+        if (!tokenStream || !fallbackCommands) {
+            return this.getCommandSuggestions(this.word);
         }
 
         const comments = tokenStream.tokens.filter(token => token.channel === CMakeLexer.channelNames.indexOf("COMMENTS"));
@@ -772,10 +774,7 @@ export default class Completion {
             return null;
         }
 
-        const commands = this.flatCommandsMap.get(params.textDocument.uri);
-        if (!commands) {
-            return null;
-        }
+        const commands = fallbackCommands;
         const info = getCompletionInfoAtCursor(commands, params.position);
         if (info.type === CMakeCompletionType.Command) {
             return this.getCommandSuggestions(this.word);
