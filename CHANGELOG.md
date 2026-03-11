@@ -1,5 +1,14 @@
 # Change Log
 
+## v0.5.0
+
+Improvements:
+
+* 维护全局符号索引，性能提升
+* 符号重命名
+* 工作区符号搜索
+* 查找引用
+
 ## v0.4.0
 
 Improvements:

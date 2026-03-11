@@ -12,14 +12,25 @@ No other runtime dependencies are required. You should have [CMake](https://cmak
 
 ## Features
 
-+ syntax highlight
-+ semantic tokens
-+ commands, variable, properties... auto complete
-+ document format
-+ document link
-+ go to defination
-+ publish diagnostics
-+ code action
+
+## Features
+
++ Syntax highlighting
++ Semantic tokens
++ Auto-completion for commands, variables, properties, etc.
++ Document formatting
++ Document links
++ Go to definition
++ Find references
++ Rename symbol
++ Workspace symbol search
++ Diagnostics publishing
++ Code actions (quick fixes, etc.)
++ Snippet support
++ Multi-language/localization support
++ Integration and unit tests
+
+![demo](https://github.com/quanzhuo/cmake-intellisence/raw/main/images/demo.gif)
 
 ![demo](https://github.com/quanzhuo/cmake-intellisence/raw/main/images/demo.gif)
 
