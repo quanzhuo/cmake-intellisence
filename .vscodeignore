@@ -15,3 +15,4 @@ tsconfig*
 webpack*
 node_modules
 syntaxes/*.yml
+.mocharc.json
