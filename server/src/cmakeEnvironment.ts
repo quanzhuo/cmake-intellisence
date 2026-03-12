@@ -9,12 +9,6 @@ import { ProjectTargetInfo } from './completion';
 import { FlatCommand } from './flatCommands';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
 
-type Modules = Set<string>;
-type Policies = Set<string>;
-type Variables = Set<string>;
-type Properties = Set<string>;
-type Commands = Set<string>;
-
 export interface ExtensionSettings {
     loggingLevel: string;
     cmakePath: string;
@@ -32,13 +26,13 @@ export async function initializeCMakeEnvironment(extSettings: ExtensionSettings,
         getPkgConfigModules(extSettings.pkgConfigPath),
     ]);
     const [modules, policies, variables, properties, commands] = builtinEntries;
-    const systemCache = new FileSymbolCache('cmake-builtin://system');
     const uri = 'cmake-builtin://system';
+    const systemCache = new FileSymbolCache(uri);
 
     for (const command of commands) {
         systemCache.addCommand(new Symbol(command, SymbolKind.BuiltinCommand, uri, 0, 0));
     }
-    for (const variable of expandLanguageVariables(variables)) {
+    for (const variable of expandVariables(variables)) {
         systemCache.addVariable(new Symbol(variable, SymbolKind.BuiltinVariable, uri, 0, 0));
     }
     for (const moduleName of modules) {
@@ -47,7 +41,7 @@ export async function initializeCMakeEnvironment(extSettings: ExtensionSettings,
     for (const policy of policies) {
         systemCache.addPolicy(new Symbol(policy, SymbolKind.Policy, uri, 0, 0));
     }
-    for (const property of properties) {
+    for (const property of expandProperties(properties)) {
         systemCache.addProperty(new Symbol(property, SymbolKind.Property, uri, 0, 0));
     }
 
@@ -66,19 +60,81 @@ function resolveExecutablePath(executable: string, label: string): string {
     return absPath;
 }
 
-function expandLanguageVariables(variables: Variables): Set<string> {
+function expandVariables(variables: Set<string>): Set<string> {
     const expandedVariables = new Set<string>();
     const languages = ['C', 'CXX'];
+    const buildTypes = ['Debug', 'Release', 'MinSizeRel', 'RelWithDebInfo'];
+
+    const countLeftAngle = (str: string): number => (str.match(/</g)?.length ?? 0);
+
     for (const variable of variables) {
-        if (variable.includes('<LANG>')) {
-            for (const lang of languages) {
-                expandedVariables.add(variable.replace('<LANG>', lang));
+        const angleCount = countLeftAngle(variable);
+
+        if (angleCount === 0) {
+            expandedVariables.add(variable);
+        } else if (angleCount === 1) {
+            if (variable.includes('<LANG>')) {
+                for (const lang of languages) {
+                    expandedVariables.add(variable.replace('<LANG>', lang));
+                }
+            } else if (variable.includes('<CONFIG>')) {
+                for (const buildType of buildTypes) {
+                    expandedVariables.add(variable.replace('<CONFIG>', buildType));
+                }
+            } else {
+                // FIXME: <PROJECT-NAME> <PackageName> <FETAURE> <n> <NNNN> <an-attribute>
+                // 这些情况暂不处理
+                expandedVariables.add(variable);
+            }
+        } else if (angleCount === 2) {
+            if (variable.includes('<LANG>') && variable.includes('<CONFIG>')) {
+                for (const lang of languages) {
+                    for (const buildType of buildTypes) {
+                        expandedVariables.add(variable.replace('<LANG>', lang).replace('<CONFIG>', buildType));
+                    }
+                }
+            } else {
+                // FIXME: 其他包含两个尖括号的变量，暂不处理
+                // 1. <LANG> 和 <FEATURE>
+                // 2. <LANG> 和 <TYPE>
+                expandedVariables.add(variable);
             }
         } else {
+            // 包含三个或以上尖括号的变量，暂不处理
             expandedVariables.add(variable);
         }
     }
     return expandedVariables;
+}
+
+function expandProperties(properties: Set<string>): Set<string> {
+    const expandedProperties = new Set<string>();
+    const languages = ['C', 'CXX'];
+    const buildTypes = ['Debug', 'Release', 'MinSizeRel', 'RelWithDebInfo'];
+    const countLeftAngle = (str: string): number => (str.match(/</g)?.length ?? 0);
+    for (const property of properties) {
+        const angleCount = countLeftAngle(property);
+        if (angleCount === 0) {
+            expandedProperties.add(property);
+        } else if (angleCount === 1) {
+            if (property.includes('<LANG>')) {
+                for (const lang of languages) {
+                    expandedProperties.add(property.replace('<LANG>', lang));
+                }
+            } else if (property.includes('<CONFIG>')) {
+                for (const buildType of buildTypes) {
+                    expandedProperties.add(property.replace('<CONFIG>', buildType));
+                }
+            } else {
+                // FIXME: <NAME> <LIBRARY> <tagname> <refname> <variable> <section> <tool> <an-attribute>
+                expandedProperties.add(property);
+            }
+        } else {
+            // FIXME: <tagname> 和 <refname> 可能会出现在同一个属性中，暂不处理
+            expandedProperties.add(property);
+        }
+    }
+    return expandedProperties;
 }
 
 async function getCMakeModulePath(cmakePath: string, major: number, minor: number): Promise<string | undefined> {
@@ -132,7 +188,7 @@ async function getCMakeVersion(cmakePath: string): Promise<[string, number, numb
     ];
 }
 
-async function getBuiltinEntries(cmakePath: string): Promise<[Modules, Policies, Variables, Properties, Commands]> {
+async function getBuiltinEntries(cmakePath: string): Promise<[Set<string>, Set<string>, Set<string>, Set<string>, Set<string>]> {
     const command = `"${cmakePath}" --help-module-list --help-policy-list --help-variable-list --help-property-list --help-command-list`;
     const { stdout } = await promisify(cp.exec)(command);
     const tmp = stdout.trim().split('\n\n\n');

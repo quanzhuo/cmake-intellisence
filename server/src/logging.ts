@@ -150,28 +150,32 @@ class SingletonLogger {
 }
 
 export class Logger {
-    private configedLevel: string;
+    private _configedLevel: string;
     constructor(readonly _tag: string, configedLevel: string) {
-        this.configedLevel = configedLevel;
+        this._configedLevel = configedLevel;
     }
     get tag() {
         return `[${this._tag}]`;
     }
 
+    setLevel(level: string) {
+        this._configedLevel = level;
+    }
+
     debug(...args: Stringable[]) {
-        SingletonLogger.instance(this.configedLevel).debug(this.tag, ...args);
+        SingletonLogger.instance(this._configedLevel).debug(this.tag, ...args);
     }
 
     info(...args: Stringable[]) {
-        SingletonLogger.instance(this.configedLevel).info(this.tag, ...args);
+        SingletonLogger.instance(this._configedLevel).info(this.tag, ...args);
     }
 
     warning(...args: Stringable[]) {
-        SingletonLogger.instance(this.configedLevel).warning(this.tag, ...args);
+        SingletonLogger.instance(this._configedLevel).warning(this.tag, ...args);
     }
 
     error(...args: Stringable[]) {
-        SingletonLogger.instance(this.configedLevel).error(this.tag, ...args);
+        SingletonLogger.instance(this._configedLevel).error(this.tag, ...args);
     }
 }
 

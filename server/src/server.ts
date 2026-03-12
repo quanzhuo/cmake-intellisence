@@ -667,19 +667,6 @@ export class CMakeLanguageServer {
         this.markProjectTargetInfoDirty(event.document.uri);
     }
 
-    private onShutdown() {
-        this.disposables.forEach((disposable) => {
-            disposable.dispose();
-        });
-    }
-
-    // #endregion
-
-    private markProjectTargetInfoDirty(docUri: string) {
-        const workspaceKey = this.getWorkspaceFolderForUri(docUri).toString();
-        this.dirtyProjectTargetInfos.add(workspaceKey);
-    }
-
     private onDocumentLinks(params: DocumentLinkParams): Promise<DocumentLink[] | null> {
         const commands = this.getFlatCommands(params.textDocument.uri);
         const linkInfo = new DocumentLinkInfo(commands, params.textDocument.uri, this.symbolIndex);
@@ -706,6 +693,19 @@ export class CMakeLanguageServer {
         const workspaceFolderKey = workspaceFolderUri.toString();
         this.projectTargetInfos.delete(workspaceFolderKey);
         this.dirtyProjectTargetInfos.delete(workspaceFolderKey);
+    }
+
+    private onShutdown() {
+        this.disposables.forEach((disposable) => {
+            disposable.dispose();
+        });
+    }
+
+    // #endregion
+
+    private markProjectTargetInfoDirty(docUri: string) {
+        const workspaceKey = this.getWorkspaceFolderForUri(docUri).toString();
+        this.dirtyProjectTargetInfos.add(workspaceKey);
     }
 
     private getWorkspaceFolderForUri(docUri: string): URI {
@@ -772,7 +772,7 @@ export class CMakeLanguageServer {
 
     private async collectWorkspaceCMakeFiles(rootPath: string): Promise<string[]> {
         const results: string[] = [];
-        const ignoredDirectories = new Set(['.git', '.hg', '.svn', 'node_modules', 'dist', 'out']);
+        const ignoredDirectories = new Set(['.git', '.hg', '.svn', 'node_modules', 'dist', 'out', 'build', 'cmake-build-debug', 'cmake-build-release']);
 
         const visit = async (dirPath: string): Promise<void> => {
             const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
@@ -907,7 +907,7 @@ export class CMakeLanguageServer {
             this.connection.window.showErrorMessage(e.message);
         }
         this.cmakeHelpCache.clear();
-        this.logger = createLogger('cmake-intellisence', this.extSettings.loggingLevel);
+        this.logger.setLevel(this.extSettings.loggingLevel);
     }
 
     private async ensureEnvironmentInitialized(): Promise<void> {
