@@ -22,6 +22,7 @@ import { Logger, createLogger } from './logging';
 import { ReferenceResolver } from './references';
 import { RenameResolver } from './rename';
 import { rstToMarkdown } from './rstToMarkdown';
+import { buildSignatureHelp } from './signatureHelp';
 import { SemanticTokenListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
 import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex } from './symbolIndex';
@@ -349,66 +350,7 @@ export class CMakeLanguageServer {
         if (!command) {
             return Promise.resolve(null);
         }
-
-        const cmdName = command.ID().getText();
-        const lowercaseCmdName = cmdName.toLowerCase();
-        if (!(cmdName in builtinCmds) && !(lowercaseCmdName in builtinCmds)) {
-            return Promise.resolve(null);
-        }
-        let sigsStrArr: string[];
-        if (cmdName in builtinCmds) {
-            sigsStrArr = (builtinCmds as any)[cmdName]['sig'];
-        } else {
-            sigsStrArr = (builtinCmds as any)[lowercaseCmdName]['sig'];
-        }
-        if (sigsStrArr.length === 1) {
-            return Promise.resolve({
-                signatures: [
-                    {
-                        label: sigsStrArr[0]
-                    }
-                ],
-                activeSignature: 0,
-                activeParameter: 0
-            });
-        }
-
-        function findActiveSignature(command: FlatCommand, sigs: string[]): number {
-            const args = command.argument_list();
-            const argsText: string[] = args.map(arg => arg.getText());
-
-            let ret = 0;
-            let maxMatched = 0;
-
-            sigs.forEach((sig, index) => {
-                const keywords = new Set<string>();
-                const matches = sig.match(/[A-Z][A-Z_]*[A-Z]/g);
-                if (matches) {
-                    matches.forEach(keyword => keywords.add(keyword));
-                }
-
-                let matched = 0;
-                argsText.forEach(arg => {
-                    if (keywords.has(arg)) {
-                        matched++;
-                    }
-                });
-
-                if (matched > maxMatched) {
-                    maxMatched = matched;
-                    ret = index;
-                }
-            });
-
-            return ret;
-        }
-
-        const activeSigIndex = findActiveSignature(command, sigsStrArr);
-        return Promise.resolve({
-            signatures: sigsStrArr.map(sig => { return { label: sig }; }),
-            activeSignature: activeSigIndex,
-            activeParameter: 0
-        });
+        return Promise.resolve(buildSignatureHelp(command, pos, commands));
     }
 
     private onDocumentFormatting(params: DocumentFormattingParams): TextEdit[] | null {

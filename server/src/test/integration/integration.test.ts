@@ -474,6 +474,36 @@ suite('LSP Integration Tests', () => {
 
         assert(result !== null, 'Signature help should not be null');
         assert(result!.signatures.length > 0, 'Should have at least one signature');
+        assert(result!.signatures[0].parameters !== undefined, 'Signature should expose parameter metadata');
+        assert(result!.activeParameter !== undefined, 'Signature help should report an active parameter');
+    });
+
+    test('should select the matching overload and active parameter for add_library', async function () {
+        const uri = 'file:///test-workspace/signature-overload.txt';
+        openDocument(uri, 'add_library(foo OBJECT bar.cpp)');
+
+        const result = await connection.sendRequest(SignatureHelpRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'add_library(foo OBJECT '.length + 2 }
+        });
+
+        assert(result !== null, 'Signature help should not be null');
+        assert.strictEqual(result!.activeSignature, 1, 'Should select the OBJECT overload');
+        assert.strictEqual(result!.activeParameter, 2, 'Should highlight the current source argument');
+    });
+
+    test('should include markdown cmdsignature documentation in signature help', async function () {
+        const uri = 'file:///test-workspace/signature-docs.txt';
+        openDocument(uri, 'get_source_file_property(out main.cpp DIRECTORY src LOCATION)');
+
+        const result = await connection.sendRequest(SignatureHelpRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'get_source_file_property(out main.cpp DIRECTORY '.length + 2 }
+        });
+
+        assert(result !== null, 'Signature help should not be null');
+        const documentation = result!.signatures[result!.activeSignature ?? 0].documentation as { value?: string } | undefined;
+        assert(documentation?.value?.includes('```cmdsignature'), 'Signature documentation should use a cmdsignature fenced block');
     });
 
     //#endregion ── Signature Help ─────────────────────────────────────────
