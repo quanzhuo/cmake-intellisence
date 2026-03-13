@@ -3,7 +3,7 @@
   "displayName": "CMake IntelliSence",
   "description": "CMake format, completion, go to definition, document link, semantic tokens, and more...",
   "author": "quanzhuo",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -135,7 +135,7 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "rimraf dist syntaxes/*.json && npm run product",
+    "vscode:prepublish": "rimraf dist syntaxes/cmake.tmLanguage.json syntaxes/cmakecache.tmLanguage.json syntaxes/cmdsignature.tmLanguage.json && npm run product",
     "compile": "tsc -p ./server",
     "tsc-watch": "tsc -p ./server -w",
     "develop": "npm run grammar && npm run antlr4 && webpack --mode development --watch",

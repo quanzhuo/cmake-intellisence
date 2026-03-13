@@ -1,5 +1,13 @@
 # Change Log
 
+## v0.6.0
+
+Improvements:
+
+* 变量补全体验提升
+* 悬浮文档显示增强
+* 签名帮助增强
+
 ## v0.5.0
 
 Improvements:
