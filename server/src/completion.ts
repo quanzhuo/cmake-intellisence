@@ -76,6 +76,10 @@ export interface CMakeCompletionInfo {
      * if type is CMakeCompletionType.Argument, this field is the current argument index
      */
     index?: number,
+    /**
+     * fallback argument texts when the command is recovered from lexer tokens instead of the parser tree
+     */
+    arguments?: string[],
 }
 
 export interface ProjectTargetInfo {
@@ -239,9 +243,15 @@ export function isCursorWithinParentheses(position: Position, lParenLine: number
  * The function determines if the cursor is within a command's parentheses and identifies the current argument index if so.
  * If the cursor is not within any command's parentheses, it returns a completion type of `Command`.
  */
-export function getCompletionInfoAtCursor(commands: FlatCommand[], pos: Position): CMakeCompletionInfo {
+export function getCompletionInfoAtCursor(commands: FlatCommand[], pos: Position, tokenStream?: CommonTokenStream): CMakeCompletionInfo {
     const currentCommand = findCommandAtPosition(commands, pos);
     if (currentCommand === null) {
+        if (tokenStream) {
+            const fallbackInfo = getTokenBasedCompletionInfo(tokenStream.tokens, pos);
+            if (fallbackInfo) {
+                return fallbackInfo;
+            }
+        }
         return { type: CMakeCompletionType.Command };
     }
 
@@ -290,6 +300,185 @@ export function getCompletionInfoAtCursor(commands: FlatCommand[], pos: Position
     } else {
         return { type: CMakeCompletionType.Command };
     }
+}
+
+type TokenArgument = {
+    text: string,
+    line: number,
+    column: number,
+    endLine: number,
+    endColumn: number,
+};
+
+type TokenCommand = {
+    name: string,
+    lParen: Token,
+    rParen?: Token,
+    args: TokenArgument[],
+};
+
+function getTokenBasedCompletionInfo(tokens: Token[], pos: Position): CMakeCompletionInfo | null {
+    const defaultTokens = tokens.filter(token => token.channel === 0);
+    let currentCommand: TokenCommand | null = null;
+    let depth = 0;
+
+    for (let index = 0; index < defaultTokens.length; index++) {
+        const token = defaultTokens[index];
+        if (token.type === Token.EOF) {
+            if (currentCommand && isCursorWithinOpenCommand(pos, currentCommand)) {
+                return getCompletionInfoFromTokenCommand(currentCommand, pos);
+            }
+            return null;
+        }
+
+        if (!currentCommand) {
+            const nextToken = defaultTokens[index + 1];
+            if (nextToken?.type === CMakeLexer.LP && token.type !== CMakeLexer.LP && token.type !== CMakeLexer.RP) {
+                currentCommand = {
+                    name: token.text,
+                    lParen: nextToken,
+                    args: [],
+                };
+                depth = 1;
+                index++;
+            }
+            continue;
+        }
+
+        if (token.type === CMakeLexer.LP) {
+            if (depth === 1) {
+                const nestedArg = collectNestedArgument(defaultTokens, index);
+                currentCommand.args.push(nestedArg.argument);
+                index = nestedArg.lastIndex;
+                continue;
+            }
+            depth++;
+            continue;
+        }
+
+        if (token.type === CMakeLexer.RP) {
+            depth--;
+            if (depth === 0) {
+                currentCommand.rParen = token;
+                if (isCursorWithinClosedCommand(pos, currentCommand)) {
+                    return getCompletionInfoFromTokenCommand(currentCommand, pos);
+                }
+                currentCommand = null;
+            }
+            continue;
+        }
+
+        if (depth === 1) {
+            currentCommand.args.push({
+                text: token.text,
+                line: token.line - 1,
+                column: token.column,
+                endLine: token.line - 1,
+                endColumn: token.column + token.text.length,
+            });
+        }
+    }
+
+    return null;
+}
+
+function collectNestedArgument(tokens: Token[], startIndex: number): { argument: TokenArgument, lastIndex: number } {
+    const startToken = tokens[startIndex];
+    let depth = 0;
+    let endToken = startToken;
+    let text = '';
+
+    for (let index = startIndex; index < tokens.length; index++) {
+        const token = tokens[index];
+        if (token.type === Token.EOF) {
+            return {
+                argument: {
+                    text,
+                    line: startToken.line - 1,
+                    column: startToken.column,
+                    endLine: endToken.line - 1,
+                    endColumn: endToken.column + endToken.text.length,
+                },
+                lastIndex: index,
+            };
+        }
+
+        text += token.text;
+        endToken = token;
+        if (token.type === CMakeLexer.LP) {
+            depth++;
+        } else if (token.type === CMakeLexer.RP) {
+            depth--;
+            if (depth === 0) {
+                return {
+                    argument: {
+                        text,
+                        line: startToken.line - 1,
+                        column: startToken.column,
+                        endLine: endToken.line - 1,
+                        endColumn: endToken.column + endToken.text.length,
+                    },
+                    lastIndex: index,
+                };
+            }
+        }
+    }
+
+    return {
+        argument: {
+            text,
+            line: startToken.line - 1,
+            column: startToken.column,
+            endLine: endToken.line - 1,
+            endColumn: endToken.column + endToken.text.length,
+        },
+        lastIndex: tokens.length - 1,
+    };
+}
+
+function isCursorWithinClosedCommand(pos: Position, command: TokenCommand): boolean {
+    const lParenLine = command.lParen.line - 1;
+    const rParenLine = command.rParen ? command.rParen.line - 1 : lParenLine;
+    const rParenColumn = command.rParen ? command.rParen.column : command.lParen.column;
+    return isCursorWithinParentheses(pos, lParenLine, command.lParen.column, rParenLine, rParenColumn);
+}
+
+function isCursorWithinOpenCommand(pos: Position, command: TokenCommand): boolean {
+    const lParenLine = command.lParen.line - 1;
+    if (pos.line < lParenLine) {
+        return false;
+    }
+    if (pos.line === lParenLine && pos.character <= command.lParen.column) {
+        return false;
+    }
+    return true;
+}
+
+function getCompletionInfoFromTokenCommand(command: TokenCommand, pos: Position): CMakeCompletionInfo {
+    const argumentTexts = command.args.map(arg => arg.text);
+    let index = 0;
+
+    for (let argIndex = 0; argIndex < command.args.length; argIndex++) {
+        const arg = command.args[argIndex];
+        const isWithinLine = pos.line === arg.line || pos.line === arg.endLine;
+        if (isWithinLine && pos.line === arg.line && pos.character >= arg.column && pos.character <= arg.endColumn) {
+            for (const variableRange of findVariableRanges(arg.text, arg.column)) {
+                if (pos.character >= variableRange.start && pos.character <= variableRange.end) {
+                    return { type: CMakeCompletionType.Variable, command: command.name, arguments: argumentTexts };
+                }
+            }
+            return { type: CMakeCompletionType.Argument, command: command.name, index: argIndex, arguments: argumentTexts };
+        }
+
+        if (pos.line < arg.line || (pos.line === arg.line && pos.character < arg.column)) {
+            index = argIndex;
+            return { type: CMakeCompletionType.Argument, command: command.name, index, arguments: argumentTexts };
+        }
+
+        index = argIndex + 1;
+    }
+
+    return { type: CMakeCompletionType.Argument, command: command.name, index, arguments: argumentTexts };
 }
 
 function findVariableRanges(argText: string, baseColumn: number): Array<{ start: number, end: number }> {
@@ -702,7 +891,7 @@ export default class Completion {
     }
 
     private async getArgumentSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
-        const args = info.context?.argument_list().map(arg => arg.getText()) ?? [];
+        const args = info.context?.argument_list().map(arg => arg.getText()) ?? info.arguments ?? [];
         const propertyKeywordIndex = this.getPropertyKeywordIndex(args);
 
         switch (info.command) {
@@ -720,7 +909,7 @@ export default class Completion {
             }
             case 'cmake_policy': {
                 if (info.index === 1) {
-                    const firstArg = info.context?.argument(0)?.getText();
+                    const firstArg = info.context?.argument(0)?.getText() ?? args[0];
                     if (firstArg === 'GET' || firstArg === 'SET') {
                         return this.getPolicySuggestions(info, word);
                     }
@@ -936,7 +1125,7 @@ export default class Completion {
         }
 
         const commands = fallbackCommands;
-        const info = getCompletionInfoAtCursor(commands, params.position);
+        const info = getCompletionInfoAtCursor(commands, params.position, tokenStream);
         if (info.type === CMakeCompletionType.Command) {
             return this.getCommandSuggestions(this.word);
         } else if (info.type === CMakeCompletionType.Argument) {

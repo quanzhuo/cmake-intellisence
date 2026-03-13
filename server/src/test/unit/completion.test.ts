@@ -4,7 +4,7 @@ import { ExtensionSettings, initializeCMakeEnvironment } from "../../cmakeEnviro
 import { CMakeCompletionType, findCommandAtPosition, getCompletionInfoAtCursor, isCursorWithinParentheses } from "../../completion";
 import { extractFlatCommands, FlatCommand } from "../../flatCommands";
 import { SymbolIndex, SymbolKind } from "../../symbolIndex";
-import { getFileContext } from "../../utils";
+import { getFileContext, parseCMakeText } from "../../utils";
 
 suite('Completion Tests', () => {
     let symbolIndex: SymbolIndex;
@@ -356,22 +356,38 @@ arg2  arg3          arg4 )
         assert.strictEqual(found, validAfter);
     });
 
-    test('extractFlatCommands should keep empty required-argument commands', () => {
-        const input = 'set()';
-        const commands = extractFlatCommands(getFileContext(input));
+    test('extractFlatCommands should not recover invalid set() commands', () => {
+        const parsed = parseCMakeText('set()');
 
-        assert.strictEqual(commands.length, 1);
-        assert.strictEqual(commands[0].ID().getText(), 'set');
-        assert.strictEqual(commands[0].argument_list().length, 0);
+        assert.strictEqual(parsed.flatCommands.length, 0);
     });
 
     test('getCompletionInfoAtCursor should treat set() as argument context', () => {
-        const input = 'set()';
-        const commands = extractFlatCommands(getFileContext(input));
-        const result = getCompletionInfoAtCursor(commands, { line: 0, character: 4 });
+        const parsed = parseCMakeText('set()');
+        const result = getCompletionInfoAtCursor(parsed.flatCommands, { line: 0, character: 4 }, parsed.tokenStream);
 
         assert.strictEqual(result.type, CMakeCompletionType.Argument);
         assert.strictEqual(result.command, 'set');
         assert.strictEqual(result.index, 0);
+    });
+
+    test('incomplete block commands should still produce argument completion info from tokens', () => {
+        const testCases = [
+            { input: 'if()', pos: { line: 0, character: 3 }, command: 'if' },
+            { input: 'if(', pos: { line: 0, character: 3 }, command: 'if' },
+            { input: 'while()', pos: { line: 0, character: 6 }, command: 'while' },
+            { input: 'function()', pos: { line: 0, character: 9 }, command: 'function' },
+            { input: 'macro()', pos: { line: 0, character: 6 }, command: 'macro' },
+            { input: 'foreach()', pos: { line: 0, character: 8 }, command: 'foreach' },
+        ];
+
+        testCases.forEach(({ input, pos, command }) => {
+            const parsed = parseCMakeText(input);
+            const result = getCompletionInfoAtCursor(parsed.flatCommands, pos, parsed.tokenStream);
+
+            assert.strictEqual(result.type, CMakeCompletionType.Argument, input);
+            assert.strictEqual(result.command, command, input);
+            assert.strictEqual(result.index, 0, input);
+        });
     });
 });
