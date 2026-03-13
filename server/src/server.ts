@@ -8,7 +8,7 @@ import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, Docu
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import { ExtensionSettings, ProjectTargetInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
-import Completion, { CompletionItemType, ProjectTargetInfo, builtinCmds, findCommandAtPosition, getCompletionHelpLabel, getCompletionItemType, inComments } from './completion';
+import Completion, { CompletionItemType, ProjectTargetInfo, findCommandAtPosition, getCompletionHelpLabel, getCompletionItemType, inComments } from './completion';
 import { DefinitionResolver } from './defination';
 import SemanticDiagnosticsListener, { CommandCaseChecker, DIAG_CODE_CMD_CASE, SyntaxErrorListener } from './diagnostics';
 import { DocumentLinkInfo } from './docLink';
@@ -22,8 +22,8 @@ import { Logger, createLogger } from './logging';
 import { ReferenceResolver } from './references';
 import { RenameResolver } from './rename';
 import { rstToMarkdown } from './rstToMarkdown';
-import { buildSignatureHelp } from './signatureHelp';
 import { SemanticTokenListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
+import { buildSignatureHelp } from './signatureHelp';
 import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex } from './symbolIndex';
 import { READY_NOTIFICATION } from './testing';
@@ -554,13 +554,13 @@ export class CMakeLanguageServer {
     private async onDidChangeConfiguration(params: DidChangeConfigurationParams) {
         const extSettings = await this.getExtSettings();
         if (extSettings.cmakePath !== this.extSettings.cmakePath || extSettings.pkgConfigPath !== this.extSettings.pkgConfigPath) {
-            try {
-                await initializeCMakeEnvironment(extSettings, this.symbolIndex);
-            } catch (e: any) {
-                this.connection.window.showErrorMessage(e.message);
-            }
+            this.environmentInitialization = this.initializeEnvironment(extSettings);
+            await this.environmentInitialization;
+            await this.ensureAllWorkspaceFoldersIndexed();
+            return;
         }
         this.extSettings = extSettings;
+        this.logger.setLevel(this.extSettings.loggingLevel);
     }
 
     /**
@@ -597,7 +597,7 @@ export class CMakeLanguageServer {
         if (this.extSettings?.cmdCaseDiagnostics) {
             const cmdCaseChecker = new CommandCaseChecker(this.symbolIndex);
             cmdCaseChecker.check(flatCommands);
-            diagnostics.diagnostics.push(...cmdCaseChecker.getCmdCaseDdiagnostics());
+            diagnostics.diagnostics.push(...cmdCaseChecker.getCmdCaseDiagnostics());
         }
         this.connection.sendDiagnostics(diagnostics);
 
@@ -694,6 +694,7 @@ export class CMakeLanguageServer {
         }
 
         const indexing = this.indexWorkspaceFolder(workspaceFolder).catch(error => {
+            this.workspaceIndexing.delete(workspaceKey);
             this.logger.error(`Failed to index workspace folder ${workspaceFolder.fsPath}`, error as Error);
         });
         this.workspaceIndexing.set(workspaceKey, indexing);
@@ -836,14 +837,17 @@ export class CMakeLanguageServer {
         };
     }
 
-    private async initializeEnvironment(): Promise<void> {
-        this.extSettings = await this.getExtSettings();
+    private async initializeEnvironment(settings?: ExtensionSettings): Promise<void> {
+        this.extSettings = settings ?? await this.getExtSettings();
+        this.workspaceIndexing.clear();
+        this.projectTargetInfos.clear();
+        this.dirtyProjectTargetInfos.clear();
+        this.cmakeHelpCache.clear();
         try {
             await initializeCMakeEnvironment(this.extSettings, this.symbolIndex);
         } catch (e: any) {
             this.connection.window.showErrorMessage(e.message);
         }
-        this.cmakeHelpCache.clear();
         this.logger.setLevel(this.extSettings.loggingLevel);
     }
 

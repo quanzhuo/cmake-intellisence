@@ -245,5 +245,16 @@ suite("References Integration Tests", () => {
         assert.ok(commandLocs.some(l => l.uri === uri && l.range.start.line === 12), "Function call sites should remain");
     });
 
+    test("should treat math EXPR output as the variable declaration", async function () {
+        const uri = await openFixture("CMakeLists.txt");
+
+        const result = await getReferences(uri, 17, 24, false);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.ok(locs.length > 0, "Should find math output usages");
+        assert.ok(!locs.some(l => l.uri === uri && l.range.start.line === 16), "math output declaration should be excluded");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 17), "math output usage should remain");
+    });
+
 });
 

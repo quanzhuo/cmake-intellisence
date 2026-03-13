@@ -2,7 +2,6 @@ import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { promisify } from 'util';
 import { URI } from 'vscode-uri';
 import * as which from 'which';
 import { ProjectTargetInfo } from './completion';
@@ -17,6 +16,18 @@ export interface ExtensionSettings {
 }
 
 const moduleCommands = ["add_file_dependencies", "android_add_test_data", "fixup_bundle", "copy_and_fixup_bundle", "verify_app", "get_bundle_main_executable", "get_dotapp_dir", "get_bundle_and_executable", "get_bundle_all_executables", "get_item_key", "clear_bundle_keys", "set_bundle_key_values", "get_bundle_keys", "copy_resolved_item_into_bundle", "copy_resolved_framework_into_bundle", "fixup_bundle_item", "verify_bundle_prerequisites", "verify_bundle_symlinks", "check_c_compiler_flag", "check_compiler_flag", "check_c_source_compiles", "check_c_source_runs", "check_cxx_compiler_flag", "check_cxx_source_compiles", "check_cxx_source_runs", "check_cxx_symbol_exists", "check_fortran_compiler_flag", "check_fortran_source_compiles", "check_fortran_source_runs", "check_function_exists", "cmake_push_check_state", "cmake_reset_check_state", "cmake_pop_check_state", "check_ipo_supported", "check_language", "check_linker_flag", "check_objc_compiler_flag", "check_objc_source_compiles", "check_objc_source_runs", "check_objcxx_compiler_flag", "check_objcxx_source_compiles", "check_objcxx_source_runs", "check_pie_supported", "check_prototype_definition", "check_source_compiles", "check_source_runs", "check_symbol_exists", "check_type_size", "cmake_add_fortran_subdirectory", "cmake_dependent_option", "DetermineVSServicePack", "find_dependency", "CMAKE_FORCE_Fortran_COMPILER", "configure_package_config_file", "write_basic_package_version_file", "generate_apple_platform_selection_file", "generate_apple_architecture_selection_file", "check_required_components", "cmake_print_properties", "cmake_print_variables", "cpack_add_component", "cpack_add_component_group", "cpack_add_install_type", "cpack_configure_downloads", "cpack_ifw_add_repository", "cpack_ifw_update_repository", "cpack_ifw_add_package_resources", "cpack_ifw_configure_file", "csharp_set_windows_forms_properties", "csharp_set_designer_cs_properties", "csharp_set_xaml_cs_properties", "csharp_get_filename_keys", "csharp_get_filename_key_base", "csharp_get_dependentupon_name", "ctest_coverage_collect_gcov", "ExternalData_Add_Target", "ExternalProject_Add", "ExternalProject_Get_Property", "ExternalProject_Add_Step", "ExternalProject_Add_StepTargets", "ExternalProject_Add_StepDependencies", "feature_summary", "set_package_properties", "add_feature_info", "set_package_info", "set_feature_info", "print_enabled_features", "print_disabled_features", "FetchContent_MakeAvailable", "FetchContent_GetProperties", "FetchContent_Populate", "FetchContent_Declare", "FetchContent_SetPopulated", "cuda_add_cufft_to_target", "cuda_add_cublas_to_target", "cuda_add_executable", "cuda_add_library", "cuda_build_clean_target", "cuda_compile", "cuda_compile_ptx", "cuda_compile_fatbin", "cuda_compile_cubin", "cuda_compute_separable_compilation_object_file_name", "cuda_include_directories", "cuda_link_separable_compilation_objects", "cuda_select_nvcc_arch_flags", "cuda_wrap_srcs", "doxygen_add_docs", "env_module", "env_module_swap", "env_module_list", "env_module_avail", "matlab_get_version_from_release_name", "matlab_get_release_name_from_version", "matlab_extract_all_installed_versions_from_registry", "matlab_get_all_valid_matlab_roots_from_registry", "matlab_get_mex_suffix", "matlab_get_version_from_matlab_run", "matlab_add_unit_test", "matlab_add_mex", "find_package_handle_standard_args", "find_package_check_version", "find_package_message", "pkg_check_modules", "pkg_search_module", "pkg_get_variable", "protobuf_generate_cpp", "protobuf_generate_python", "protobuf_generate", "squish_add_test", "Subversion_WC_INFO", "Subversion_WC_LOG", "xctest_add_bundle", "xctest_add_test", "FortranCInterface_VERIFY", "FortranCInterface_HEADER", "generate_export_header", "GNUInstallDirs_get_absolute_install_dir", "gtest_add_tests", "gtest_discover_tests", "ProcessorCount", "select_library_configurations", "test_big_endian", "add_jar", "install_jar", "install_jni_symlink", "create_javah", "install_jar_exports", "export_jars", "find_jar", "create_javadoc", "swig_add_library", "swig_link_libraries", "write_compiler_detection_header"];
+
+function execFilePromise(file: string, args: string[], options?: cp.ExecFileOptions): Promise<{ stdout: string, stderr: string }> {
+    return new Promise((resolve, reject) => {
+        cp.execFile(file, args, { encoding: 'utf8', ...(options ?? {}) }, (error, stdout, stderr) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve({ stdout: String(stdout), stderr: String(stderr) });
+        });
+    });
+}
 
 export async function initializeCMakeEnvironment(extSettings: ExtensionSettings, symbolIndex: SymbolIndex): Promise<void> {
     const cmakePath = resolveExecutablePath(extSettings.cmakePath, 'cmake');
@@ -143,9 +154,8 @@ async function getCMakeModulePath(cmakePath: string, major: number, minor: numbe
 }
 
 async function getCMakeRoot(cmakePath: string, major: number, minor: number): Promise<string | null> {
-    const command = `"${cmakePath}" --system-information`;
     try {
-        const { stdout } = await promisify(cp.exec)(command, { cwd: os.tmpdir() });
+        const { stdout } = await execFilePromise(cmakePath, ['--system-information'], { cwd: os.tmpdir() });
         const lines = stdout.split('\n');
         for (const line of lines) {
             if (line.startsWith('CMAKE_ROOT')) {
@@ -173,8 +183,7 @@ async function getCMakeRoot(cmakePath: string, major: number, minor: number): Pr
 }
 
 async function getCMakeVersion(cmakePath: string): Promise<[string, number, number, number]> {
-    const command = `"${cmakePath}" --version`;
-    const { stdout } = await promisify(cp.exec)(command);
+    const { stdout } = await execFilePromise(cmakePath, ['--version']);
     const regexp: RegExp = /(\d+)\.(\d+)\.(\d+)/;
     const res = stdout.match(regexp);
     if (!res) {
@@ -189,8 +198,7 @@ async function getCMakeVersion(cmakePath: string): Promise<[string, number, numb
 }
 
 async function getBuiltinEntries(cmakePath: string): Promise<[Set<string>, Set<string>, Set<string>, Set<string>, Set<string>]> {
-    const command = `"${cmakePath}" --help-module-list --help-policy-list --help-variable-list --help-property-list --help-command-list`;
-    const { stdout } = await promisify(cp.exec)(command);
+    const { stdout } = await execFilePromise(cmakePath, ['--help-module-list', '--help-policy-list', '--help-variable-list', '--help-property-list', '--help-command-list']);
     const tmp = stdout.trim().split('\n\n\n');
     return [
         new Set(tmp[0].split('\n')),
@@ -208,8 +216,7 @@ async function getPkgConfigModules(pkgConfigPath: string): Promise<Map<string, s
         return modules;
     }
 
-    const command = `"${pkgConfig}" --list-all`;
-    const { stdout } = await promisify(cp.exec)(command);
+    const { stdout } = await execFilePromise(pkgConfig, ['--list-all']);
     if (stdout.trim().length === 0) {
         return modules;
     }

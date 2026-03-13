@@ -1,8 +1,8 @@
 import * as assert from 'assert';
 import { before } from "mocha";
 import { ExtensionSettings, initializeCMakeEnvironment } from "../../cmakeEnvironment";
-import { CMakeCompletionType, getCompletionInfoAtCursor, isCursorWithinParentheses } from "../../completion";
-import { extractFlatCommands } from "../../flatCommands";
+import { CMakeCompletionType, findCommandAtPosition, getCompletionInfoAtCursor, isCursorWithinParentheses } from "../../completion";
+import { extractFlatCommands, FlatCommand } from "../../flatCommands";
 import { SymbolIndex, SymbolKind } from "../../symbolIndex";
 import { getFileContext } from "../../utils";
 
@@ -318,6 +318,42 @@ arg2  arg3          arg4 )
             const result = getCompletionInfoAtCursor(commands, pos);
             assert.strictEqual(result.type, expected.type);
         });
+    });
+
+    test('multiple variable references in a mixed argument should all be detected', () => {
+        const input = 'mock_command(${FOO}_${BAR})';
+        const commands = extractFlatCommands(getFileContext(input));
+        const testCases = [
+            { pos: { line: 0, character: 15 }, expected: CMakeCompletionType.Variable },
+            { pos: { line: 0, character: 17 }, expected: CMakeCompletionType.Variable },
+            { pos: { line: 0, character: 22 }, expected: CMakeCompletionType.Variable },
+            { pos: { line: 0, character: 24 }, expected: CMakeCompletionType.Variable },
+            { pos: { line: 0, character: 20 }, expected: CMakeCompletionType.Argument },
+        ];
+
+        testCases.forEach(({ pos, expected }) => {
+            const result = getCompletionInfoAtCursor(commands, pos);
+            assert.strictEqual(result.type, expected);
+        });
+    });
+
+    test('findCommandAtPosition should skip malformed commands without aborting search', () => {
+        const validBefore = {
+            start: { line: 1 },
+            stop: { line: 1 },
+        } as FlatCommand;
+        const malformed = {
+            start: { line: 2 },
+            stop: null,
+        } as FlatCommand;
+        const validAfter = {
+            start: { line: 3 },
+            stop: { line: 3 },
+        } as FlatCommand;
+
+        const found = findCommandAtPosition([validBefore, malformed, validAfter], { line: 2, character: 0 });
+
+        assert.strictEqual(found, validAfter);
     });
 
     test('extractFlatCommands should keep empty required-argument commands', () => {

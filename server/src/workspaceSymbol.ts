@@ -15,7 +15,7 @@ export class WorkspaceSymbolResolver {
                     for (const sym of symbols) {
                         results.push({
                             name: sym.name,
-                            kind: sym.kind === SymbolKind.Macro ? LSPSymbolKind.Function : LSPSymbolKind.Function,
+                            kind: LSPSymbolKind.Function,
                             location: sym.getLocation()
                         });
                     }

@@ -16,7 +16,7 @@ export class ReferenceResolver extends SymbolResolverBase {
             case 'macro':
                 return argIndex > 0;
             case 'math':
-                return argIndex === 0;
+                return argIndex === 1;
             default:
                 return false;
         }

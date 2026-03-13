@@ -68,17 +68,17 @@ export class DocumentLinkInfo {
         const vscodeUri = URI.parse(uri);
         const folder = path.dirname(vscodeUri.fsPath);
         return args.filter((argCtx: ArgumentContext) => {
+            if (!argCtx.stop) {
+                return false;
+            }
             const source = argCtx.getText();
             const filePath = path.join(folder, source);
             return fs.existsSync(filePath);
         }).map((argCtx: ArgumentContext) => {
-            if (!argCtx.stop) {
-                throw new Error('Argument context stop token is missing.');
-            }
             const source = argCtx.getText();
             const filePath = path.join(folder, source);
             return {
-                range: Range.create(argCtx.start.line - 1, argCtx.start.column, argCtx.stop.line - 1, argCtx.stop.column + source.length),
+                range: Range.create(argCtx.start.line - 1, argCtx.start.column, argCtx.stop!.line - 1, argCtx.stop!.column + source.length),
                 target: URI.file(filePath).toString(),
                 tooltip: filePath,
             };
@@ -154,7 +154,7 @@ export class DocumentLinkInfo {
 
     private builtinModule(arg: ArgumentContext, moduleName: string): DocumentLink[] {
         if (!arg.stop) {
-            throw new Error('Argument context stop token is missing.');
+            return [];
         }
         const argName = arg.getText();
         if (!this.symbolIndex.cmakeModulePath) {

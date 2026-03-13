@@ -138,7 +138,7 @@ export class CommandCaseChecker {
         }
     }
 
-    getCmdCaseDdiagnostics(): Diagnostic[] {
+    getCmdCaseDiagnostics(): Diagnostic[] {
         return this.diagnostics;
     }
 }

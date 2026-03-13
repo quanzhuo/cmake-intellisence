@@ -157,19 +157,52 @@ export function findCommandAtPosition(contexts: FlatCommand[], position: Positio
     while (left <= right) {
         mid = Math.floor((left + right) / 2);
         // line is 1-based, column is 0-based in antlr4
-        const start = contexts[mid].start.line - 1;
-        if (!contexts[mid].stop) {
-            return null;
+        const context = contexts[mid];
+        const start = context.start.line - 1;
+        const stopToken = context.stop;
+
+        if (!stopToken) {
+            const leftMatch = scanCommandAtPosition(contexts, mid - 1, -1, position);
+            if (leftMatch) {
+                return leftMatch;
+            }
+            return scanCommandAtPosition(contexts, mid + 1, 1, position);
         }
-        const stop = contexts[mid].stop!.line - 1;
+
+        const stop = stopToken.line - 1;
         if (position.line >= start && position.line <= stop) {
-            return contexts[mid];
+            return context;
         } else if (position.line < start) {
             right = mid - 1;
         } else {
             left = mid + 1;
         }
     }
+    return null;
+}
+
+function scanCommandAtPosition(contexts: FlatCommand[], startIndex: number, step: -1 | 1, position: Position): FlatCommand | null {
+    for (let index = startIndex; index >= 0 && index < contexts.length; index += step) {
+        const context = contexts[index];
+        if (!context.stop) {
+            continue;
+        }
+
+        const start = context.start.line - 1;
+        const stop = context.stop.line - 1;
+        if (position.line >= start && position.line <= stop) {
+            return context;
+        }
+
+        if (step === -1 && position.line > stop) {
+            return null;
+        }
+
+        if (step === 1 && position.line < start) {
+            return null;
+        }
+    }
+
     return null;
 }
 
@@ -234,12 +267,11 @@ export function getCompletionInfoAtCursor(commands: FlatCommand[], pos: Position
 
             // Check if the cursor is within the current argument
             if (pos.line === argStart.line - 1 && pos.character >= argStart.column && pos.character <= argStart.column + argStart.text.length) {
-                // Check if the cursor is within ${}
                 const argText = argStart.text;
-                const dollarIndex = argText.indexOf('${');
-                const closingBraceIndex = argText.indexOf('}', dollarIndex);
-                if (dollarIndex !== -1 && closingBraceIndex !== -1 && pos.character >= argStart.column + dollarIndex + 2 && pos.character <= argStart.column + closingBraceIndex) {
-                    return { type: CMakeCompletionType.Variable };
+                for (const variableRange of findVariableRanges(argText, argStart.column)) {
+                    if (pos.character >= variableRange.start && pos.character <= variableRange.end) {
+                        return { type: CMakeCompletionType.Variable };
+                    }
                 }
                 index = i;
                 break;
@@ -258,6 +290,28 @@ export function getCompletionInfoAtCursor(commands: FlatCommand[], pos: Position
     } else {
         return { type: CMakeCompletionType.Command };
     }
+}
+
+function findVariableRanges(argText: string, baseColumn: number): Array<{ start: number, end: number }> {
+    const ranges: Array<{ start: number, end: number }> = [];
+    for (let index = 0; index < argText.length - 1; index++) {
+        if (argText[index] !== '$' || argText[index + 1] !== '{') {
+            continue;
+        }
+
+        const closingBraceIndex = argText.indexOf('}', index + 2);
+        if (closingBraceIndex === -1) {
+            break;
+        }
+
+        ranges.push({
+            start: baseColumn + index + 2,
+            end: baseColumn + closingBraceIndex,
+        });
+        index = closingBraceIndex;
+    }
+
+    return ranges;
 }
 
 export default class Completion {

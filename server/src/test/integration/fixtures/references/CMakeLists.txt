@@ -17,4 +17,6 @@ my_custom_macro(bar)
 
 set(COMPLEX_VAR "prefix_${MY_VAR}_suffix")
 message("Double resolve: ${${MY_VAR}}")
+math(EXPR MATH_RESULT "1 + 2")
+message("Math result: ${MATH_RESULT}")
 
