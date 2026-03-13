@@ -1,14 +1,15 @@
 import * as assert from 'assert';
-import * as path from 'path';
+import * as fs from 'fs';
 import { before } from "mocha";
-import { ExtensionSettings, initializeCMakeEnvironment } from "../../cmakeEnvironment";
-import Completion from '../../completion';
-import { CMakeCompletionType, findCommandAtPosition, getCompletionInfoAtCursor, isCursorWithinParentheses } from "../../completion";
-import { Logger } from '../../logging';
-import { extractFlatCommands, FlatCommand } from "../../flatCommands";
-import { SymbolIndex, SymbolKind } from "../../symbolIndex";
-import { getFileContext, parseCMakeText } from "../../utils";
+import * as os from 'os';
+import * as path from 'path';
 import { URI } from 'vscode-uri';
+import { ExtensionSettings, initializeCMakeEnvironment } from "../../cmakeEnvironment";
+import Completion, { CMakeCompletionType, findCommandAtPosition, getCompletionInfoAtCursor, isCursorWithinParentheses } from '../../completion';
+import { extractFlatCommands, FlatCommand } from "../../flatCommands";
+import { Logger } from '../../logging';
+import { SymbolIndex, SymbolKind } from "../../symbolIndex";
+import { getFileContext, getIncludeFileUri, parseCMakeText } from "../../utils";
 
 suite('Completion Tests', () => {
     let symbolIndex: SymbolIndex;
@@ -470,6 +471,55 @@ suite('Condition Completion Tests', () => {
         assert(labels.includes('MyExe'));
         assert(labels.includes('MyLib'));
         assert(!labels.includes('TARGET'));
+    });
+
+    test('include should suggest both builtin modules and filesystem files for the first argument', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-include-'));
+        const docPath = path.join(tempDir, 'CMakeLists.txt');
+        const includePath = path.join(tempDir, 'helper.cmake');
+
+        try {
+            fs.writeFileSync(docPath, 'include(he)', 'utf8');
+            fs.writeFileSync(includePath, '# helper', 'utf8');
+
+            const parsed = parseCMakeText('include(he)');
+            const uri = URI.file(docPath).toString();
+            const completion = new Completion(
+                new Map([[uri, parsed.flatCommands]]),
+                new Map([[uri, parsed.tokenStream]]),
+                {},
+                'he',
+                new Logger('test', 'off'),
+                symbolIndex,
+            );
+
+            const result = await completion.onCompletion({
+                textDocument: { uri },
+                position: { line: 0, character: 'include(he'.length },
+            });
+
+            const items = Array.isArray(result) ? result : (result?.items ?? []);
+            const labels = items.map(item => item.label.toString());
+
+            assert(labels.includes('helper.cmake'));
+            assert(labels.includes('CMakePrintHelpers'));
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('include dependency resolution should ignore directories', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-include-dir-'));
+        const childDir = path.join(tempDir, '.vscode');
+        fs.mkdirSync(childDir);
+
+        try {
+            const baseUri = URI.file(tempDir);
+            assert.strictEqual(getIncludeFileUri(symbolIndex, baseUri, '.vscode/'), null);
+            assert.strictEqual(getIncludeFileUri(symbolIndex, baseUri, '.vscode'), null);
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
     });
 });
 

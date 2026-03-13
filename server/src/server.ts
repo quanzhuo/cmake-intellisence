@@ -292,7 +292,12 @@ export class CMakeLanguageServer {
             if (visited.has(uri)) { return; }
             visited.add(uri);
 
-            this.getFlatCommands(uri); // Causes symbolIndex to cache this file
+            try {
+                this.getFlatCommands(uri); // Causes symbolIndex to cache this file
+            } catch (error) {
+                this.logger.error(`Failed to parse dependency during completion: ${uri}`, error as Error);
+                return;
+            }
             for (const dep of this.symbolIndex.getAvailableDependencies(uri)) {
                 populateIndexTopDown(dep.uri, visited);
             }

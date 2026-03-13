@@ -1352,7 +1352,10 @@ export default class Completion {
             }
             case 'include': {
                 if (info.index === 0) {
-                    return this.getModuleSuggestions(word, 'include');
+                    return uniqueCompletionItems([
+                        ...this.getModuleSuggestions(word, 'include'),
+                        ...(await this.getFileSuggestions(info, word) ?? []),
+                    ]);
                 }
                 break;
             }

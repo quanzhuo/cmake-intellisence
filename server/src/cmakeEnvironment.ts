@@ -7,6 +7,7 @@ import * as which from 'which';
 import { ProjectTargetInfo } from './completion';
 import { FlatCommand } from './flatCommands';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
+import { getIncludeFileUri } from './utils';
 
 export interface ExtensionSettings {
     loggingLevel: string;
@@ -324,15 +325,12 @@ export class ProjectTargetInfoListener {
             return;
         }
         const includeFile = args[0].getText();
-        let targetCMakeFile = path.join(this.baseDirectory, includeFile);
-        if (!fs.existsSync(targetCMakeFile)) {
-            targetCMakeFile = path.join(this.symbolIndex.cmakeModulePath ?? '', `${includeFile}.cmake`);
-            if (!fs.existsSync(targetCMakeFile)) {
-                return;
-            }
+        const includeUri = getIncludeFileUri(this.symbolIndex, URI.file(this.baseDirectory), includeFile);
+        if (!includeUri) {
+            return;
         }
 
-        targetCMakeFile = URI.file(targetCMakeFile).toString();
+        const targetCMakeFile = includeUri.toString();
         if (this.parsedFiles.has(targetCMakeFile)) {
             return;
         }
