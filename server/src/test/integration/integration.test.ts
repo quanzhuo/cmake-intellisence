@@ -231,6 +231,117 @@ suite('LSP Integration Tests', () => {
         assert(resolved.documentation !== undefined, 'Resolved completion should include documentation');
     });
 
+    test('should suggest builtin include modules case-insensitively', async function () {
+        const uri = 'file:///test-workspace/completion-include-module.txt';
+        const content = 'include(cmakepri)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'include(cmakepri'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('CMakePrintHelpers'), 'include() should suggest builtin modules by case-insensitive match');
+        assert(!labels.has('Threads'), 'include() should not suggest Find-modules without the Find prefix');
+    });
+
+    test('should suggest find_package modules from Find-modules only and resolve documentation', async function () {
+        const uri = 'file:///test-workspace/completion-find-package.txt';
+        const content = 'find_package(thr)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'find_package(thr'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const threadItem = items.find(i => i.label === 'Threads');
+        const cpackItem = items.find(i => i.label === 'CPack');
+
+        assert(threadItem !== undefined, 'find_package() should suggest package names from Find-modules');
+        assert(cpackItem === undefined, 'find_package() should not suggest non-Find modules');
+
+        const resolved = await connection.sendRequest(CompletionResolveRequest.type, threadItem!);
+        assert(resolved.documentation !== undefined, 'Find-module completion should resolve documentation');
+    });
+
+    test('should suggest policies case-insensitively for cmake_policy', async function () {
+        const uri = 'file:///test-workspace/completion-policy.txt';
+        const content = 'cmake_policy(SET cmp00)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'cmake_policy(SET cmp00'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('CMP0001'), 'cmake_policy() should suggest policies with case-insensitive filtering');
+    });
+
+    test('should suggest target properties after PROPERTIES keyword', async function () {
+        const defsUri = 'file:///test-workspace/completion-target-props-defs.txt';
+        openDocument(defsUri, 'add_library(my_target INTERFACE)');
+
+        const uri = 'file:///test-workspace/completion-target-props.txt';
+        const content = 'set_target_properties(my_target PROPERTIES posi)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'set_target_properties(my_target PROPERTIES posi'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('POSITION_INDEPENDENT_CODE'), 'set_target_properties() should suggest property names after PROPERTIES');
+    });
+
+    test('should suggest source file properties in get_source_file_property', async function () {
+        const uri = 'file:///test-workspace/completion-source-prop.txt';
+        const content = 'get_source_file_property(out main.cpp locat)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'get_source_file_property(out main.cpp locat'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('LOCATION'), 'get_source_file_property() should suggest property names at the property position');
+    });
+
+    test('should suggest directory properties after optional DIRECTORY clause', async function () {
+        const uri = 'file:///test-workspace/completion-directory-prop.txt';
+        const content = 'get_directory_property(out DIRECTORY src definit)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'get_directory_property(out DIRECTORY src definit'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('DEFINITION'), 'get_directory_property() should still expose builtin keywords at optional positions');
+    });
+
     test('should provide keyword completion for all builtin commands', async function () {
         this.timeout(120000);
         const cmds: Record<string, { keyword?: string[] }> = require('../../builtin-cmds.json');

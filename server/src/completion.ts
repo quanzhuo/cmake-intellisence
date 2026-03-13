@@ -32,6 +32,33 @@ export enum CompletionItemType {
     PkgConfigModules,
 }
 
+export interface BuiltinCompletionItemData {
+    type: CompletionItemType,
+    helpLabel?: string,
+}
+
+export type CompletionItemData = CompletionItemType | BuiltinCompletionItemData;
+
+export function getCompletionItemType(data: unknown): CompletionItemType | undefined {
+    if (typeof data === 'number') {
+        return data;
+    }
+
+    if (typeof data === 'object' && data !== null && 'type' in data && typeof (data as { type?: unknown }).type === 'number') {
+        return (data as BuiltinCompletionItemData).type;
+    }
+
+    return undefined;
+}
+
+export function getCompletionHelpLabel(data: unknown): string | undefined {
+    if (typeof data === 'object' && data !== null && 'helpLabel' in data && typeof (data as { helpLabel?: unknown }).helpLabel === 'string') {
+        return (data as BuiltinCompletionItemData).helpLabel;
+    }
+
+    return undefined;
+}
+
 export interface CMakeCompletionInfo {
     type: CMakeCompletionType,
 
@@ -54,6 +81,10 @@ export interface CMakeCompletionInfo {
 export interface ProjectTargetInfo {
     executables?: Set<string>,
     libraries?: Set<string>,
+}
+
+function matchesCompletionQuery(candidate: string, word: string): boolean {
+    return candidate.toLowerCase().includes(word.toLowerCase());
 }
 
 /**
@@ -435,19 +466,31 @@ export default class Completion {
         return suggestedCommands;
     }
 
-    private getModuleSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
+    private getModuleSuggestions(word: string, mode: 'include' | 'find_package'): CompletionItem[] {
         const modules = this.symbolIndex
             ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.Module))
             : [];
-        const similar = modules.filter(candidate => {
-            return candidate.includes(word);
+        const relevantModules = modules.filter(candidate => {
+            return mode === 'find_package'
+                ? candidate.startsWith('Find')
+                : !candidate.startsWith('Find');
         });
 
-        const proposals: CompletionItem[] = similar.map((value, index, array) => {
+        const similar = relevantModules.filter(candidate => {
+            const label = mode === 'find_package' ? candidate.substring(4) : candidate;
+            return matchesCompletionQuery(candidate, word) || matchesCompletionQuery(label, word);
+        });
+
+        const proposals: CompletionItem[] = similar.map((value) => {
+            const label = mode === 'find_package' ? value.substring(4) : value;
             return {
-                label: value.startsWith('Find') ? value.substring(4) : value,
+                label,
+                insertText: label,
+                filterText: mode === 'find_package' ? `${label} ${value}` : value,
                 kind: CompletionItemKind.Module,
-                data: CompletionItemType.BuiltInModule,
+                data: mode === 'find_package'
+                    ? { type: CompletionItemType.BuiltInModule, helpLabel: value }
+                    : CompletionItemType.BuiltInModule,
             };
         });
 
@@ -516,11 +559,11 @@ export default class Completion {
             ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.BuiltinVariable))
             : [];
         let similar = variables.filter(candidate => {
-            return candidate.includes(word);
+            return matchesCompletionQuery(candidate, word);
         });
 
         let similarEnv = process.env ? Object.keys(process.env).filter(candidate => {
-            return candidate.includes(word);
+            return matchesCompletionQuery(candidate, word);
         }) : [];
 
         const suggestions: CompletionItem[] = similar.map((value, index, array) => {
@@ -539,7 +582,7 @@ export default class Completion {
         });
 
         const userVarSuggestions: CompletionItem[] = Array.from(userVariables)
-            .filter(v => v.includes(word))
+            .filter(v => matchesCompletionQuery(v, word))
             .map(value => {
                 return {
                     label: value,
@@ -568,7 +611,7 @@ export default class Completion {
             ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.Property))
             : [];
         let similar = properties.filter(candidate => {
-            return candidate.includes(word);
+            return matchesCompletionQuery(candidate, word);
         });
 
         const suggestions: CompletionItem[] = similar.map((value, index, array) => {
@@ -591,7 +634,7 @@ export default class Completion {
         const pkgConfigModules = this.symbolIndex?.pkgConfigModules.keys() ?? [];
         const items = [...keywords, ...pkgConfigModules];
         const similar = items.filter(candidate => {
-            return candidate.includes(word);
+            return matchesCompletionQuery(candidate, word);
         });
 
         const suggestions: CompletionItem[] = similar.map((value, index, array) => {
@@ -605,16 +648,25 @@ export default class Completion {
     }
 
     private async getArgumentSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
+        const args = info.context?.argument_list().map(arg => arg.getText()) ?? [];
+        const propertyKeywordIndex = this.getPropertyKeywordIndex(args);
+
         switch (info.command) {
             case 'find_package': {
                 if (info.index === 0) {
-                    return this.getModuleSuggestions(info, word);
+                    return this.getModuleSuggestions(word, 'find_package');
+                }
+                break;
+            }
+            case 'include': {
+                if (info.index === 0) {
+                    return this.getModuleSuggestions(word, 'include');
                 }
                 break;
             }
             case 'cmake_policy': {
                 if (info.index === 1) {
-                    const firstArg = info.context?.argument(0).ID().getText();
+                    const firstArg = info.context?.argument(0)?.getText();
                     if (firstArg === 'GET' || firstArg === 'SET') {
                         return this.getPolicySuggestions(info, word);
                     }
@@ -665,11 +717,8 @@ export default class Completion {
             case 'get_property':
             case 'set_property':
             case 'define_property': {
-                if (info.index && (info.index > 1)) {
-                    const preArg = info.context?.argument(info.index - 1).getText();
-                    if (preArg === 'PROPERTY') {
-                        return this.getPropertySuggestions(info, word);
-                    }
+                if (this.isPropertyNamePosition(args, info.index, propertyKeywordIndex)) {
+                    return this.getPropertySuggestions(info, word);
                 }
                 break;
             }
@@ -692,8 +741,48 @@ export default class Completion {
                 }
                 break;
             }
+            case 'set_directory_properties':
+            case 'set_target_properties':
+            case 'set_tests_properties':
+            case 'set_source_files_properties': {
+                if (this.isPropertyNamePosition(args, info.index, propertyKeywordIndex)) {
+                    return this.getPropertySuggestions(info, word);
+                }
+                break;
+            }
             case 'pkg_check_modules': {
                 return this.pkgCheckModulesSuggestions(info, word);
+            }
+            case 'get_directory_property': {
+                if (info.index === 1) {
+                    const arg1 = args[1];
+                    if (arg1 !== 'DIRECTORY' && arg1 !== 'DEFINITION') {
+                        return [
+                            ...this.getPropertySuggestions(info, word),
+                            ...this.getKeywordSuggestions(['DIRECTORY', 'DEFINITION'], word),
+                        ];
+                    }
+                } else if (info.index === 3 && args[1] === 'DIRECTORY') {
+                    return [
+                        ...this.getPropertySuggestions(info, word),
+                        ...this.getKeywordSuggestions(['DEFINITION'], word),
+                    ];
+                }
+                break;
+            }
+            case 'get_source_file_property': {
+                if (info.index === 2) {
+                    const arg2 = args[2];
+                    if (arg2 !== 'DIRECTORY' && arg2 !== 'TARGET_DIRECTORY') {
+                        return [
+                            ...this.getPropertySuggestions(info, word),
+                            ...this.getKeywordSuggestions(['DIRECTORY', 'TARGET_DIRECTORY'], word),
+                        ];
+                    }
+                } else if (info.index === 4 && (args[2] === 'DIRECTORY' || args[2] === 'TARGET_DIRECTORY')) {
+                    return this.getPropertySuggestions(info, word);
+                }
+                break;
             }
             case 'set': {
                 if (info.index === 0) {
@@ -709,8 +798,8 @@ export default class Completion {
             return null;
         }
 
-        const args: string[] = ((builtinCmds as any)[info.command!]['keyword']) ?? [];
-        const argsCompletions = args.map((arg) => {
+        const keywords: string[] = ((builtinCmds as any)[info.command!]['keyword']) ?? [];
+        const argsCompletions = keywords.map((arg) => {
             return {
                 label: arg,
                 kind: CompletionItemKind.Keyword,
@@ -727,7 +816,7 @@ export default class Completion {
             ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.Policy))
             : [];
         let similar = policies.filter(candidate => {
-            return candidate.includes(word);
+            return matchesCompletionQuery(candidate, word);
         });
 
         const suggestions: CompletionItem[] = similar.map((value, index, array) => {
@@ -739,6 +828,41 @@ export default class Completion {
         });
 
         return suggestions;
+    }
+
+    private getKeywordSuggestions(keywords: string[], word: string): CompletionItem[] {
+        return keywords
+            .map(keyword => {
+                return {
+                    label: keyword,
+                    kind: CompletionItemKind.Keyword,
+                };
+            });
+    }
+
+    private getPropertyKeywordIndex(args: string[]): number {
+        for (let index = 0; index < args.length; index++) {
+            if (args[index] === 'PROPERTY' || args[index] === 'PROPERTIES') {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private isPropertyNamePosition(args: string[], currentIndex: number | undefined, propertyKeywordIndex: number): boolean {
+        if (currentIndex === undefined || propertyKeywordIndex === -1 || currentIndex <= propertyKeywordIndex) {
+            return false;
+        }
+
+        const keyword = args[propertyKeywordIndex];
+        const offset = currentIndex - propertyKeywordIndex;
+
+        if (keyword === 'PROPERTY') {
+            return offset === 1;
+        }
+
+        return offset % 2 === 1;
     }
 
     public async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {

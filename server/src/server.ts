@@ -8,7 +8,7 @@ import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, Docu
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import { ExtensionSettings, ProjectTargetInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
-import Completion, { CompletionItemType, ProjectTargetInfo, builtinCmds, findCommandAtPosition, inComments } from './completion';
+import Completion, { CompletionItemType, ProjectTargetInfo, builtinCmds, findCommandAtPosition, getCompletionHelpLabel, getCompletionItemType, inComments } from './completion';
 import { DefinitionResolver } from './defination';
 import SemanticDiagnosticsListener, { CommandCaseChecker, DIAG_CODE_CMD_CASE, SyntaxErrorListener } from './diagnostics';
 import { DocumentLinkInfo } from './docLink';
@@ -299,18 +299,18 @@ export class CMakeLanguageServer {
     }
 
     private onCompletionResolve(item: CompletionItem): Promise<CompletionItem> {
-        // item.data can be BuintInCommand, which is 0, so we need to check if it is undefined
-        if (item.data === undefined) {
+        const completionType = getCompletionItemType(item.data);
+        if (completionType === undefined) {
             return Promise.resolve(item);
         }
 
-        if (item.data === CompletionItemType.PkgConfigModules) {
+        if (completionType === CompletionItemType.PkgConfigModules) {
             item.documentation = this.symbolIndex.pkgConfigModules.get(item.label);
             return Promise.resolve(item);
         }
 
         let helpArg = '';
-        switch (item.data) {
+        switch (completionType) {
             case CompletionItemType.BuiltInCommand:
                 helpArg = '--help-command';
                 break;
@@ -329,7 +329,8 @@ export class CMakeLanguageServer {
             default:
                 return Promise.resolve(item);
         }
-        return this.getCMakeHelp(helpArg, item.label, true).then(stdout => {
+        const helpLabel = getCompletionHelpLabel(item.data) ?? item.label;
+        return this.getCMakeHelp(helpArg, helpLabel, true).then(stdout => {
             if (stdout !== null) {
                 item.documentation = {
                     kind: 'markdown',
