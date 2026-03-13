@@ -8,7 +8,7 @@ import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, Docu
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import { ExtensionSettings, ProjectTargetInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
-import Completion, { CompletionItemType, ProjectTargetInfo, findCommandAtPosition, getCompletionHelpLabel, getCompletionItemType, inComments } from './completion';
+import Completion, { CMakeCompletionType, CompletionItemType, ProjectTargetInfo, findCommandAtPosition, findRecoveredCommandInfoAtPosition, getCompletionHelpLabel, getCompletionInfoAtCursor, getCompletionItemType, inComments } from './completion';
 import { DefinitionResolver } from './defination';
 import SemanticDiagnosticsListener, { CommandCaseChecker, DIAG_CODE_CMD_CASE, SyntaxErrorListener } from './diagnostics';
 import { DocumentLinkInfo } from './docLink';
@@ -23,7 +23,7 @@ import { ReferenceResolver } from './references';
 import { RenameResolver } from './rename';
 import { rstToMarkdown } from './rstToMarkdown';
 import { SemanticTokenListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
-import { buildSignatureHelp } from './signatureHelp';
+import { buildSignatureHelp, buildSignatureHelpForInvocation } from './signatureHelp';
 import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex } from './symbolIndex';
 import { READY_NOTIFICATION } from './testing';
@@ -172,19 +172,23 @@ export class CMakeLanguageServer {
 
     private async onHover(params: HoverParams): Promise<Hover | null> {
         await this.ensureEnvironmentInitialized();
+        await this.ensureWorkspaceIndexedForUri(params.textDocument.uri);
         const comments = this.getComments(params.textDocument.uri);
         if (inComments(params.position, comments)) {
             return null;
         }
 
         const commands: FlatCommand[] = this.getFlatCommands(params.textDocument.uri);
+        const tokenStream = this.getTokenStream(params.textDocument.uri);
         const hoveredCommand = findCommandAtPosition(commands, params.position);
-        if (hoveredCommand === null) {
+        const recoveredCommandInfo = hoveredCommand ? null : findRecoveredCommandInfoAtPosition(tokenStream, params.position);
+        const recoveredCommandName = recoveredCommandInfo?.name ?? null;
+        if (hoveredCommand === null && recoveredCommandName === null) {
             return null;
         }
 
-        const commandToken: Token = hoveredCommand.ID().symbol;
-        const commandName = commandToken.text.toLowerCase();
+        const commandToken: Token | null = hoveredCommand?.ID().symbol ?? null;
+        const commandName = (hoveredCommand?.ID().symbol.text ?? recoveredCommandName ?? '').toLowerCase();
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
             return null;
@@ -196,9 +200,11 @@ export class CMakeLanguageServer {
 
         let arg = '', category = '';
         const systemCache = this.symbolIndex.getSystemCache();
-        if ((params.position.line + 1 === commandToken.line) &&
-            (params.position.character <= commandToken.column + commandToken.text.length) &&
-            systemCache.commands.has(commandName.toLowerCase())) {
+        const hoveringCommandToken = commandToken
+            ? ((params.position.line + 1 === commandToken.line) && (params.position.character <= commandToken.column + commandToken.text.length))
+            : (recoveredCommandInfo?.isOnCommandName ?? false);
+
+        if (hoveringCommandToken && systemCache.commands.has(commandName.toLowerCase())) {
             arg = '--help-command';
             category = 'command';
             word = commandName;
@@ -346,6 +352,15 @@ export class CMakeLanguageServer {
         const pos = params.position;
         const uri = params.textDocument.uri;
         const commands: FlatCommand[] = this.getFlatCommands(uri);
+        const tokenStream = this.getTokenStream(uri);
+        const completionInfo = getCompletionInfoAtCursor(commands, pos, tokenStream);
+        if (completionInfo.type === CMakeCompletionType.Argument && completionInfo.command) {
+            const args = completionInfo.context
+                ? completionInfo.context.argument_list().map(arg => arg.getText())
+                : (completionInfo.arguments ?? []);
+            return Promise.resolve(buildSignatureHelpForInvocation(completionInfo.command, args, completionInfo.index ?? 0));
+        }
+
         const command = findCommandAtPosition(commands, pos);
         if (!command) {
             return Promise.resolve(null);

@@ -103,7 +103,10 @@ export function findActiveArgumentIndex(command: FlatCommand, position: Position
 }
 
 export function findActiveSignature(command: FlatCommand, signatures: string[], activeArgumentIndex: number): number {
-    const argsText = command.argument_list().map(arg => arg.getText());
+    return findActiveSignatureForArgs(command.argument_list().map(arg => arg.getText()), signatures, activeArgumentIndex);
+}
+
+export function findActiveSignatureForArgs(argsText: string[], signatures: string[], activeArgumentIndex: number): number {
     let bestIndex = 0;
     let bestScore = Number.NEGATIVE_INFINITY;
 
@@ -125,12 +128,24 @@ export function findActiveSignature(command: FlatCommand, signatures: string[], 
     return bestIndex;
 }
 
-export function buildSignatureHelp(command: FlatCommand, position: Position, commands: FlatCommand[]): SignatureHelp | null {
-    const signatures = getBuiltinSignatures(command.ID().getText());
+export function buildSignatureHelpForInvocation(commandName: string, argsText: string[], activeArgumentIndex: number): SignatureHelp | null {
+    const signatures = getBuiltinSignatures(commandName);
     if (!signatures || signatures.length === 0) {
         return null;
     }
 
+    const signatureInfos = signatures.map(createSignatureInformation);
+    const activeSignature = findActiveSignatureForArgs(argsText, signatures, activeArgumentIndex);
+    const activeParameter = Math.min(activeArgumentIndex, Math.max((signatureInfos[activeSignature].parameters?.length ?? 1) - 1, 0));
+
+    return {
+        signatures: signatureInfos,
+        activeSignature,
+        activeParameter,
+    };
+}
+
+export function buildSignatureHelp(command: FlatCommand, position: Position, commands: FlatCommand[]): SignatureHelp | null {
     const completionInfo = getCompletionInfoAtCursor(commands, position);
     let activeArgumentIndex = 0;
     if (completionInfo.type === CMakeCompletionType.Argument && completionInfo.index !== undefined) {
@@ -139,13 +154,5 @@ export function buildSignatureHelp(command: FlatCommand, position: Position, com
         activeArgumentIndex = findActiveArgumentIndex(command, position);
     }
 
-    const signatureInfos = signatures.map(createSignatureInformation);
-    const activeSignature = findActiveSignature(command, signatures, activeArgumentIndex);
-    const activeParameter = Math.min(activeArgumentIndex, Math.max((signatureInfos[activeSignature].parameters?.length ?? 1) - 1, 0));
-
-    return {
-        signatures: signatureInfos,
-        activeSignature,
-        activeParameter,
-    };
+    return buildSignatureHelpForInvocation(command.ID().getText(), command.argument_list().map(arg => arg.getText()), activeArgumentIndex);
 }

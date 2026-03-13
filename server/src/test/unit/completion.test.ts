@@ -1,10 +1,14 @@
 import * as assert from 'assert';
+import * as path from 'path';
 import { before } from "mocha";
 import { ExtensionSettings, initializeCMakeEnvironment } from "../../cmakeEnvironment";
+import Completion from '../../completion';
 import { CMakeCompletionType, findCommandAtPosition, getCompletionInfoAtCursor, isCursorWithinParentheses } from "../../completion";
+import { Logger } from '../../logging';
 import { extractFlatCommands, FlatCommand } from "../../flatCommands";
 import { SymbolIndex, SymbolKind } from "../../symbolIndex";
 import { getFileContext, parseCMakeText } from "../../utils";
+import { URI } from 'vscode-uri';
 
 suite('Completion Tests', () => {
     let symbolIndex: SymbolIndex;
@@ -389,5 +393,281 @@ arg2  arg3          arg4 )
             assert.strictEqual(result.command, command, input);
             assert.strictEqual(result.index, 0, input);
         });
+    });
+});
+
+suite('Condition Completion Tests', () => {
+    let symbolIndex: SymbolIndex;
+
+    before(async function () {
+        this.timeout(10000);
+        symbolIndex = new SymbolIndex();
+        const extSettings: ExtensionSettings = {
+            cmakePath: 'cmake',
+            pkgConfigPath: '',
+            cmdCaseDiagnostics: false,
+            loggingLevel: 'off'
+        };
+        await initializeCMakeEnvironment(extSettings, symbolIndex);
+    });
+
+    async function completeCondition(input: string, word: string, character: number, targetInfo = {}): Promise<string[]> {
+        const parsed = parseCMakeText(input);
+        const uri = URI.file(path.resolve(__dirname, 'condition-completion.cmake')).toString();
+        const completion = new Completion(
+            new Map([[uri, parsed.flatCommands]]),
+            new Map([[uri, parsed.tokenStream]]),
+            targetInfo,
+            word,
+            new Logger('test', 'off'),
+            symbolIndex,
+        );
+
+        const result = await completion.onCompletion({
+            textDocument: { uri },
+            position: { line: 0, character },
+        });
+
+        const items = Array.isArray(result) ? result : (result?.items ?? []);
+        return items.map(item => item.label.toString());
+    }
+
+    test('condition start should suggest unary keywords instead of binary operators', async () => {
+        const labels = await completeCondition('if(COMM)', 'COMM', 7);
+
+        assert(labels.includes('COMMAND'));
+        assert(!labels.includes('STREQUAL'));
+    });
+
+    test('COMMAND predicate should suggest command names only', async () => {
+        const labels = await completeCondition('if(COMMAND mes)', 'mes', 14);
+
+        assert(labels.includes('message'));
+        assert(!labels.includes('COMMAND'));
+    });
+
+    test('completed operand should suggest condition operators', async () => {
+        const labels = await completeCondition('if(VAR )', '', 7);
+
+        assert(labels.includes('STREQUAL'));
+        assert(labels.includes('AND'));
+        assert(!labels.includes('COMMAND'));
+    });
+
+    test('DEFINED predicate should suggest ENV and CACHE forms', async () => {
+        const labels = await completeCondition('if(DEFINED EN)', 'EN', 13);
+
+        assert(labels.includes('ENV{}'));
+        assert(!labels.includes('TARGET'));
+    });
+
+    test('TARGET predicate should suggest project targets', async () => {
+        const labels = await completeCondition('if(TARGET My)', 'My', 12, {
+            executables: new Set(['MyExe']),
+            libraries: new Set(['MyLib']),
+        });
+
+        assert(labels.includes('MyExe'));
+        assert(labels.includes('MyLib'));
+        assert(!labels.includes('TARGET'));
+    });
+});
+
+suite('Generator Expression Completion Tests', () => {
+    let symbolIndex: SymbolIndex;
+
+    before(async function () {
+        this.timeout(10000);
+        symbolIndex = new SymbolIndex();
+        const extSettings: ExtensionSettings = {
+            cmakePath: 'cmake',
+            pkgConfigPath: '',
+            cmdCaseDiagnostics: false,
+            loggingLevel: 'off'
+        };
+        await initializeCMakeEnvironment(extSettings, symbolIndex);
+    });
+
+    async function completeGenex(input: string, word: string, character: number, targetInfo = {}): Promise<string[]> {
+        const parsed = parseCMakeText(input);
+        const uri = URI.file(path.resolve(__dirname, 'genex-completion.cmake')).toString();
+        const completion = new Completion(
+            new Map([[uri, parsed.flatCommands]]),
+            new Map([[uri, parsed.tokenStream]]),
+            targetInfo,
+            word,
+            new Logger('test', 'off'),
+            symbolIndex,
+        );
+
+        const result = await completion.onCompletion({
+            textDocument: { uri },
+            position: { line: 0, character },
+        });
+
+        const items = Array.isArray(result) ? result : (result?.items ?? []);
+        return items.map(item => item.label.toString());
+    }
+
+    test('top-level genex name completion should suggest target expressions', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<TA>)';
+        const labels = await completeGenex(input, 'TA', 'target_compile_definitions(tgt PRIVATE $<TA'.length);
+
+        assert(labels.includes('TARGET_PROPERTY'));
+        assert(labels.includes('TARGET_EXISTS'));
+    });
+
+    test('CONFIG genex should suggest common configuration names', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<CONFIG:De>)';
+        const labels = await completeGenex(input, 'De', 'target_compile_definitions(tgt PRIVATE $<CONFIG:De'.length);
+
+        assert(labels.includes('Debug'));
+    });
+
+    test('CONFIG genex should still suggest configuration names in incomplete commands', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<CONFIG:De';
+        const labels = await completeGenex(input, 'De', 'target_compile_definitions(tgt PRIVATE $<CONFIG:De'.length);
+
+        assert(labels.includes('Debug'));
+    });
+
+    test('TARGET_PROPERTY genex should suggest targets first', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<TARGET_PROPERTY:My>)';
+        const labels = await completeGenex(input, 'My', 'target_compile_definitions(tgt PRIVATE $<TARGET_PROPERTY:My'.length, {
+            executables: new Set(['MyExe']),
+            libraries: new Set(['MyLib']),
+        });
+
+        assert(labels.includes('MyExe'));
+        assert(labels.includes('MyLib'));
+    });
+
+    test('TARGET_PROPERTY genex should suggest properties after target name', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<TARGET_PROPERTY:MyExe,IN>)';
+        const labels = await completeGenex(input, 'IN', 'target_compile_definitions(tgt PRIVATE $<TARGET_PROPERTY:MyExe,IN'.length, {
+            executables: new Set(['MyExe']),
+        });
+
+        assert(labels.includes('INCLUDE_DIRECTORIES'));
+    });
+
+    test('BOOL genex should suggest boolean constants and builtin variables', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<BOOL:>)';
+        const labels = await completeGenex(input, '', 'target_compile_definitions(tgt PRIVATE $<BOOL:'.length);
+
+        assert(labels.includes('CMAKE_SOURCE_DIR'));
+        assert(labels.includes('TRUE'));
+    });
+
+    test('shorthand conditional genex should suggest condition expressions in the first segment', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<$<CO>)';
+        const labels = await completeGenex(input, 'CO', 'target_compile_definitions(tgt PRIVATE $<$<CO'.length);
+
+        assert(labels.includes('CONFIG'));
+        assert(labels.includes('COMPILE_LANGUAGE'));
+    });
+
+    test('shorthand conditional genex should suggest payload values in the second segment', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<$<CONFIG:Debug>:CMAKE_>)';
+        const labels = await completeGenex(input, 'CMAKE_', 'target_compile_definitions(tgt PRIVATE $<$<CONFIG:Debug>:CMAKE_'.length);
+
+        assert(labels.includes('CMAKE_SOURCE_DIR'));
+    });
+
+    test('TARGET_FILE genex should suggest targets', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<TARGET_FILE:My>)';
+        const labels = await completeGenex(input, 'My', 'target_compile_definitions(tgt PRIVATE $<TARGET_FILE:My'.length, {
+            executables: new Set(['MyExe']),
+            libraries: new Set(['MyLib']),
+        });
+
+        assert(labels.includes('MyExe'));
+        assert(labels.includes('MyLib'));
+    });
+
+    test('STRING genex should suggest subcommands', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<STRING:HA>)';
+        const labels = await completeGenex(input, 'HA', 'target_compile_definitions(tgt PRIVATE $<STRING:HA'.length);
+
+        assert(labels.includes('HASH'));
+    });
+
+    test('STRING HASH genex should suggest algorithm options', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<STRING:HASH,value,ALGORITHM:SHA>)';
+        const labels = await completeGenex(input, 'ALGORITHM:SHA', 'target_compile_definitions(tgt PRIVATE $<STRING:HASH,value,ALGORITHM:SHA'.length);
+
+        assert(labels.includes('ALGORITHM:SHA256'));
+    });
+
+    test('STRING MATCH genex should suggest seek options', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<STRING:MATCH,value,SEEK:>)';
+        const labels = await completeGenex(input, 'SEEK:', 'target_compile_definitions(tgt PRIVATE $<STRING:MATCH,value,SEEK:'.length);
+
+        assert(labels.includes('SEEK:ONCE'));
+        assert(labels.includes('SEEK:ALL'));
+    });
+
+    test('STRING REPLACE genex should suggest replacement mode options', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<STRING:REPLACE,RE>)';
+        const labels = await completeGenex(input, 'RE', 'target_compile_definitions(tgt PRIVATE $<STRING:REPLACE,RE'.length);
+
+        assert(labels.includes('REGEX'));
+    });
+
+    test('STRING UUID genex should suggest UUID option keys', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<STRING:UUID,TY>)';
+        const labels = await completeGenex(input, 'TY', 'target_compile_definitions(tgt PRIVATE $<STRING:UUID,TY'.length);
+
+        assert(labels.includes('TYPE:MD5'));
+    });
+
+    test('LIST genex should suggest filter modes', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<LIST:FILTER,my_list,IN>)';
+        const labels = await completeGenex(input, 'IN', 'target_compile_definitions(tgt PRIVATE $<LIST:FILTER,my_list,IN'.length);
+
+        assert(labels.includes('INCLUDE'));
+    });
+
+    test('LIST TRANSFORM genex should suggest actions', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<LIST:TRANSFORM,my_list,TO>)';
+        const labels = await completeGenex(input, 'TO', 'target_compile_definitions(tgt PRIVATE $<LIST:TRANSFORM,my_list,TO'.length);
+
+        assert(labels.includes('TOLOWER'));
+        assert(labels.includes('TOUPPER'));
+    });
+
+    test('LIST TRANSFORM genex should suggest selectors after the action', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<LIST:TRANSFORM,my_list,TOLOWER,RE>)';
+        const labels = await completeGenex(input, 'RE', 'target_compile_definitions(tgt PRIVATE $<LIST:TRANSFORM,my_list,TOLOWER,RE'.length);
+
+        assert(labels.includes('REGEX'));
+    });
+
+    test('LIST SORT genex should suggest sort option keys', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<LIST:SORT,my_list,CASE:>)';
+        const labels = await completeGenex(input, 'CASE:', 'target_compile_definitions(tgt PRIVATE $<LIST:SORT,my_list,CASE:'.length);
+
+        assert(labels.includes('CASE:SENSITIVE'));
+    });
+
+    test('PATH genex should suggest subcommands', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<PATH:GET_FI>)';
+        const labels = await completeGenex(input, 'GET_FI', 'target_compile_definitions(tgt PRIVATE $<PATH:GET_FI'.length);
+
+        assert(labels.includes('GET_FILENAME'));
+    });
+
+    test('PATH genex should suggest NORMALIZE where supported', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<PATH:CMAKE_PATH,NO>)';
+        const labels = await completeGenex(input, 'NO', 'target_compile_definitions(tgt PRIVATE $<PATH:CMAKE_PATH,NO'.length);
+
+        assert(labels.includes('NORMALIZE'));
+    });
+
+    test('PATH genex should suggest LAST_ONLY for extension-like operations', async () => {
+        const input = 'target_compile_definitions(tgt PRIVATE $<PATH:GET_EXTENSION,LA>)';
+        const labels = await completeGenex(input, 'LA', 'target_compile_definitions(tgt PRIVATE $<PATH:GET_EXTENSION,LA'.length);
+
+        assert(labels.includes('LAST_ONLY'));
     });
 });

@@ -342,6 +342,108 @@ suite('LSP Integration Tests', () => {
         assert(labels.has('DEFINITION'), 'get_directory_property() should still expose builtin keywords at optional positions');
     });
 
+    test('should suggest configuration names inside CONFIG generator expressions', async function () {
+        const uri = 'file:///test-workspace/completion-genex-config.txt';
+        const content = 'target_compile_definitions(tgt PRIVATE $<CONFIG:De>)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'target_compile_definitions(tgt PRIVATE $<CONFIG:De'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('Debug'), 'CONFIG genex should suggest common configuration names');
+    });
+
+    test('should suggest configuration names inside CONFIG generator expressions for incomplete commands', async function () {
+        const uri = 'file:///test-workspace/completion-genex-config-incomplete.txt';
+        const content = 'target_compile_definitions(tgt PRIVATE $<CONFIG:De';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'target_compile_definitions(tgt PRIVATE $<CONFIG:De'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('Debug'), 'Incomplete CONFIG genex should still suggest common configuration names');
+    });
+
+    test('should suggest targets inside TARGET_FILE generator expressions', async function () {
+        const uri = 'file:///test-workspace/completion-genex-target-file.txt';
+        const content = 'add_library(my_target INTERFACE)\ntarget_compile_definitions(tgt PRIVATE $<TARGET_FILE:my_>)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 1, character: 'target_compile_definitions(tgt PRIVATE $<TARGET_FILE:my_'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('my_target'), 'TARGET_FILE genex should suggest visible targets');
+    });
+
+    test('should suggest STRING generator expression subcommands', async function () {
+        const uri = 'file:///test-workspace/completion-genex-string.txt';
+        const content = 'target_compile_definitions(tgt PRIVATE $<STRING:HA>)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'target_compile_definitions(tgt PRIVATE $<STRING:HA'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('HASH'), 'STRING genex should suggest subcommands at the first argument');
+    });
+
+    test('should suggest LIST FILTER modes inside generator expressions', async function () {
+        const uri = 'file:///test-workspace/completion-genex-list-filter.txt';
+        const content = 'target_compile_definitions(tgt PRIVATE $<LIST:FILTER,my_list,IN>)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'target_compile_definitions(tgt PRIVATE $<LIST:FILTER,my_list,IN'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('INCLUDE'), 'LIST FILTER genex should suggest INCLUDE/EXCLUDE modes');
+    });
+
+    test('should suggest PATH generator expression options', async function () {
+        const uri = 'file:///test-workspace/completion-genex-path-option.txt';
+        const content = 'target_compile_definitions(tgt PRIVATE $<PATH:CMAKE_PATH,NO>)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'target_compile_definitions(tgt PRIVATE $<PATH:CMAKE_PATH,NO'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('NORMALIZE'), 'PATH genex should suggest NORMALIZE when the subcommand supports it');
+    });
+
     test('should provide keyword completion for all builtin commands', async function () {
         this.timeout(120000);
         const cmds: Record<string, { keyword?: string[] }> = require('../../builtin-cmds.json');
@@ -350,6 +452,33 @@ suite('LSP Integration Tests', () => {
         const skipCommands = new Set([
             'pkg_check_modules',      // always returns pkg-config suggestions
             'target_link_libraries',  // always returns custom items at index > 0
+            'if',
+            'elseif',
+            'while',
+            'find_package',
+            'include',
+            'cmake_policy',
+            'target_compile_definitions',
+            'target_compile_features',
+            'target_compile_options',
+            'target_include_directories',
+            'target_link_directories',
+            'target_link_options',
+            'target_precompile_headers',
+            'target_sources',
+            'get_property',
+            'set_property',
+            'define_property',
+            'get_target_property',
+            'get_cmake_property',
+            'get_test_property',
+            'set_directory_properties',
+            'set_target_properties',
+            'set_tests_properties',
+            'set_source_files_properties',
+            'get_directory_property',
+            'get_source_file_property',
+            'set',
         ]);
 
         // Block commands need proper wrapping to satisfy the CMake parser grammar
@@ -403,6 +532,19 @@ suite('LSP Integration Tests', () => {
         });
 
         assert(result !== null, 'Hover result should not be null');
+        assert(result!.contents !== undefined);
+    });
+
+    test('should provide hover information for incomplete command names', async function () {
+        const uri = 'file:///test-workspace/hover-incomplete.txt';
+        openDocument(uri, 'if(');
+
+        const result = await connection.sendRequest(HoverRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 1 }
+        });
+
+        assert(result !== null, 'Hover result should not be null for incomplete commands');
         assert(result!.contents !== undefined);
     });
 
@@ -476,6 +618,20 @@ suite('LSP Integration Tests', () => {
         assert(result!.signatures.length > 0, 'Should have at least one signature');
         assert(result!.signatures[0].parameters !== undefined, 'Signature should expose parameter metadata');
         assert(result!.activeParameter !== undefined, 'Signature help should report an active parameter');
+    });
+
+    test('should provide signature help for incomplete commands', async function () {
+        const uri = 'file:///test-workspace/signature-incomplete.txt';
+        openDocument(uri, 'project(');
+
+        const result = await connection.sendRequest(SignatureHelpRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'project('.length }
+        });
+
+        assert(result !== null, 'Signature help should not be null for incomplete commands');
+        assert(result!.signatures.length > 0, 'Incomplete commands should still expose signatures');
+        assert(result!.activeParameter !== undefined, 'Incomplete commands should still report an active parameter');
     });
 
     test('should select the matching overload and active parameter for add_library', async function () {
@@ -649,6 +805,83 @@ suite('LSP Integration Tests', () => {
         // Notice we might have multiple tokens, but we expect at least 1 since we have "GLOBAL_VAR".
         // If UNSEEN_VAR is correctly omitted because it's not in the visible files, there should strictly be 1 match for line 0.
         assert(variableTokens > 0, 'Should generate variable token for GLOBAL_VAR derived from parent via SymbolIndex');
+    });
+
+    test('should classify condition predicates and operators in semantic tokens', async function () {
+        const uri = 'file:///test-workspace/semantic_condition.txt';
+        const content = [
+            'set(VAR hello)',
+            'add_library(my_target INTERFACE)',
+            'if(COMMAND message AND TARGET my_target AND VAR STREQUAL hello)',
+            'endif()'
+        ].join('\n');
+        openDocument(uri, content);
+
+        await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 2, character: 3 }
+        });
+
+        const result = await connection.sendRequest(SemanticTokensRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(result !== null && result.data !== undefined);
+
+        const typesUsed = new Set<number>();
+        for (let i = 3; i < result.data.length; i += 5) {
+            typesUsed.add(result.data[i]);
+        }
+
+        assert(typesUsed.has(9), 'Should emit keyword tokens for condition predicates');
+        assert(typesUsed.has(15), 'Should emit operator tokens for logical/comparison operators');
+        assert(typesUsed.has(5), 'Should emit variable tokens for bare condition variables');
+    });
+
+    test('should classify generator expression names and namespace keywords in semantic tokens', async function () {
+        const uri = 'file:///test-workspace/semantic_genex.txt';
+        const content = 'target_compile_definitions(tgt PRIVATE $<STRING:HASH,value,ALGORITHM:SHA256>)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(SemanticTokensRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(result !== null && result.data !== undefined);
+        const typesUsed = new Set<number>();
+        for (let i = 3; i < result.data.length; i += 5) {
+            typesUsed.add(result.data[i]);
+        }
+
+        assert(typesUsed.has(7), 'Should emit function tokens for generator expression names');
+        assert(typesUsed.has(9), 'Should emit keyword tokens for STRING/LIST/PATH namespace arguments');
+    });
+
+    test('should classify generator expression argument roles in semantic tokens', async function () {
+        const uri = 'file:///test-workspace/semantic_genex_roles.txt';
+        const content = [
+            'add_library(my_target INTERFACE)',
+            'target_compile_definitions(tgt PRIVATE',
+            '  $<TARGET_PROPERTY:my_target,INTERFACE_INCLUDE_DIRECTORIES>',
+            '  $<CONFIG:Debug>',
+            '  $<COMPILE_LANGUAGE:CXX>',
+            '  $<TARGET_FILE:my_target>)'
+        ].join('\n');
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(SemanticTokensRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(result !== null && result.data !== undefined);
+        const typesUsed = new Set<number>();
+        for (let i = 3; i < result.data.length; i += 5) {
+            typesUsed.add(result.data[i]);
+        }
+
+        assert(typesUsed.has(6), 'Should emit property tokens for TARGET_PROPERTY property names');
+        assert(typesUsed.has(3), 'Should emit enum tokens for CONFIG and COMPILE_LANGUAGE arguments');
+        assert(typesUsed.has(12), 'Should emit string tokens for target-name style generator expression arguments');
     });
 
     //#endregion ── Semantic Tokens ────────────────────────────────────────

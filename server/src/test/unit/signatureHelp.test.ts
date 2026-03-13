@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { buildSignatureHelp, createSignatureInformation, findActiveArgumentIndex, findActiveSignature } from '../../signatureHelp';
+import { buildSignatureHelp, buildSignatureHelpForInvocation, createSignatureInformation, findActiveArgumentIndex, findActiveSignature } from '../../signatureHelp';
 import { extractFlatCommands } from '../../flatCommands';
 import { getFileContext } from '../../utils';
 
@@ -44,5 +44,13 @@ suite('Signature Help Tests', () => {
         assert.strictEqual(result!.activeSignature, 1, 'Should select the OBJECT overload');
         assert.strictEqual(result!.activeParameter, 2, 'Should highlight the current source argument token');
         assert((result!.signatures[result!.activeSignature].documentation as { value: string }).value.includes('```cmdsignature'));
+    });
+
+    test('buildSignatureHelpForInvocation should support incomplete commands', () => {
+        const result = buildSignatureHelpForInvocation('project', [], 0);
+
+        assert(result !== null, 'Signature help should not be null for recovered commands');
+        assert(result!.signatures.length > 0, 'Recovered commands should still expose builtin signatures');
+        assert.strictEqual(result!.activeParameter, 0);
     });
 });

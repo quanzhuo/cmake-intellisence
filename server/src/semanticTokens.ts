@@ -1,6 +1,7 @@
 import { Token } from "antlr4";
 import { InitializeParams, SemanticTokens, SemanticTokensBuilder } from "vscode-languageserver";
 import * as builtinCmds from './builtin-cmds.json';
+import { CONDITION_BINARY_KEYWORDS, CONDITION_UNARY_KEYWORDS, getConditionExpectation } from "./completion";
 import { AddSubDirectoryCmdContext, ArgumentContext, ElseIfCmdContext, ForeachCmdContext, FunctionCmdContext, IfCmdContext, IncludeCmdContext, MacroCmdContext, OptionCmdContext, OtherCmdContext, SetCmdContext, WhileCmdContext } from "./generated/CMakeParser";
 import CMakeParserListener from "./generated/CMakeParserListener";
 import { SymbolIndex, SymbolKind } from "./symbolIndex";
@@ -105,25 +106,12 @@ export class SemanticTokenListener extends CMakeParserListener {
     private _visibleFiles: string[] | null = null;
     private emittedTokens: Set<string> = new Set();
 
-    private _operator: Set<string> = new Set([
-        'EXISTS', 'COMMAND', 'DEFINED',
-        'EQUAL', 'LESS', 'LESS_EQUAL', 'GREATER', 'GREATER_EQUAL', 'STREQUAL',
-        'STRLESS', 'STRLESS_EQUAL', 'STRGREATER', 'STRGREATER_EQUAL',
-        'VERSION_EQUAL', 'VERSION_LESS', 'VERSION_LESS_EQUAL', 'VERSION_GREATER',
-        'VERSION_GREATER_EQUAL', 'PATH_EQUAL', 'MATCHES',
-        'AND', 'NOT', 'OR'
-    ]);
-
     constructor(uri: string, symbolIndex: SymbolIndex, entryUri: string) {
         super();
         this._uri = uri;
         this.symbolIndex = symbolIndex;
         this.entryUri = entryUri;
         this._builder = getTokenBuilder(uri);
-    }
-
-    private isOperator(token: string): boolean {
-        return this._operator.has(token);
     }
 
     private normalizeVariableName(token: string): string {
@@ -182,6 +170,167 @@ export class SemanticTokenListener extends CMakeParserListener {
         }
     }
 
+    private splitTopLevelGenexSegments(text: string, separator: ':' | ','): string[] {
+        const segments: string[] = [];
+        let current = '';
+        let depth = 0;
+
+        for (let index = 0; index < text.length; index++) {
+            const char = text[index];
+            if (char === '$' && text[index + 1] === '<') {
+                depth++;
+                current += '$<';
+                index++;
+                continue;
+            }
+
+            if (char === '>' && depth > 0) {
+                depth--;
+                current += char;
+                continue;
+            }
+
+            if (char === separator && depth === 0) {
+                segments.push(current);
+                current = '';
+                continue;
+            }
+
+            current += char;
+        }
+
+        segments.push(current);
+        return segments;
+    }
+
+    private pushTextToken(argCtx: ArgumentContext, text: string, fromOffset: number, tokenType: string): void {
+        const textOffset = argCtx.getText().indexOf(text, fromOffset);
+        if (textOffset === -1) {
+            return;
+        }
+
+        this.pushToken(
+            argCtx.start.line - 1,
+            argCtx.start.column + textOffset,
+            text.length,
+            tokenType,
+            []
+        );
+    }
+
+    private pushTrimmedSegmentToken(argCtx: ArgumentContext, segment: string, fromOffset: number, tokenType: string): number {
+        const trimmed = segment.trim();
+        if (trimmed.length === 0) {
+            return fromOffset + segment.length + 1;
+        }
+
+        const textOffset = argCtx.getText().indexOf(trimmed, fromOffset);
+        if (textOffset === -1) {
+            return fromOffset + segment.length + 1;
+        }
+
+        this.pushToken(
+            argCtx.start.line - 1,
+            argCtx.start.column + textOffset,
+            trimmed.length,
+            tokenType,
+            []
+        );
+        return textOffset + trimmed.length + 1;
+    }
+
+    private tokenGeneratorExpressionArguments(argCtx: ArgumentContext, root: string, args: string[], argsOffset: number): void {
+        let searchOffset = argsOffset;
+        const targetArtifactRoots = new Set([
+            'TARGET_EXISTS',
+            'TARGET_NAME_IF_EXISTS',
+            'TARGET_FILE',
+            'TARGET_FILE_NAME',
+            'TARGET_FILE_DIR',
+            'TARGET_IMPORT_FILE',
+            'TARGET_IMPORT_FILE_NAME',
+            'TARGET_IMPORT_FILE_DIR',
+            'TARGET_LINKER_FILE',
+            'TARGET_LINKER_FILE_NAME',
+            'TARGET_LINKER_FILE_DIR',
+        ]);
+
+        if (root === 'STRING' || root === 'LIST' || root === 'PATH') {
+            for (const arg of args) {
+                const trimmed = arg.trim();
+                if (/^[A-Z][A-Z0-9_]*(?::[A-Z0-9_]+)?$/.test(trimmed)) {
+                    searchOffset = this.pushTrimmedSegmentToken(argCtx, arg, searchOffset, TokenTypes.keyword);
+                } else {
+                    searchOffset += arg.length + 1;
+                }
+            }
+            return;
+        }
+
+        if (root === 'CONFIG' || root === 'COMPILE_LANGUAGE' || root === 'LINK_LANGUAGE' || root === 'C_COMPILER_ID' || root === 'CXX_COMPILER_ID') {
+            for (const arg of args) {
+                searchOffset = this.pushTrimmedSegmentToken(argCtx, arg, searchOffset, TokenTypes.enum);
+            }
+            return;
+        }
+
+        if (root === 'TARGET_PROPERTY') {
+            if (args.length === 1) {
+                this.pushTrimmedSegmentToken(argCtx, args[0], searchOffset, TokenTypes.property);
+                return;
+            }
+
+            searchOffset = this.pushTrimmedSegmentToken(argCtx, args[0], searchOffset, TokenTypes.string);
+            this.pushTrimmedSegmentToken(argCtx, args[1], searchOffset, TokenTypes.property);
+            return;
+        }
+
+        if (targetArtifactRoots.has(root) && args.length > 0) {
+            this.pushTrimmedSegmentToken(argCtx, args[0], searchOffset, TokenTypes.string);
+        }
+    }
+
+    private tokenGeneratorExpression(argCtx: ArgumentContext, content: string, baseOffset: number): void {
+        const colonSegments = this.splitTopLevelGenexSegments(content, ':');
+        if (colonSegments.length === 0) {
+            return;
+        }
+
+        const root = colonSegments[0].trim();
+        if (!/^[A-Z][A-Z0-9_]*$/.test(root)) {
+            return;
+        }
+
+        this.pushTextToken(argCtx, root, baseOffset, TokenTypes.function);
+
+        if (colonSegments.length === 1) {
+            return;
+        }
+
+        const argumentText = colonSegments.slice(1).join(':');
+        const args = this.splitTopLevelGenexSegments(argumentText, ',');
+        this.tokenGeneratorExpressionArguments(argCtx, root, args, baseOffset + root.length + 1);
+    }
+
+    private tokenGeneratorExpressions(argCtx: ArgumentContext): void {
+        const text = argCtx.getText();
+        const stack: number[] = [];
+
+        for (let index = 0; index < text.length; index++) {
+            if (text[index] === '$' && text[index + 1] === '<') {
+                stack.push(index);
+                index++;
+                continue;
+            }
+
+            if (text[index] === '>' && stack.length > 0) {
+                const start = stack.pop()!;
+                const content = text.slice(start + 2, index);
+                this.tokenGeneratorExpression(argCtx, content, start + 2);
+            }
+        }
+    }
+
     private getModifiers(modifiers: TokenModifiers[]): number {
         let result = 0;
         for (let modifier of modifiers) {
@@ -212,16 +361,20 @@ export class SemanticTokenListener extends CMakeParserListener {
     }
 
     private tokenInConditional(context: IfCmdContext | ElseIfCmdContext | WhileCmdContext): void {
-        context.argument_list().forEach((argCtx: ArgumentContext) => {
-            if (argCtx.getChildCount() === 1) {
-                return;
-            }
+        const args = context.argument_list().map(arg => arg.getText());
+        context.argument_list().forEach((argCtx: ArgumentContext, index: number) => {
             const argToken: Token = argCtx.start;
-            if (this.isOperator(argToken.text)) {
-                // this._builder.push(argToken.line - 1, argToken.column,
-                //     argToken.text.length, tokenTypes.indexOf(TokenTypes.keyword),
-                //     this.getModifiers([]));
-            } else if (this.isVariable(argToken.text)) {
+            const text = argToken.text;
+            const normalized = text.toUpperCase();
+            const expectation = getConditionExpectation(args, index);
+
+            if ((expectation === 'operand' && normalized === 'NOT') || (expectation === 'operator' && (normalized === 'AND' || normalized === 'OR'))) {
+                this.pushToken(argToken.line - 1, argToken.column, argToken.text.length, TokenTypes.operator, []);
+            } else if (expectation === 'operator' && CONDITION_BINARY_KEYWORDS.includes(normalized)) {
+                this.pushToken(argToken.line - 1, argToken.column, argToken.text.length, TokenTypes.operator, []);
+            } else if (expectation === 'operand' && CONDITION_UNARY_KEYWORDS.includes(normalized)) {
+                this.pushToken(argToken.line - 1, argToken.column, argToken.text.length, TokenTypes.keyword, []);
+            } else if (this.isVariable(text)) {
                 this.pushToken(argToken.line - 1, argToken.column, argToken.text.length, TokenTypes.variable, []);
             }
         });
@@ -274,6 +427,7 @@ export class SemanticTokenListener extends CMakeParserListener {
 
     enterArgument = (ctx: ArgumentContext): void => {
         this.tokenVariableReferences(ctx);
+        this.tokenGeneratorExpressions(ctx);
     };
 
     enterFunctionCmd = (ctx: FunctionCmdContext): void => {
