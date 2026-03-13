@@ -61,6 +61,22 @@ suite('CMake Parser Tests', () => {
         assert.strictEqual(errs, 0);
     });
 
+    test('editing-time empty required-argument commands should still parse as commands', () => {
+        const inputs = [
+            'set()',
+            'option()',
+            'include()',
+            'add_subdirectory()',
+        ];
+
+        for (const input of inputs) {
+            const [_, commands, errs] = parseInput(input);
+            assert.strictEqual(commands.length, 1, input);
+            assert.strictEqual(commands[0].argument_list().length, 0, input);
+            assert.strictEqual(errs, 0, input);
+        }
+    });
+
     test('comment test', () => {
         const inputs = [
             '# This is a comment',

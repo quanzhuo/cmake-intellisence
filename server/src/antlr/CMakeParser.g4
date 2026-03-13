@@ -30,10 +30,10 @@ endFunctionCmd: EndFunction LP argument* RP;
 
 breakCmd: Break LP RP;
 continueCmd: Continue LP RP;
-setCmd: Set LP argument+ RP;
-optionCmd: Option LP argument+ RP;
-includeCmd: Include LP argument+ RP;
-addSubDirectoryCmd: AddSubDirectory LP argument+ RP;
+setCmd: Set LP argument* RP;
+optionCmd: Option LP argument* RP;
+includeCmd: Include LP argument* RP;
+addSubDirectoryCmd: AddSubDirectory LP argument* RP;
 otherCmd: ID LP argument* RP;
 
 command:

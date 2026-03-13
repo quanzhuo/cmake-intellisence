@@ -319,4 +319,23 @@ arg2  arg3          arg4 )
             assert.strictEqual(result.type, expected.type);
         });
     });
+
+    test('extractFlatCommands should keep empty required-argument commands', () => {
+        const input = 'set()';
+        const commands = extractFlatCommands(getFileContext(input));
+
+        assert.strictEqual(commands.length, 1);
+        assert.strictEqual(commands[0].ID().getText(), 'set');
+        assert.strictEqual(commands[0].argument_list().length, 0);
+    });
+
+    test('getCompletionInfoAtCursor should treat set() as argument context', () => {
+        const input = 'set()';
+        const commands = extractFlatCommands(getFileContext(input));
+        const result = getCompletionInfoAtCursor(commands, { line: 0, character: 4 });
+
+        assert.strictEqual(result.type, CMakeCompletionType.Argument);
+        assert.strictEqual(result.command, 'set');
+        assert.strictEqual(result.index, 0);
+    });
 });
