@@ -1,11 +1,12 @@
 import { ErrorListener, RecognitionException, Recognizer, Token } from "antlr4";
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver";
-import { DIAG_CODE_CMD_CASE } from "./consts";
 import { FlatCommand } from "./flatCommands";
 import { BreakCmdContext, ContinueCmdContext, ForeachLoopContext, WhileLoopContext } from "./generated/CMakeParser";
 import CMakeListener from "./generated/CMakeParserListener";
 import localize from "./localize";
 import { SymbolIndex } from "./symbolIndex";
+
+export const DIAG_CODE_CMD_CASE = 0;
 
 export class SyntaxErrorListener extends ErrorListener<Token> {
     private diagnostics: Diagnostic[] = [];

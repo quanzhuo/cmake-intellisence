@@ -9,9 +9,8 @@ import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, D
 import { URI, Utils } from 'vscode-uri';
 import { ExtensionSettings, ProjectTargetInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
 import Completion, { CompletionItemType, ProjectTargetInfo, builtinCmds, findCommandAtPosition, inComments } from './completion';
-import { CMAKE_DOC_BASE_URL, DIAG_CODE_CMD_CASE } from './consts';
 import { DefinitionResolver } from './defination';
-import SemanticDiagnosticsListener, { CommandCaseChecker, SyntaxErrorListener } from './diagnostics';
+import SemanticDiagnosticsListener, { CommandCaseChecker, DIAG_CODE_CMD_CASE, SyntaxErrorListener } from './diagnostics';
 import { DocumentLinkInfo } from './docLink';
 import { SymbolListener } from './docSymbols';
 import { FlatCommand } from './flatCommands';
@@ -22,6 +21,7 @@ import localize, { localizeInitializer } from './localize';
 import { Logger, createLogger } from './logging';
 import { ReferenceResolver } from './references';
 import { RenameResolver } from './rename';
+import { rstToMarkdown } from './rstToMarkdown';
 import { SemanticTokenListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
 import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex } from './symbolIndex';
@@ -221,17 +221,11 @@ export class CMakeLanguageServer {
                 if (stdout === null) {
                     return null;
                 }
-                let value: string;
-                if (category === 'property') {
-                    value = stdout;
-                } else {
-                    value = `${CMAKE_DOC_BASE_URL}/${category}/${word}.html\n\n${stdout}`;
-                }
 
                 return {
                     contents: {
                         kind: 'markdown',
-                        value,
+                        value: stdout,
                     }
                 };
 
@@ -976,7 +970,7 @@ export class CMakeLanguageServer {
         }
 
         const request = this.execFilePromise(this.symbolIndex.cmakePath, [helpArg, label])
-            .then(({ stdout }) => stdout)
+            .then(({ stdout }) => rstToMarkdown(stdout))
             .catch((error: { stderr?: string }) => {
                 if (logErrors) {
                     this.logger.error(`Failed to get help for ${label}: ${error.stderr ?? ''}`);
