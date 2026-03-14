@@ -105,14 +105,14 @@ class SingletonLogger {
             case LogLevel.Info:
                 // case LogLevel.Note:
                 if (process.env['CMT_QUIET_CONSOLE'] !== '1') {
-                    console.info('[cmake-intellisence]', raw_message);
+                    console.info(raw_message);
                 }
                 break;
             case LogLevel.Warning:
-                console.warn('[cmake-intellisence]', raw_message);
+                console.warn(raw_message);
                 break;
             case LogLevel.Error:
-                console.error('[cmake-intellisence]', raw_message);
+                console.error(raw_message);
                 break;
         }
         // Write to the logfile asynchronously.

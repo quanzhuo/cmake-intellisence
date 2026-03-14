@@ -70,7 +70,7 @@ export class CMakeLanguageServer {
     private dirtyProjectTargetInfos: Set<string> = new Set();
     private workspaceIndexing: Map<string, Promise<void>> = new Map();
     private cmakeHelpCache: Map<string, Promise<string | null>> = new Map();
-    private logger: Logger = createLogger('cmake-intellisence', 'off');
+    private logger: Logger = createLogger('cmake-intelli', 'off');
     private environmentInitialization?: Promise<void>;
 
     private extSettings: ExtensionSettings = {
@@ -587,7 +587,7 @@ export class CMakeLanguageServer {
 
         // check syntax errors
         const syntaxErrorListener = new SyntaxErrorListener();
-        const parsedFile = parseCMakeText(event.document.getText(), parser => {
+        const parsedFile = this.parseCMakeFile(event.document, 'document change', parser => {
             parser.removeErrorListeners();
             parser.addErrorListener(syntaxErrorListener);
         });
@@ -755,7 +755,7 @@ export class CMakeLanguageServer {
 
     private async indexWorkspaceFile(uri: string): Promise<void> {
         const text = await getFileContent(this.documents, URI.parse(uri));
-        const parsedFile = parseCMakeText(text);
+        const parsedFile = this.parseCMakeFile({ uri, getText: () => text }, 'workspace index');
         this.storeParsedFileSnapshot(uri, parsedFile);
     }
 
@@ -772,8 +772,29 @@ export class CMakeLanguageServer {
         this.commentsMap.set(uri, parsedFile.tokenStream.tokens.filter(token => token.channel === commentsChannel));
     }
 
+    private parseCMakeFile(
+        document: Pick<TextDocument, 'uri' | 'getText'>,
+        trigger: string,
+        configureParser?: Parameters<typeof parseCMakeText>[1]
+    ): ParsedCMakeFile {
+        const start = Date.now();
+        const parsedFile = parseCMakeText(document.getText(), configureParser);
+        const elapsedMs = Date.now() - start;
+        const tokenCount = Math.max(parsedFile.tokenStream.tokens.length - 1, 0);
+
+        this.logger.info(
+            `Parsed CMake file: ${document.uri} (trigger=${trigger}, duration=${elapsedMs}ms, commands=${parsedFile.flatCommands.length}, tokens=${tokenCount})`
+        );
+
+        return parsedFile;
+    }
+
     private async parseAndStoreFileAsync(uri: string): Promise<ParsedCMakeFile> {
-        const parsedFile = parseCMakeText(await getFileContent(this.documents, URI.parse(uri)));
+        const text = await getFileContent(this.documents, URI.parse(uri));
+        const parsedFile = this.parseCMakeFile(
+            { uri, getText: () => text },
+            'on-demand cache miss'
+        );
         this.storeParsedFileSnapshot(uri, parsedFile);
         return parsedFile;
     }
