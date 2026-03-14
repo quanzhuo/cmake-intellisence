@@ -104,7 +104,7 @@ export class CommandCaseChecker {
     constructor(
         symbolIndex: SymbolIndex,
     ) {
-        this.commands = new Set(symbolIndex.getSystemCache().commands.keys());
+        this.commands = new Set(Array.from(symbolIndex.getAllBuiltinCommands(), command => command.toLowerCase()));
     }
 
     check(flatCommands: FlatCommand[]): void {

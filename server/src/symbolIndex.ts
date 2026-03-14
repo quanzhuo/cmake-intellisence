@@ -142,9 +142,24 @@ export class SymbolIndex {
     public pkgConfigModules: Map<string, string> = new Map();
     private fileCaches: Map<string, FileSymbolCache> = new Map();
     private systemCache: FileSymbolCache = new FileSymbolCache('cmake-builtin://system');
+    private builtinModuleCommandCatalog: Map<string, string> = new Map();
 
     setSystemCache(cache: FileSymbolCache): void {
         this.systemCache = cache;
+    }
+
+    replaceBuiltinModuleCommandCatalog(commands: Iterable<string>): void {
+        this.builtinModuleCommandCatalog.clear();
+        for (const command of commands) {
+            const key = command.toLowerCase();
+            if (!this.builtinModuleCommandCatalog.has(key)) {
+                this.builtinModuleCommandCatalog.set(key, command);
+            }
+        }
+    }
+
+    clearBuiltinModuleCommandCatalog(): void {
+        this.builtinModuleCommandCatalog.clear();
     }
 
     private isBuiltinModuleUri(uri: string): boolean {
@@ -325,6 +340,15 @@ export class SymbolIndex {
                 }
             }
         }
+
+        for (const [key, command] of this.builtinModuleCommandCatalog) {
+            if (emitted.has(key)) {
+                continue;
+            }
+
+            emitted.add(key);
+            yield command;
+        }
     }
 
     hasBuiltinCommand(name: string): boolean {
@@ -346,6 +370,10 @@ export class SymbolIndex {
             if (symbols.some(symbol => symbol.kind === SymbolKind.Function || symbol.kind === SymbolKind.Macro)) {
                 return true;
             }
+        }
+
+        if (this.builtinModuleCommandCatalog.has(key)) {
+            return true;
         }
 
         return false;
@@ -426,6 +454,7 @@ export class SymbolIndex {
 
     clear(): void {
         this.fileCaches.clear();
+        this.builtinModuleCommandCatalog.clear();
     }
 
     public getReachableFiles(startUri: string): string[] {

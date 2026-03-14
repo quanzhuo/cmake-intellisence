@@ -1,4 +1,3 @@
-import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -6,6 +5,7 @@ import { URI } from 'vscode-uri';
 import * as which from 'which';
 import { ProjectTargetInfo } from './completion';
 import { FlatCommand } from './flatCommands';
+import { execFilePromise } from './processUtils';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
 import { getIncludeFileUri } from './utils';
 
@@ -14,18 +14,6 @@ export interface ExtensionSettings {
     cmakePath: string;
     pkgConfigPath: string;
     cmdCaseDiagnostics: boolean;
-}
-
-function execFilePromise(file: string, args: string[], options?: cp.ExecFileOptions): Promise<{ stdout: string, stderr: string }> {
-    return new Promise((resolve, reject) => {
-        cp.execFile(file, args, { encoding: 'utf8', ...(options ?? {}) }, (error, stdout, stderr) => {
-            if (error) {
-                reject(error);
-                return;
-            }
-            resolve({ stdout: String(stdout), stderr: String(stderr) });
-        });
-    });
 }
 
 export async function initializeCMakeEnvironment(extSettings: ExtensionSettings, symbolIndex: SymbolIndex): Promise<void> {

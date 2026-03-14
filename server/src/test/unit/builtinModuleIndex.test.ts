@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { URI } from 'vscode-uri';
-import { deserializeFileSymbolCache, hydrateBuiltinModuleCacheEntry, serializeFileSymbolCache, warmBuiltinModuleCaches } from '../../builtinModuleIndex';
+import { deserializeFileSymbolCache, hydrateBuiltinModuleCacheEntry, loadBuiltinModuleCommandCatalog, serializeFileSymbolCache, warmBuiltinModuleCaches } from '../../builtinModuleIndex';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from '../../symbolIndex';
 
 suite('Builtin Module Index Tests', () => {
@@ -144,6 +144,59 @@ suite('Builtin Module Index Tests', () => {
             assert(!userCommands.includes('ExternalThing_DoWork'), 'Builtin module command should not appear as a user command');
             assert(userCommands.includes('Local_DoWork'), 'Expected workspace function to remain visible as a user command');
             assert.strictEqual(symbolIndex.hasBuiltinCommand('externalthing_dowork'), true);
+        } finally {
+            process.env.LOCALAPPDATA = previousLocalAppData;
+            process.env.APPDATA = previousAppData;
+            fs.rmSync(tempRoot, { recursive: true, force: true });
+        }
+    });
+
+    test('loadBuiltinModuleCommandCatalog should expose builtin module commands on cold start without duplicates after warmup', async () => {
+        const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-builtin-catalog-'));
+        const moduleDir = path.join(tempRoot, 'Modules');
+        const previousLocalAppData = process.env.LOCALAPPDATA;
+        const previousAppData = process.env.APPDATA;
+        process.env.LOCALAPPDATA = tempRoot;
+        process.env.APPDATA = tempRoot;
+        fs.mkdirSync(moduleDir, { recursive: true });
+        fs.writeFileSync(path.join(moduleDir, 'ColdStart.cmake'), 'function(ColdStart_DoWork)\nendfunction()\n', 'utf8');
+
+        try {
+            const warmIndex = new SymbolIndex();
+            warmIndex.cmakeModulePath = moduleDir;
+            await warmBuiltinModuleCaches({
+                symbolIndex: warmIndex,
+                cmakePath: 'cmake',
+                cmakeVersion: '3.29.0',
+                cmakeModulePath: moduleDir,
+            });
+
+            const coldIndex = new SymbolIndex();
+            coldIndex.cmakeModulePath = moduleDir;
+            coldIndex.setSystemCache(new FileSymbolCache('cmake-builtin://system'));
+            const catalog = await loadBuiltinModuleCommandCatalog({
+                symbolIndex: coldIndex,
+                cmakePath: 'cmake',
+                cmakeVersion: '3.29.0',
+                cmakeModulePath: moduleDir,
+            });
+
+            assert.deepStrictEqual(catalog, ['ColdStart_DoWork']);
+            assert.strictEqual(coldIndex.hasBuiltinCommand('coldstart_dowork'), true);
+            assert.deepStrictEqual(Array.from(coldIndex.getAllBuiltinCommands()), ['ColdStart_DoWork']);
+
+            const warmResult = await warmBuiltinModuleCaches({
+                symbolIndex: coldIndex,
+                cmakePath: 'cmake',
+                cmakeVersion: '3.29.0',
+                cmakeModulePath: moduleDir,
+            });
+
+            assert.strictEqual(warmResult.loadedFromCache, 1);
+            assert.deepStrictEqual(
+                Array.from(coldIndex.getAllBuiltinCommands()).filter(command => command === 'ColdStart_DoWork'),
+                ['ColdStart_DoWork']
+            );
         } finally {
             process.env.LOCALAPPDATA = previousLocalAppData;
             process.env.APPDATA = previousAppData;

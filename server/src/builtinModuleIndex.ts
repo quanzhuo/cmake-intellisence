@@ -1,11 +1,11 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { URI } from 'vscode-uri';
 import paths, { mkdir_p } from './paths';
 import { extractSymbols } from './symbolExtractor';
-import { FileSymbolCache, Symbol, SymbolIndex } from './symbolIndex';
+import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
 import { parseCMakeText } from './utils';
-import { URI } from 'vscode-uri';
 
 const BUILTIN_MODULE_CACHE_VERSION = 1;
 const BUILTIN_MODULE_YIELD_INTERVAL = 8;
@@ -43,7 +43,16 @@ type PersistedBuiltinModuleIndex = {
     entries: Record<string, PersistedBuiltinModuleEntry>;
 };
 
+type PersistedBuiltinModuleCommandCatalog = {
+    cacheVersion: number;
+    cmakePath: string;
+    cmakeVersion: string;
+    cmakeModulePath: string;
+    commands: string[];
+};
+
 const builtinModuleCacheFileMemo = new Map<string, Promise<PersistedBuiltinModuleIndex | null>>();
+const builtinModuleCommandCatalogFileMemo = new Map<string, Promise<PersistedBuiltinModuleCommandCatalog | null>>();
 
 export type BuiltinModuleWarmupResult = {
     loadedFromCache: number;
@@ -116,6 +125,15 @@ function getBuiltinModuleCacheFilePath(cmakePath: string, cmakeVersion: string, 
     return path.join(paths.dataDir, 'builtin-module-cache', `${hash}.json`);
 }
 
+function getBuiltinModuleCommandCatalogFilePath(cmakePath: string, cmakeVersion: string, cmakeModulePath: string): string {
+    const hash = crypto
+        .createHash('sha256')
+        .update(`${cmakePath}\0${cmakeVersion}\0${cmakeModulePath}`)
+        .digest('hex')
+        .slice(0, 16);
+    return path.join(paths.dataDir, 'builtin-module-cache', `${hash}.commands.json`);
+}
+
 async function readBuiltinModuleCache(options: BuiltinModuleWarmupOptions): Promise<PersistedBuiltinModuleIndex | null> {
     const filePath = getBuiltinModuleCacheFilePath(options.cmakePath, options.cmakeVersion, options.cmakeModulePath);
     const existing = builtinModuleCacheFileMemo.get(filePath);
@@ -164,6 +182,54 @@ async function writeBuiltinModuleCache(options: BuiltinModuleWarmupOptions, entr
     builtinModuleCacheFileMemo.set(filePath, Promise.resolve(payload));
 }
 
+async function readBuiltinModuleCommandCatalog(options: BuiltinModuleWarmupOptions): Promise<PersistedBuiltinModuleCommandCatalog | null> {
+    const filePath = getBuiltinModuleCommandCatalogFilePath(options.cmakePath, options.cmakeVersion, options.cmakeModulePath);
+    const existing = builtinModuleCommandCatalogFileMemo.get(filePath);
+    if (existing) {
+        return existing;
+    }
+
+    const request = (async () => {
+        try {
+            const content = await fs.promises.readFile(filePath, 'utf8');
+            const parsed = JSON.parse(content) as PersistedBuiltinModuleCommandCatalog;
+            if (
+                parsed.cacheVersion !== BUILTIN_MODULE_CACHE_VERSION
+                || parsed.cmakePath !== options.cmakePath
+                || parsed.cmakeVersion !== options.cmakeVersion
+                || parsed.cmakeModulePath !== options.cmakeModulePath
+            ) {
+                return null;
+            }
+            return parsed;
+        } catch {
+            return null;
+        }
+    })();
+
+    builtinModuleCommandCatalogFileMemo.set(filePath, request);
+    try {
+        return await request;
+    } catch {
+        builtinModuleCommandCatalogFileMemo.delete(filePath);
+        return null;
+    }
+}
+
+async function writeBuiltinModuleCommandCatalog(options: BuiltinModuleWarmupOptions, commands: string[]): Promise<void> {
+    const filePath = getBuiltinModuleCommandCatalogFilePath(options.cmakePath, options.cmakeVersion, options.cmakeModulePath);
+    await mkdir_p(path.dirname(filePath));
+    const payload: PersistedBuiltinModuleCommandCatalog = {
+        cacheVersion: BUILTIN_MODULE_CACHE_VERSION,
+        cmakePath: options.cmakePath,
+        cmakeVersion: options.cmakeVersion,
+        cmakeModulePath: options.cmakeModulePath,
+        commands,
+    };
+    await fs.promises.writeFile(filePath, JSON.stringify(payload), 'utf8');
+    builtinModuleCommandCatalogFileMemo.set(filePath, Promise.resolve(payload));
+}
+
 async function collectBuiltinModuleFiles(modulePath: string): Promise<string[]> {
     const entries = await fs.promises.readdir(modulePath, { withFileTypes: true });
     return entries
@@ -180,11 +246,40 @@ function yieldToEventLoop(): Promise<void> {
     return new Promise(resolve => setImmediate(resolve));
 }
 
+function appendBuiltinModuleCommands(
+    commands: string[],
+    seenCommands: Set<string>,
+    serializedSymbols: Iterable<SerializedSymbol>
+): void {
+    for (const symbol of serializedSymbols) {
+        if (symbol.kind !== SymbolKind.Function && symbol.kind !== SymbolKind.Macro) {
+            continue;
+        }
+
+        const key = symbol.name.toLowerCase();
+        if (seenCommands.has(key)) {
+            continue;
+        }
+
+        seenCommands.add(key);
+        commands.push(symbol.name);
+    }
+}
+
+export async function loadBuiltinModuleCommandCatalog(options: BuiltinModuleWarmupOptions): Promise<string[]> {
+    const persisted = await readBuiltinModuleCommandCatalog(options);
+    const commands = persisted?.commands ?? [];
+    options.symbolIndex.replaceBuiltinModuleCommandCatalog(commands);
+    return commands;
+}
+
 export async function warmBuiltinModuleCaches(options: BuiltinModuleWarmupOptions): Promise<BuiltinModuleWarmupResult> {
     const persisted = await readBuiltinModuleCache(options);
     const persistedEntries = persisted?.entries ?? {};
     const nextEntries: Record<string, PersistedBuiltinModuleEntry> = {};
     const moduleFiles = await collectBuiltinModuleFiles(options.cmakeModulePath);
+    const builtinModuleCommands: string[] = [];
+    const seenCommands = new Set<string>();
     let loadedFromCache = 0;
     let indexedFresh = 0;
 
@@ -205,17 +300,20 @@ export async function warmBuiltinModuleCaches(options: BuiltinModuleWarmupOption
             const cache = deserializeFileSymbolCache(persistedEntry.cache);
             options.symbolIndex.setCache(uri, cache);
             nextEntries[uri] = persistedEntry;
+            appendBuiltinModuleCommands(builtinModuleCommands, seenCommands, persistedEntry.cache.commands);
             loadedFromCache++;
         } else {
             const text = await fs.promises.readFile(filePath, 'utf8');
             const parsed = parseCMakeText(text);
             const cache = extractSymbols(uri, parsed.flatCommands, URI.file(path.dirname(filePath)), options.symbolIndex);
             options.symbolIndex.setCache(uri, cache);
+            const serializedCache = serializeFileSymbolCache(cache);
             nextEntries[uri] = {
                 mtimeMs: stats.mtimeMs,
                 size: stats.size,
-                cache: serializeFileSymbolCache(cache),
+                cache: serializedCache,
             };
+            appendBuiltinModuleCommands(builtinModuleCommands, seenCommands, serializedCache.commands);
             indexedFresh++;
         }
 
@@ -225,7 +323,9 @@ export async function warmBuiltinModuleCaches(options: BuiltinModuleWarmupOption
     }
 
     if (!options.shouldCancel?.()) {
+        options.symbolIndex.replaceBuiltinModuleCommandCatalog(builtinModuleCommands);
         await writeBuiltinModuleCache(options, nextEntries);
+        await writeBuiltinModuleCommandCatalog(options, builtinModuleCommands);
     }
 
     return { loadedFromCache, indexedFresh };

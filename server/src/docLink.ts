@@ -8,43 +8,49 @@ import { SymbolIndex } from './symbolIndex';
 
 export class DocumentLinkInfo {
     private _links: DocumentLink[] = [];
-    constructor(
+    private readonly fileExistsCache: Map<string, Promise<boolean>> = new Map();
+
+    private constructor(
         public commands: FlatCommand[],
         /**
          * The uri of the current document
          */
         public uri: string,
         public symbolIndex: SymbolIndex,
-    ) {
-        this.findLinks();
+    ) { }
+
+    public static async create(commands: FlatCommand[], uri: string, symbolIndex: SymbolIndex): Promise<DocumentLinkInfo> {
+        const info = new DocumentLinkInfo(commands, uri, symbolIndex);
+        await info.findLinks();
+        return info;
     }
 
-    private findLinks() {
+    private async findLinks(): Promise<void> {
         const argCtxList: ArgumentContext[] = [];
         for (const cmd of this.commands) {
             const cmdName = cmd.ID().getText().toLowerCase();
             let links: DocumentLink[] = [];
             switch (cmdName) {
                 case "add_executable":
-                    links = this.addExecutable(cmd);
+                    links = await this.addExecutable(cmd);
                     break;
                 case "add_library":
-                    links = this.addLibrary(cmd);
+                    links = await this.addLibrary(cmd);
                     break;
                 case "add_subdirectory":
-                    links = this.addSubDirectory(cmd);
+                    links = await this.addSubDirectory(cmd);
                     break;
                 case "target_sources":
-                    links = this.targetSources(cmd);
+                    links = await this.targetSources(cmd);
                     break;
                 case 'include':
-                    links = this.include(cmd);
+                    links = await this.include(cmd);
                     break;
                 case 'find_package':
-                    links = this.findPackage(cmd);
+                    links = await this.findPackage(cmd);
                     break;
                 case 'configure_file':
-                    links = this.configureFile(cmd);
+                    links = await this.configureFile(cmd);
                     break;
                 default:
                     argCtxList.push(...cmd.argument_list().filter((argCtx: ArgumentContext) => {
@@ -61,49 +67,66 @@ export class DocumentLinkInfo {
 
             this._links.push(...links);
         }
-        this._links.push(...this.getLinksFromArguments(argCtxList, this.uri));
+        this._links.push(...await this.getLinksFromArguments(argCtxList, this.uri));
     }
 
-    private getLinksFromArguments(args: ArgumentContext[], uri: string): DocumentLink[] {
+    private async fileExists(filePath: string): Promise<boolean> {
+        const existing = this.fileExistsCache.get(filePath);
+        if (existing) {
+            return existing;
+        }
+
+        const request = fs.promises.stat(filePath)
+            .then(stats => !stats.isDirectory())
+            .catch(() => false);
+        this.fileExistsCache.set(filePath, request);
+        return request;
+    }
+
+    private async getLinksFromArguments(args: ArgumentContext[], uri: string): Promise<DocumentLink[]> {
         const vscodeUri = URI.parse(uri);
         const folder = path.dirname(vscodeUri.fsPath);
-        return args.filter((argCtx: ArgumentContext) => {
+        const links: DocumentLink[] = [];
+        for (const argCtx of args) {
             if (!argCtx.stop) {
-                return false;
+                continue;
             }
+
             const source = argCtx.getText();
             const filePath = path.join(folder, source);
-            return fs.existsSync(filePath);
-        }).map((argCtx: ArgumentContext) => {
-            const source = argCtx.getText();
-            const filePath = path.join(folder, source);
-            return {
+            if (!await this.fileExists(filePath)) {
+                continue;
+            }
+
+            links.push({
                 range: Range.create(argCtx.start.line - 1, argCtx.start.column, argCtx.stop!.line - 1, argCtx.stop!.column + source.length),
                 target: URI.file(filePath).toString(),
                 tooltip: filePath,
-            };
-        });
+            });
+        }
+
+        return links;
     }
 
-    private addExecutable(cmd: FlatCommand): DocumentLink[] {
+    private addExecutable(cmd: FlatCommand): Promise<DocumentLink[]> {
         return this.addSourceFiles(cmd, ["WIN32", "MACOSX_BUNDLE", "EXCLUDE_FROM_ALL", "IMPORTED", "ALIAS"]);
     }
 
-    private addLibrary(cmd: FlatCommand): DocumentLink[] {
+    private addLibrary(cmd: FlatCommand): Promise<DocumentLink[]> {
         return this.addSourceFiles(cmd, ["STATIC", "SHARED", "MODULE", "OBJECT", "ALIAS", "GLOBAL", "INTERFACE", "IMPORTED"]);
     }
 
-    private targetSources(cmd: FlatCommand): DocumentLink[] {
+    private targetSources(cmd: FlatCommand): Promise<DocumentLink[]> {
         return this.addSourceFiles(cmd, ["INTERFACE", "PUBLIC", "PRIVATE", "FILE_SET", "TYPE", "BASE_DIRS", "FILES"]);
     }
 
-    private addSubDirectory(cmd: FlatCommand): DocumentLink[] {
+    private async addSubDirectory(cmd: FlatCommand): Promise<DocumentLink[]> {
         const args = cmd.argument_list();
         if (args.length < 1) {
             return [];
         }
 
-        const links = this.getLinksFromArguments(args, this.uri);
+        const links = await this.getLinksFromArguments(args, this.uri);
         links.forEach(link => {
             const targetPath = path.join(URI.parse(link.target ?? '').fsPath, 'CMakeLists.txt');
             link.target = URI.file(targetPath).toString();
@@ -112,7 +135,7 @@ export class DocumentLinkInfo {
         return links;
     }
 
-    private include(cmd: FlatCommand): DocumentLink[] {
+    private async include(cmd: FlatCommand): Promise<DocumentLink[]> {
         const args = cmd.argument_list();
         if (args.length < 1) {
             return [];
@@ -127,10 +150,10 @@ export class DocumentLinkInfo {
         return this.getLinksFromArguments([firstArg], this.uri);
     }
 
-    private findPackage(cmd: FlatCommand): DocumentLink[] {
+    private findPackage(cmd: FlatCommand): Promise<DocumentLink[]> {
         const args = cmd.argument_list();
         if (args.length < 1) {
-            return [];
+            return Promise.resolve([]);
         }
 
         const firstArg: ArgumentContext = args[0];
@@ -138,21 +161,21 @@ export class DocumentLinkInfo {
         return this.builtinModule(firstArg, `Find${argName}.cmake`);
     }
 
-    private configureFile(cmd: FlatCommand): DocumentLink[] {
+    private configureFile(cmd: FlatCommand): Promise<DocumentLink[]> {
         const args = cmd.argument_list();
         if (args.length < 2) {
-            return [];
+            return Promise.resolve([]);
         }
 
         return this.getLinksFromArguments(args.slice(0, 2), this.uri);
     }
 
-    private includeSystemModule(arg: ArgumentContext): DocumentLink[] {
+    private includeSystemModule(arg: ArgumentContext): Promise<DocumentLink[]> {
         const argName = arg.getText();
         return this.builtinModule(arg, `${argName}.cmake`);
     }
 
-    private builtinModule(arg: ArgumentContext, moduleName: string): DocumentLink[] {
+    private async builtinModule(arg: ArgumentContext, moduleName: string): Promise<DocumentLink[]> {
         if (!arg.stop) {
             return [];
         }
@@ -162,7 +185,7 @@ export class DocumentLinkInfo {
         }
 
         const modulePath = path.join(this.symbolIndex.cmakeModulePath, moduleName);
-        if (fs.existsSync(modulePath)) {
+        if (await this.fileExists(modulePath)) {
             return [{
                 range: Range.create(arg.start.line - 1, arg.start.column, arg.stop.line - 1, arg.stop.column + argName.length),
                 target: URI.file(modulePath).toString(),
@@ -173,10 +196,10 @@ export class DocumentLinkInfo {
         }
     }
 
-    private addSourceFiles(cmd: FlatCommand, keywords: string[]): DocumentLink[] {
+    private addSourceFiles(cmd: FlatCommand, keywords: string[]): Promise<DocumentLink[]> {
         let args: ArgumentContext[] = cmd.argument_list();
         if (args.length <= 1) {
-            return [];
+            return Promise.resolve([]);
         }
 
         // The first argument is the target name, ignore it
@@ -186,7 +209,7 @@ export class DocumentLinkInfo {
         });
 
         if (args.length === 0) {
-            return [];
+            return Promise.resolve([]);
         }
 
         return this.getLinksFromArguments(args, this.uri);

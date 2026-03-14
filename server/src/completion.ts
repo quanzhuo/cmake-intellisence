@@ -35,6 +35,7 @@ export enum CompletionItemType {
 export interface BuiltinCompletionItemData {
     type: CompletionItemType,
     helpLabel?: string,
+    workspaceKey?: string,
 }
 
 export type CompletionItemData = CompletionItemType | BuiltinCompletionItemData;
@@ -54,6 +55,14 @@ export function getCompletionItemType(data: unknown): CompletionItemType | undef
 export function getCompletionHelpLabel(data: unknown): string | undefined {
     if (typeof data === 'object' && data !== null && 'helpLabel' in data && typeof (data as { helpLabel?: unknown }).helpLabel === 'string') {
         return (data as BuiltinCompletionItemData).helpLabel;
+    }
+
+    return undefined;
+}
+
+export function getCompletionWorkspaceKey(data: unknown): string | undefined {
+    if (typeof data === 'object' && data !== null && 'workspaceKey' in data && typeof (data as { workspaceKey?: unknown }).workspaceKey === 'string') {
+        return (data as BuiltinCompletionItemData).workspaceKey;
     }
 
     return undefined;
@@ -927,7 +936,20 @@ export default class Completion {
         private symbolIndex?: SymbolIndex,
         private currentUri?: string,
         private entryUri?: string,
+        private workspaceKey?: string,
     ) { }
+
+    private getCompletionItemData(type: CompletionItemType, helpLabel?: string): CompletionItemData {
+        if (helpLabel === undefined && this.workspaceKey === undefined) {
+            return type;
+        }
+
+        return {
+            type,
+            helpLabel,
+            workspaceKey: this.workspaceKey,
+        };
+    }
 
     private getIndexedSymbols(kind: SymbolKind): string[] {
         if (!this.symbolIndex) {
@@ -954,7 +976,7 @@ export default class Completion {
                     kind: CompletionItemKind.Function,
                     insertText: 'cmake_minimum_required(VERSION ${1:3.16})',
                     insertTextFormat: InsertTextFormat.Snippet,
-                    data: type,
+                    data: this.getCompletionItemData(type),
                 };
                 break;
             }
@@ -964,7 +986,7 @@ export default class Completion {
                     kind: CompletionItemKind.Function,
                     insertText: 'cmake_host_system_information(RESULT ${1:variable} QUERY ${2:key})',
                     insertTextFormat: InsertTextFormat.Snippet,
-                    data: type,
+                    data: this.getCompletionItemData(type),
                 };
                 break;
             }
@@ -974,7 +996,7 @@ export default class Completion {
                     kind: CompletionItemKind.Function,
                     insertText: 'cmake_pkg_config(EXTRACT ${1:package})',
                     insertTextFormat: InsertTextFormat.Snippet,
-                    data: type,
+                    data: this.getCompletionItemData(type),
                 };
                 break;
             }
@@ -984,7 +1006,7 @@ export default class Completion {
                     kind: CompletionItemKind.Function,
                     insertText: 'execute_process(COMMAND ${1:command} ${2:args})',
                     insertTextFormat: InsertTextFormat.Snippet,
-                    data: type,
+                    data: this.getCompletionItemData(type),
                 };
                 break;
             }
@@ -994,7 +1016,7 @@ export default class Completion {
                     kind: CompletionItemKind.Function,
                     insertText: 'set_directory_properties(PROPERTIES ${1:prop1} ${2:value1})',
                     insertTextFormat: InsertTextFormat.Snippet,
-                    data: type,
+                    data: this.getCompletionItemData(type),
                 };
                 break;
             }
@@ -1004,7 +1026,7 @@ export default class Completion {
                     kind: CompletionItemKind.Function,
                     insertText: 'get_cmake_property(${1:variable} ${2:property})',
                     insertTextFormat: InsertTextFormat.Snippet,
-                    data: type,
+                    data: this.getCompletionItemData(type),
                 };
                 break;
             }
@@ -1014,7 +1036,7 @@ export default class Completion {
                     kind: CompletionItemKind.Function,
                     insertText: 'add_test(NAME ${1:name} COMMAND ${2:command} ${3:args})',
                     insertTextFormat: InsertTextFormat.Snippet,
-                    data: type,
+                    data: this.getCompletionItemData(type),
                 };
                 break;
             }
@@ -1024,7 +1046,7 @@ export default class Completion {
                     kind: CompletionItemKind.Function,
                     insertText: 'cmake_file_api(QUERY API_VERSION ${1:version})',
                     insertTextFormat: InsertTextFormat.Snippet,
-                    data: type,
+                    data: this.getCompletionItemData(type),
                 };
                 break;
             }
@@ -1034,7 +1056,7 @@ export default class Completion {
                     kind: CompletionItemKind.Function,
                     insertText: `${commandName}($0)`,
                     insertTextFormat: InsertTextFormat.Snippet,
-                    data: type,
+                    data: this.getCompletionItemData(type),
                 };
                 break;
         }
@@ -1167,9 +1189,10 @@ export default class Completion {
                 insertText: label,
                 filterText: mode === 'find_package' ? `${label} ${value}` : value,
                 kind: CompletionItemKind.Module,
-                data: mode === 'find_package'
-                    ? { type: CompletionItemType.BuiltInModule, helpLabel: value }
-                    : CompletionItemType.BuiltInModule,
+                data: this.getCompletionItemData(
+                    CompletionItemType.BuiltInModule,
+                    mode === 'find_package' ? value : undefined,
+                ),
             };
         });
 
@@ -1320,7 +1343,7 @@ export default class Completion {
             return {
                 label: value,
                 kind: CompletionItemKind.Unit,
-                data: CompletionItemType.PkgConfigModules,
+                data: this.getCompletionItemData(CompletionItemType.PkgConfigModules),
             };
         });
         return suggestions;

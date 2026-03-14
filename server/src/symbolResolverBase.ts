@@ -3,8 +3,9 @@ import * as path from "path";
 import { TextDocuments } from "vscode-languageserver";
 import { Position, TextDocument } from "vscode-languageserver-textdocument";
 import { URI, Utils } from "vscode-uri";
-import { FlatCommand } from "./flatCommands";
 import { hydrateBuiltinModuleCacheEntry } from "./builtinModuleIndex";
+import { throwIfCancelled } from "./cancellation";
+import { FlatCommand } from "./flatCommands";
 import { Logger } from "./logging";
 import { getWordAtPosition } from "./server";
 import { SymbolIndex } from "./symbolIndex";
@@ -26,6 +27,7 @@ export abstract class SymbolResolverBase {
         protected curFile: URI,
         protected command: FlatCommand,
         protected logger: Logger,
+        protected shouldCancel?: () => boolean,
     ) {
         const dir = path.dirname(curFile.fsPath);
         this.baseDir = URI.file(dir);
@@ -33,6 +35,7 @@ export abstract class SymbolResolverBase {
     }
 
     protected async determineContextAndRoot() {
+        throwIfCancelled(this.shouldCancel);
         const entryCMakeLists = Utils.joinPath(URI.parse(this.workspaceFolder), "CMakeLists.txt");
         if (fs.existsSync(entryCMakeLists.fsPath)) {
             this.entryFile = entryCMakeLists;
@@ -76,6 +79,7 @@ export abstract class SymbolResolverBase {
     }
 
     private async populateIndexTopDown(uri: string, visited: Set<string>): Promise<void> {
+        throwIfCancelled(this.shouldCancel);
         if (visited.has(uri)) { return; }
         visited.add(uri);
 
@@ -91,11 +95,13 @@ export abstract class SymbolResolverBase {
             }
 
             if (!hydrated) {
+                throwIfCancelled(this.shouldCancel);
                 await this.getFlatCommands(uri); // Causes symbolIndex to cache this file
             }
         }
 
         for (const dep of this.symbolIndex.getAvailableDependencies(uri)) {
+            throwIfCancelled(this.shouldCancel);
             await this.populateIndexTopDown(dep.uri, visited);
         }
     }
