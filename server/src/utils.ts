@@ -39,11 +39,19 @@ export function getFileContent(documents: TextDocuments<TextDocument>, uri: URI)
         return document.getText();
     }
 
-    if (existsSync(uri.fsPath) && statSync(uri.fsPath).isDirectory()) {
+    try {
+        if (!existsSync(uri.fsPath)) {
+            return '';
+        }
+
+        if (statSync(uri.fsPath).isDirectory()) {
+            return '';
+        }
+
+        return readFileSync(uri.fsPath, { encoding: 'utf-8' });
+    } catch {
         return '';
     }
-
-    return readFileSync(uri.fsPath, { encoding: 'utf-8' });
 }
 
 export function getIncludeFileUri(symbolIndex: SymbolIndex, baseDir: URI, includeFileName: string): URI | null {

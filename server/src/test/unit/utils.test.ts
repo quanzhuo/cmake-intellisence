@@ -19,4 +19,17 @@ suite('Utils Tests', () => {
             fs.rmSync(tempDir, { recursive: true, force: true });
         }
     });
+
+    test('getFileContent should return empty text for missing paths', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-missing-'));
+        const missingPath = path.join(tempDir, '${CMAKE_CURRENT_LIST_DIR}', 'SelectLibraryConfigurations.cmake');
+        const documents = new TextDocuments(TextDocument);
+
+        try {
+            const result = getFileContent(documents, URI.file(missingPath));
+            assert.strictEqual(result, '');
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
 });
