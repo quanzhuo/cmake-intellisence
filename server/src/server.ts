@@ -7,6 +7,7 @@ import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocumen
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
 import { CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
+import { hydrateBuiltinModuleCacheEntry, warmBuiltinModuleCaches } from './builtinModuleIndex';
 import { ExtensionSettings, ProjectTargetInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
 import Completion, { CMakeCompletionType, CompletionItemType, ProjectTargetInfo, findCommandAtPosition, findRecoveredCommandInfoAtPosition, getCompletionHelpLabel, getCompletionInfoAtCursor, getCompletionItemType, inComments } from './completion';
 import { DefinitionResolver } from './defination';
@@ -27,7 +28,6 @@ import { buildSignatureHelp, buildSignatureHelpForInvocation } from './signature
 import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex } from './symbolIndex';
 import { READY_NOTIFICATION } from './testing';
-import { hydrateBuiltinModuleCacheEntry, warmBuiltinModuleCaches } from './builtinModuleIndex';
 import { ParsedCMakeFile, getFileContent, parseCMakeText } from './utils';
 import { WorkspaceSymbolResolver } from './workspaceSymbol';
 
@@ -718,10 +718,16 @@ export class CMakeLanguageServer {
     }
 
     private async indexWorkspaceFolder(workspaceFolder: URI): Promise<void> {
+        const start = Date.now();
         const files = await this.collectWorkspaceCMakeFiles(workspaceFolder.fsPath);
         for (const filePath of files) {
             await this.indexWorkspaceFile(URI.file(filePath).toString());
         }
+
+        const elapsedMs = Date.now() - start;
+        this.logger.info(
+            `Finished parsing workspace CMake files: ${files.length} files in ${elapsedMs}ms (${workspaceFolder.fsPath})`
+        );
     }
 
     private async collectWorkspaceCMakeFiles(rootPath: string): Promise<string[]> {
