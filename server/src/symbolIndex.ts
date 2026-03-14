@@ -2,6 +2,10 @@ import { existsSync } from 'fs';
 import { Location } from 'vscode-languageserver';
 import { URI } from 'vscode-uri';
 
+function pathSeparatorFor(fsPath: string): '\\' | '/' {
+    return fsPath.includes('\\') ? '\\' : '/';
+}
+
 export enum SymbolKind {
     // eslint-disable-next-line @typescript-eslint/naming-convention
     Function,
@@ -143,6 +147,16 @@ export class SymbolIndex {
         this.systemCache = cache;
     }
 
+    private isBuiltinModuleUri(uri: string): boolean {
+        if (!this.cmakeModulePath || !uri.startsWith('file://')) {
+            return false;
+        }
+
+        const moduleRoot = URI.file(this.cmakeModulePath).fsPath;
+        const fsPath = URI.parse(uri).fsPath;
+        return fsPath === moduleRoot || fsPath.startsWith(`${moduleRoot}${pathSeparatorFor(moduleRoot)}`);
+    }
+
     getSystemCache(): FileSymbolCache {
         return this.systemCache;
     }
@@ -275,6 +289,91 @@ export class SymbolIndex {
             case SymbolKind.Property:
                 yield* getNames(this.systemCache.properties);
                 break;
+        }
+    }
+
+    *getAllBuiltinCommands(): IterableIterator<string> {
+        const emitted = new Set<string>();
+
+        for (const command of this.getAllSystemSymbols(SymbolKind.BuiltinCommand)) {
+            const key = command.toLowerCase();
+            if (emitted.has(key)) {
+                continue;
+            }
+            emitted.add(key);
+            yield command;
+        }
+
+        for (const cache of this.fileCaches.values()) {
+            if (!this.isBuiltinModuleUri(cache.uri)) {
+                continue;
+            }
+
+            for (const symbols of cache.commands.values()) {
+                for (const symbol of symbols) {
+                    if (symbol.kind !== SymbolKind.Function && symbol.kind !== SymbolKind.Macro) {
+                        continue;
+                    }
+
+                    const key = symbol.name.toLowerCase();
+                    if (emitted.has(key)) {
+                        continue;
+                    }
+
+                    emitted.add(key);
+                    yield symbol.name;
+                }
+            }
+        }
+    }
+
+    hasBuiltinCommand(name: string): boolean {
+        const key = name.toLowerCase();
+        if (this.systemCache.commands.has(key)) {
+            return true;
+        }
+
+        for (const cache of this.fileCaches.values()) {
+            if (!this.isBuiltinModuleUri(cache.uri)) {
+                continue;
+            }
+
+            const symbols = cache.commands.get(key);
+            if (!symbols) {
+                continue;
+            }
+
+            if (symbols.some(symbol => symbol.kind === SymbolKind.Function || symbol.kind === SymbolKind.Macro)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    *getAllUserCommandSymbols(): IterableIterator<string> {
+        const emitted = new Set<string>();
+
+        for (const cache of this.fileCaches.values()) {
+            if (this.isBuiltinModuleUri(cache.uri)) {
+                continue;
+            }
+
+            for (const symbols of cache.commands.values()) {
+                for (const symbol of symbols) {
+                    if (symbol.kind !== SymbolKind.Function && symbol.kind !== SymbolKind.Macro) {
+                        continue;
+                    }
+
+                    const key = symbol.name.toLowerCase();
+                    if (emitted.has(key)) {
+                        continue;
+                    }
+
+                    emitted.add(key);
+                    yield symbol.name;
+                }
+            }
         }
     }
 

@@ -3,7 +3,6 @@ import * as path from "path";
 import { TextDocuments } from "vscode-languageserver";
 import { Position, TextDocument } from "vscode-languageserver-textdocument";
 import { URI, Utils } from "vscode-uri";
-import { builtinCmds } from "./completion";
 import { FlatCommand } from "./flatCommands";
 import { hydrateBuiltinModuleCacheEntry } from "./builtinModuleIndex";
 import { Logger } from "./logging";
@@ -73,7 +72,7 @@ export abstract class SymbolResolverBase {
     }
 
     protected isBuiltinCommand(commandName: string): boolean {
-        return commandName in builtinCmds;
+        return this.symbolIndex.hasBuiltinCommand(commandName);
     }
 
     private async populateIndexTopDown(uri: string, visited: Set<string>): Promise<void> {

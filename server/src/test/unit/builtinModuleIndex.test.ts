@@ -106,4 +106,48 @@ suite('Builtin Module Index Tests', () => {
             fs.rmSync(tempRoot, { recursive: true, force: true });
         }
     });
+
+    test('builtin module commands should participate in builtin command lookup without leaking into user command lookup', async () => {
+        const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-builtin-commands-'));
+        const moduleDir = path.join(tempRoot, 'Modules');
+        const previousLocalAppData = process.env.LOCALAPPDATA;
+        const previousAppData = process.env.APPDATA;
+        process.env.LOCALAPPDATA = tempRoot;
+        process.env.APPDATA = tempRoot;
+        fs.mkdirSync(moduleDir, { recursive: true });
+        const builtinModulePath = path.join(moduleDir, 'ExternalThing.cmake');
+        const workspaceFilePath = path.join(tempRoot, 'Local.cmake');
+        fs.writeFileSync(builtinModulePath, 'function(ExternalThing_DoWork)\nendfunction()\n', 'utf8');
+        fs.writeFileSync(workspaceFilePath, 'function(Local_DoWork)\nendfunction()\n', 'utf8');
+
+        try {
+            const symbolIndex = new SymbolIndex();
+            symbolIndex.cmakeModulePath = moduleDir;
+            symbolIndex.setSystemCache(new FileSymbolCache('cmake-builtin://system'));
+
+            await warmBuiltinModuleCaches({
+                symbolIndex,
+                cmakePath: 'cmake',
+                cmakeVersion: '3.29.0',
+                cmakeModulePath: moduleDir,
+            });
+
+            const workspaceUri = URI.file(workspaceFilePath).toString();
+            const workspaceCache = new FileSymbolCache(workspaceUri);
+            workspaceCache.addCommand(new Symbol('Local_DoWork', SymbolKind.Function, workspaceUri, 0, 0));
+            symbolIndex.setCache(workspaceUri, workspaceCache);
+
+            const builtinCommands = Array.from(symbolIndex.getAllBuiltinCommands());
+            const userCommands = Array.from(symbolIndex.getAllUserCommandSymbols());
+
+            assert(builtinCommands.includes('ExternalThing_DoWork'), 'Expected builtin module command to appear in builtin command lookup');
+            assert(!userCommands.includes('ExternalThing_DoWork'), 'Builtin module command should not appear as a user command');
+            assert(userCommands.includes('Local_DoWork'), 'Expected workspace function to remain visible as a user command');
+            assert.strictEqual(symbolIndex.hasBuiltinCommand('externalthing_dowork'), true);
+        } finally {
+            process.env.LOCALAPPDATA = previousLocalAppData;
+            process.env.APPDATA = previousAppData;
+            fs.rmSync(tempRoot, { recursive: true, force: true });
+        }
+    });
 });

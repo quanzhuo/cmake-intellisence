@@ -1047,16 +1047,18 @@ export default class Completion {
     }
 
     private getCommandSuggestions(word: string): CompletionItem[] {
-        const userFunctions = new Set<string>(this.getIndexedSymbols(SymbolKind.Function));
-        const userMacros = new Set<string>(this.getIndexedSymbols(SymbolKind.Macro));
-
         const internalCommands = this.symbolIndex
-            ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.BuiltinCommand))
+            ? Array.from(this.symbolIndex.getAllBuiltinCommands())
             : [];
+        const userCommands = this.symbolIndex
+            ? Array.from(this.symbolIndex.getAllUserCommandSymbols())
+            : Array.from(new Set<string>([
+                ...this.getIndexedSymbols(SymbolKind.Function),
+                ...this.getIndexedSymbols(SymbolKind.Macro),
+            ]));
         const allCommands = [
             ...internalCommands.map(value => { return { name: value, type: CompletionItemType.BuiltInCommand }; }),
-            ...Array.from(userFunctions).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
-            ...Array.from(userMacros).map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
+            ...userCommands.map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
         ];
         const similarCmds = allCommands.filter(cmd => { return cmd.name.toLowerCase().includes(word.toLowerCase()); });
         const similarNames = similarCmds.map(cmd => cmd.name);
@@ -1123,12 +1125,16 @@ export default class Completion {
 
     private getCommandNameSuggestions(word: string): CompletionItem[] {
         const internalCommands = this.symbolIndex
-            ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.BuiltinCommand))
+            ? Array.from(this.symbolIndex.getAllBuiltinCommands())
             : [];
         const commandNames = Array.from(new Set<string>([
             ...internalCommands,
-            ...this.getIndexedSymbols(SymbolKind.Function),
-            ...this.getIndexedSymbols(SymbolKind.Macro),
+            ...(this.symbolIndex
+                ? Array.from(this.symbolIndex.getAllUserCommandSymbols())
+                : [
+                    ...this.getIndexedSymbols(SymbolKind.Function),
+                    ...this.getIndexedSymbols(SymbolKind.Macro),
+                ]),
         ])).filter(name => matchesCompletionQuery(name, word));
 
         return commandNames.map(name => {
