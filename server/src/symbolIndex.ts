@@ -132,6 +132,7 @@ export class FileSymbolCache {
  */
 export class SymbolIndex {
     public cmakePath: string = '';
+    public cmakeVersion: string = '';
     public cmakeModulePath: string | undefined;
     public pkgConfigPath: string = '';
     public pkgConfigModules: Map<string, string> = new Map();
@@ -156,6 +157,20 @@ export class SymbolIndex {
 
     deleteCache(uri: string): void {
         this.fileCaches.delete(uri);
+    }
+
+    deleteCachesInDirectory(directoryPath: string): void {
+        const normalizedDirectory = URI.file(directoryPath).fsPath;
+        for (const uri of this.fileCaches.keys()) {
+            if (!uri.startsWith('file://')) {
+                continue;
+            }
+
+            const fsPath = URI.parse(uri).fsPath;
+            if (fsPath === normalizedDirectory || fsPath.startsWith(`${normalizedDirectory}${fsPath.includes('\\') ? '\\' : '/'}`)) {
+                this.fileCaches.delete(uri);
+            }
+        }
     }
 
     getAllCaches(): FileSymbolCache[] {

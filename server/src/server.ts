@@ -27,6 +27,7 @@ import { buildSignatureHelp, buildSignatureHelpForInvocation } from './signature
 import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex } from './symbolIndex';
 import { READY_NOTIFICATION } from './testing';
+import { hydrateBuiltinModuleCacheEntry, warmBuiltinModuleCaches } from './builtinModuleIndex';
 import { ParsedCMakeFile, getFileContent, parseCMakeText } from './utils';
 import { WorkspaceSymbolResolver } from './workspaceSymbol';
 
@@ -72,6 +73,7 @@ export class CMakeLanguageServer {
     private cmakeHelpCache: Map<string, Promise<string | null>> = new Map();
     private logger: Logger = createLogger('cmake-intelli', 'off');
     private environmentInitialization?: Promise<void>;
+    private environmentGeneration = 0;
 
     private extSettings: ExtensionSettings = {
         cmakePath: 'cmake',
@@ -807,6 +809,26 @@ export class CMakeLanguageServer {
         await this.parseAndStoreFileAsync(uri);
     }
 
+    private async ensureDependencyIndexed(uri: string): Promise<void> {
+        if (this.symbolIndex.getCache(uri)) {
+            return;
+        }
+
+        if (this.symbolIndex.cmakeModulePath) {
+            const hydrated = await hydrateBuiltinModuleCacheEntry({
+                symbolIndex: this.symbolIndex,
+                cmakePath: this.symbolIndex.cmakePath,
+                cmakeVersion: this.symbolIndex.cmakeVersion,
+                cmakeModulePath: this.symbolIndex.cmakeModulePath,
+            }, uri);
+            if (hydrated) {
+                return;
+            }
+        }
+
+        await this.ensureParsedFile(uri);
+    }
+
     private async populateIndexTopDownAsync(uri: string, visited: Set<string>): Promise<void> {
         if (visited.has(uri)) {
             return;
@@ -814,7 +836,7 @@ export class CMakeLanguageServer {
         visited.add(uri);
 
         try {
-            await this.ensureParsedFile(uri);
+            await this.ensureDependencyIndexed(uri);
         } catch (error) {
             this.logger.error(`Failed to parse dependency during completion: ${uri}`, error as Error);
             return;
@@ -901,17 +923,54 @@ export class CMakeLanguageServer {
     }
 
     private async initializeEnvironment(settings?: ExtensionSettings): Promise<void> {
+        const generation = ++this.environmentGeneration;
         this.extSettings = settings ?? await this.getExtSettings();
         this.workspaceIndexing.clear();
         this.projectTargetInfos.clear();
         this.dirtyProjectTargetInfos.clear();
         this.cmakeHelpCache.clear();
+        const previousModulePath = this.symbolIndex.cmakeModulePath;
+        if (previousModulePath) {
+            this.symbolIndex.deleteCachesInDirectory(previousModulePath);
+        }
         try {
             await initializeCMakeEnvironment(this.extSettings, this.symbolIndex);
         } catch (e: any) {
             this.connection.window.showErrorMessage(e.message);
         }
         this.logger.setLevel(this.extSettings.loggingLevel);
+
+        void this.warmBuiltinModuleCachesInBackground(generation);
+    }
+
+    private async warmBuiltinModuleCachesInBackground(generation: number): Promise<void> {
+        const cmakeModulePath = this.symbolIndex.cmakeModulePath;
+        if (!cmakeModulePath) {
+            return;
+        }
+
+        try {
+            const result = await warmBuiltinModuleCaches({
+                symbolIndex: this.symbolIndex,
+                cmakePath: this.symbolIndex.cmakePath,
+                cmakeVersion: this.symbolIndex.cmakeVersion,
+                cmakeModulePath,
+                shouldCancel: () => generation !== this.environmentGeneration,
+            });
+
+            if (generation !== this.environmentGeneration) {
+                return;
+            }
+
+            this.logger.debug(
+                `Standard library warmup finished: loaded=${result.loadedFromCache}, indexed=${result.indexedFresh}`
+            );
+        } catch (error) {
+            if (generation !== this.environmentGeneration) {
+                return;
+            }
+            this.logger.warning(`Failed to warm standard library module cache: ${error}`);
+        }
     }
 
     private async ensureEnvironmentInitialized(): Promise<void> {

@@ -5,6 +5,7 @@ import { Position, TextDocument } from "vscode-languageserver-textdocument";
 import { URI, Utils } from "vscode-uri";
 import { builtinCmds } from "./completion";
 import { FlatCommand } from "./flatCommands";
+import { hydrateBuiltinModuleCacheEntry } from "./builtinModuleIndex";
 import { Logger } from "./logging";
 import { getWordAtPosition } from "./server";
 import { SymbolIndex } from "./symbolIndex";
@@ -79,7 +80,22 @@ export abstract class SymbolResolverBase {
         if (visited.has(uri)) { return; }
         visited.add(uri);
 
-        await this.getFlatCommands(uri); // Causes symbolIndex to cache this file
+        if (!this.symbolIndex.getCache(uri)) {
+            let hydrated = false;
+            if (this.symbolIndex.cmakeModulePath) {
+                hydrated = await hydrateBuiltinModuleCacheEntry({
+                    symbolIndex: this.symbolIndex,
+                    cmakePath: this.symbolIndex.cmakePath,
+                    cmakeVersion: this.symbolIndex.cmakeVersion,
+                    cmakeModulePath: this.symbolIndex.cmakeModulePath,
+                }, uri);
+            }
+
+            if (!hydrated) {
+                await this.getFlatCommands(uri); // Causes symbolIndex to cache this file
+            }
+        }
+
         for (const dep of this.symbolIndex.getAvailableDependencies(uri)) {
             await this.populateIndexTopDown(dep.uri, visited);
         }

@@ -58,6 +58,7 @@ export async function initializeCMakeEnvironment(extSettings: ExtensionSettings,
     }
 
     symbolIndex.cmakePath = cmakePath;
+    symbolIndex.cmakeVersion = version[0];
     symbolIndex.pkgConfigPath = extSettings.pkgConfigPath;
     symbolIndex.pkgConfigModules = pkgConfigModules;
     symbolIndex.cmakeModulePath = await getCMakeModulePath(cmakePath, version[1], version[2]);
