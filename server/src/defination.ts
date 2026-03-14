@@ -5,25 +5,25 @@ export { DestinationType };
 
 export class DefinitionResolver extends SymbolResolverBase {
 
-    public resolve(params: DefinitionParams): Promise<Location | Location[] | LocationLink[] | null> {
+    public async resolve(params: DefinitionParams): Promise<Location | Location[] | LocationLink[] | null> {
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
-            return Promise.resolve(null);
+            return null;
         }
 
         const targetWord = this.getTargetWord(document, params.position);
         if (!targetWord) {
-            return Promise.resolve(null);
+            return null;
         }
 
-        this.determineContextAndRoot();
+        await this.determineContextAndRoot();
 
         const isCommand = this.isQueryingCommand(this.command, targetWord, params.position);
         const searchName = isCommand ? targetWord.toLowerCase() : targetWord;
 
         if (isCommand) {
             if (this.isBuiltinCommand(searchName)) {
-                return Promise.resolve(null);
+                return null;
             }
         }
 
@@ -74,7 +74,7 @@ export class DefinitionResolver extends SymbolResolverBase {
         }
 
         this.logger.info(`Returning ${results.length} results for ${searchName}`);
-        return Promise.resolve(results.length > 0 ? results : null);
+        return results.length > 0 ? results : null;
     }
 }
 

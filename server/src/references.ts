@@ -29,7 +29,7 @@ export class ReferenceResolver extends SymbolResolverBase {
         const targetWord = this.getTargetWord(document, params.position);
         if (!targetWord) { return null; }
 
-        this.determineContextAndRoot();
+        await this.determineContextAndRoot();
 
         const isCommand = this.isQueryingCommand(this.command, targetWord, params.position);
         const searchName = isCommand ? targetWord.toLowerCase() : targetWord;
@@ -47,7 +47,7 @@ export class ReferenceResolver extends SymbolResolverBase {
         }
 
         for (const uri of candidateFiles) {
-            const commands = this.getFlatCommands(uri);
+            const commands = await this.getFlatCommands(uri);
 
             for (const cmd of commands) {
                 if (isCommand) {

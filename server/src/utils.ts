@@ -1,5 +1,5 @@
 import { CharStream, CharStreams, CommonTokenStream } from 'antlr4';
-import { existsSync, readFileSync, statSync } from 'fs';
+import { existsSync, promises as fsPromises, statSync } from 'fs';
 import * as path from 'path';
 import { TextDocuments } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -33,25 +33,26 @@ export function getFileContext(text: string): FileContext {
     return parseCMakeText(text).fileContext;
 }
 
-export function getFileContent(documents: TextDocuments<TextDocument>, uri: URI): string {
+async function readFileContentOrEmpty(uri: URI): Promise<string> {
+    try {
+        const stats = await fsPromises.stat(uri.fsPath);
+        if (stats.isDirectory()) {
+            return '';
+        }
+
+        return await fsPromises.readFile(uri.fsPath, { encoding: 'utf-8' });
+    } catch {
+        return '';
+    }
+}
+
+export async function getFileContent(documents: TextDocuments<TextDocument>, uri: URI): Promise<string> {
     const document = documents.get(uri.toString());
     if (document) {
         return document.getText();
     }
 
-    try {
-        if (!existsSync(uri.fsPath)) {
-            return '';
-        }
-
-        if (statSync(uri.fsPath).isDirectory()) {
-            return '';
-        }
-
-        return readFileSync(uri.fsPath, { encoding: 'utf-8' });
-    } catch {
-        return '';
-    }
+    return readFileContentOrEmpty(uri);
 }
 
 export function getIncludeFileUri(symbolIndex: SymbolIndex, baseDir: URI, includeFileName: string): URI | null {

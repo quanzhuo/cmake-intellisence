@@ -21,7 +21,7 @@ export abstract class SymbolResolverBase {
     constructor(
         protected documents: TextDocuments<TextDocument>,
         protected symbolIndex: SymbolIndex,
-        protected getFlatCommands: (uri: string) => FlatCommand[],
+        protected getFlatCommands: (uri: string) => Promise<FlatCommand[]>,
         protected workspaceFolder: string,
         protected curFile: URI,
         protected command: FlatCommand,
@@ -32,7 +32,7 @@ export abstract class SymbolResolverBase {
         this.entryFile = this.curFile;
     }
 
-    protected determineContextAndRoot() {
+    protected async determineContextAndRoot() {
         const entryCMakeLists = Utils.joinPath(URI.parse(this.workspaceFolder), "CMakeLists.txt");
         if (fs.existsSync(entryCMakeLists.fsPath)) {
             this.entryFile = entryCMakeLists;
@@ -40,7 +40,7 @@ export abstract class SymbolResolverBase {
         }
 
         // Ensure the symbol index is fully populated starting from the root file
-        this.populateIndexTopDown(this.entryFile.toString(), new Set());
+        await this.populateIndexTopDown(this.entryFile.toString(), new Set());
     }
 
     protected getTargetWord(document: TextDocument, position: Position): string | null {
@@ -75,13 +75,13 @@ export abstract class SymbolResolverBase {
         return commandName in builtinCmds;
     }
 
-    private populateIndexTopDown(uri: string, visited: Set<string>) {
+    private async populateIndexTopDown(uri: string, visited: Set<string>): Promise<void> {
         if (visited.has(uri)) { return; }
         visited.add(uri);
 
-        this.getFlatCommands(uri); // Causes symbolIndex to cache this file
+        await this.getFlatCommands(uri); // Causes symbolIndex to cache this file
         for (const dep of this.symbolIndex.getAvailableDependencies(uri)) {
-            this.populateIndexTopDown(dep.uri, visited);
+            await this.populateIndexTopDown(dep.uri, visited);
         }
     }
 }

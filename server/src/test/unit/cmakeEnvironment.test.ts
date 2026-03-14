@@ -7,7 +7,7 @@ import { SymbolIndex } from '../../symbolIndex';
 import { parseCMakeText } from '../../utils';
 
 suite('CMake Environment Tests', () => {
-    test('ProjectTargetInfoListener should ignore include directory arguments', () => {
+    test('ProjectTargetInfoListener should ignore include directory arguments', async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-target-info-'));
         const vscodeDir = path.join(tempDir, '.vscode');
         fs.mkdirSync(vscodeDir);
@@ -20,7 +20,7 @@ suite('CMake Environment Tests', () => {
                 new SymbolIndex(),
                 path.join(tempDir, 'CMakeLists.txt'),
                 tempDir,
-                () => {
+                async () => {
                     loadCount++;
                     throw new Error('loadFlatCommands should not be called for include directories');
                 },
@@ -28,7 +28,7 @@ suite('CMake Environment Tests', () => {
                 tempDir,
             );
 
-            listener.processCommands(parsed.flatCommands);
+            await listener.processCommands(parsed.flatCommands);
             assert.strictEqual(loadCount, 0);
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });

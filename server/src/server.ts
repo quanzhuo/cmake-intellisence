@@ -173,6 +173,7 @@ export class CMakeLanguageServer {
     private async onHover(params: HoverParams): Promise<Hover | null> {
         await this.ensureEnvironmentInitialized();
         await this.ensureWorkspaceIndexedForUri(params.textDocument.uri);
+        await this.ensureParsedFile(params.textDocument.uri);
         const comments = this.getComments(params.textDocument.uri);
         if (inComments(params.position, comments)) {
             return null;
@@ -286,26 +287,10 @@ export class CMakeLanguageServer {
         }
 
         const entryFileSource = this.getEntryFilePath(params.textDocument.uri);
-
-        // Ensure the index is somewhat populated top-down so we have visible files
-        const populateIndexTopDown = (uri: string, visited: Set<string>) => {
-            if (visited.has(uri)) { return; }
-            visited.add(uri);
-
-            try {
-                this.getFlatCommands(uri); // Causes symbolIndex to cache this file
-            } catch (error) {
-                this.logger.error(`Failed to parse dependency during completion: ${uri}`, error as Error);
-                return;
-            }
-            for (const dep of this.symbolIndex.getAvailableDependencies(uri)) {
-                populateIndexTopDown(dep.uri, visited);
-            }
-        };
-        populateIndexTopDown(entryFileSource, new Set());
+        await this.populateIndexTopDownAsync(entryFileSource, new Set());
 
         const word = getWordAtPosition(document, params.position).text;
-        const targetInfo = this.getProjectTargetInfoForUri(params.textDocument.uri, entryFileSource);
+        const targetInfo = await this.getProjectTargetInfoForUri(params.textDocument.uri, entryFileSource);
         const completion = new Completion(this.flatCommandsMap, this.tokenStreams, targetInfo, word, this.logger, this.symbolIndex, params.textDocument.uri, entryFileSource);
         return completion.onCompletion(params);
     }
@@ -353,9 +338,10 @@ export class CMakeLanguageServer {
         });
     }
 
-    private onSignatureHelp(params: SignatureHelpParams): Promise<SignatureHelp | null> {
+    private async onSignatureHelp(params: SignatureHelpParams): Promise<SignatureHelp | null> {
         const pos = params.position;
         const uri = params.textDocument.uri;
+        await this.ensureParsedFile(uri);
         const commands: FlatCommand[] = this.getFlatCommands(uri);
         const tokenStream = this.getTokenStream(uri);
         const completionInfo = getCompletionInfoAtCursor(commands, pos, tokenStream);
@@ -363,17 +349,18 @@ export class CMakeLanguageServer {
             const args = completionInfo.context
                 ? completionInfo.context.argument_list().map(arg => arg.getText())
                 : (completionInfo.arguments ?? []);
-            return Promise.resolve(buildSignatureHelpForInvocation(completionInfo.command, args, completionInfo.index ?? 0));
+            return buildSignatureHelpForInvocation(completionInfo.command, args, completionInfo.index ?? 0);
         }
 
         const command = findCommandAtPosition(commands, pos);
         if (!command) {
-            return Promise.resolve(null);
+            return null;
         }
-        return Promise.resolve(buildSignatureHelp(command, pos, commands));
+        return buildSignatureHelp(command, pos, commands);
     }
 
-    private onDocumentFormatting(params: DocumentFormattingParams): TextEdit[] | null {
+    private async onDocumentFormatting(params: DocumentFormattingParams): Promise<TextEdit[] | null> {
+        await this.ensureParsedFile(params.textDocument.uri);
         const tabSize = params.options.tabSize;
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
@@ -398,89 +385,93 @@ export class CMakeLanguageServer {
         ];
     }
 
-    private onDocumentSymbol(params: DocumentSymbolParams): DocumentSymbol[] | SymbolInformation[] | null {
+    private async onDocumentSymbol(params: DocumentSymbolParams): Promise<DocumentSymbol[] | SymbolInformation[] | null> {
+        await this.ensureParsedFile(params.textDocument.uri);
         const symbolListener = new SymbolListener();
         ParseTreeWalker.DEFAULT.walk(symbolListener, this.getFileContext(params.textDocument.uri));
         return symbolListener.getSymbols();
     }
 
-    private onDefinition(params: DefinitionParams): Promise<Location | Location[] | LocationLink[] | null> {
+    private async onDefinition(params: DefinitionParams): Promise<Location | Location[] | LocationLink[] | null> {
         const uri: string = params.textDocument.uri;
+        await this.ensureParsedFile(uri);
         const comments = this.getComments(uri);
         if (inComments(params.position, comments)) {
-            return Promise.resolve(null);
+            return null;
         }
 
         const commands = this.getFlatCommands(uri);
         const command = findCommandAtPosition(commands, params.position);
         if (command === null) {
-            return Promise.resolve(null);
+            return null;
         }
 
         const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
         const resolver = new DefinitionResolver(
             this.documents,
             this.symbolIndex,
-            this.getFlatCommands.bind(this),
+            this.getFlatCommandsAsync.bind(this),
             workspaceFolder,
             URI.parse(uri),
             command,
             this.logger
         );
-        return resolver.resolve(params);
+        return await resolver.resolve(params);
     }
 
-    private onReferences(params: ReferenceParams): Promise<Location[] | null> {
+    private async onReferences(params: ReferenceParams): Promise<Location[] | null> {
         const uri: string = params.textDocument.uri;
+        await this.ensureParsedFile(uri);
         const comments = this.getComments(uri);
         if (inComments(params.position, comments)) {
-            return Promise.resolve(null);
+            return null;
         }
 
         const commands = this.getFlatCommands(uri);
         const command = findCommandAtPosition(commands, params.position);
         if (command === null) {
-            return Promise.resolve(null);
+            return null;
         }
 
         const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
         const resolver = new ReferenceResolver(
             this.documents,
             this.symbolIndex,
-            this.getFlatCommands.bind(this),
+            this.getFlatCommandsAsync.bind(this),
             workspaceFolder,
             URI.parse(uri),
             command,
             this.logger
         );
-        return resolver.resolve(params);
+        return await resolver.resolve(params);
     }
 
-    private onRename(params: RenameParams): Promise<WorkspaceEdit | null> {
+    private async onRename(params: RenameParams): Promise<WorkspaceEdit | null> {
         const uri: string = params.textDocument.uri;
+        await this.ensureParsedFile(uri);
         const comments = this.getComments(uri);
         if (inComments(params.position, comments)) {
-            return Promise.resolve(null);
+            return null;
         }
 
         const commands = this.getFlatCommands(uri);
         const command = findCommandAtPosition(commands, params.position);
         if (command === null) {
-            return Promise.resolve(null);
+            return null;
         }
 
         const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
         const refResolver = new ReferenceResolver(
             this.documents,
             this.symbolIndex,
-            this.getFlatCommands.bind(this),
+            this.getFlatCommandsAsync.bind(this),
             workspaceFolder,
             URI.parse(uri),
             command,
             this.logger
         );
         const renameResolver = new RenameResolver(refResolver);
-        return renameResolver.resolve(params);
+        return await renameResolver.resolve(params);
     }
 
     private async onWorkspaceSymbol(params: WorkspaceSymbolParams): Promise<SymbolInformation[] | null> {
@@ -493,31 +484,33 @@ export class CMakeLanguageServer {
         return resolve();
     }
 
-    private onSemanticTokens(params: SemanticTokensParams): Promise<SemanticTokens> {
+    private async onSemanticTokens(params: SemanticTokensParams): Promise<SemanticTokens> {
         const document = this.documents.get(params.textDocument.uri);
         if (document === undefined) {
-            return Promise.resolve({ data: [] });
+            return { data: [] };
         }
+        await this.ensureParsedFile(params.textDocument.uri);
         const docUri: URI = URI.parse(params.textDocument.uri);
         const entryUri = this.getEntryFilePath(params.textDocument.uri);
         const semanticListener = new SemanticTokenListener(docUri.toString(), this.symbolIndex, entryUri);
         ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(params.textDocument.uri));
-        return Promise.resolve(semanticListener.getSemanticTokens());
+        return semanticListener.getSemanticTokens();
     }
 
-    private onSemanticTokensDelta(params: SemanticTokensDeltaParams): Promise<SemanticTokens | SemanticTokensDelta> {
+    private async onSemanticTokensDelta(params: SemanticTokensDeltaParams): Promise<SemanticTokens | SemanticTokensDelta> {
         const document = this.documents.get(params.textDocument.uri);
         if (document === undefined) {
-            return Promise.resolve({ edits: [] });
+            return { edits: [] };
         }
 
+        await this.ensureParsedFile(document.uri);
         const builder = getTokenBuilder(document.uri);
         builder.previousResult(params.previousResultId);
         const docUri: URI = URI.parse(document.uri);
         const entryUri = this.getEntryFilePath(document.uri);
         const semanticListener = new SemanticTokenListener(docUri.toString(), this.symbolIndex, entryUri);
         ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(document.uri));
-        return Promise.resolve(semanticListener.buildEdits());
+        return semanticListener.buildEdits();
     }
 
     private onSemanticTokensRange(params: SemanticTokensRangeParams): Promise<SemanticTokens> {
@@ -624,10 +617,11 @@ export class CMakeLanguageServer {
         this.markProjectTargetInfoDirty(event.document.uri);
     }
 
-    private onDocumentLinks(params: DocumentLinkParams): Promise<DocumentLink[] | null> {
+    private async onDocumentLinks(params: DocumentLinkParams): Promise<DocumentLink[] | null> {
+        await this.ensureParsedFile(params.textDocument.uri);
         const commands = this.getFlatCommands(params.textDocument.uri);
         const linkInfo = new DocumentLinkInfo(commands, params.textDocument.uri, this.symbolIndex);
-        return Promise.resolve(linkInfo.links);
+        return linkInfo.links;
     }
 
     private onDidClose(event: TextDocumentChangeEvent<TextDocument>) {
@@ -724,7 +718,7 @@ export class CMakeLanguageServer {
     private async indexWorkspaceFolder(workspaceFolder: URI): Promise<void> {
         const files = await this.collectWorkspaceCMakeFiles(workspaceFolder.fsPath);
         for (const filePath of files) {
-            this.indexWorkspaceFile(URI.file(filePath).toString());
+            await this.indexWorkspaceFile(URI.file(filePath).toString());
         }
     }
 
@@ -759,8 +753,8 @@ export class CMakeLanguageServer {
         return results;
     }
 
-    private indexWorkspaceFile(uri: string) {
-        const text = getFileContent(this.documents, URI.parse(uri));
+    private async indexWorkspaceFile(uri: string): Promise<void> {
+        const text = await getFileContent(this.documents, URI.parse(uri));
         const parsedFile = parseCMakeText(text);
         this.storeParsedFileSnapshot(uri, parsedFile);
     }
@@ -778,35 +772,62 @@ export class CMakeLanguageServer {
         this.commentsMap.set(uri, parsedFile.tokenStream.tokens.filter(token => token.channel === commentsChannel));
     }
 
-    private parseAndStoreFile(uri: string): ParsedCMakeFile {
-        const parsedFile = parseCMakeText(getFileContent(this.documents, URI.parse(uri)));
+    private async parseAndStoreFileAsync(uri: string): Promise<ParsedCMakeFile> {
+        const parsedFile = parseCMakeText(await getFileContent(this.documents, URI.parse(uri)));
         this.storeParsedFileSnapshot(uri, parsedFile);
         return parsedFile;
     }
 
-    private rebuildProjectTargetInfoForUri(docUri: string): ProjectTargetInfo {
+    private async ensureParsedFile(uri: string): Promise<void> {
+        if (this.fileContexts.has(uri) && this.tokenStreams.has(uri) && this.flatCommandsMap.has(uri) && this.commentsMap.has(uri)) {
+            return;
+        }
+
+        await this.parseAndStoreFileAsync(uri);
+    }
+
+    private async populateIndexTopDownAsync(uri: string, visited: Set<string>): Promise<void> {
+        if (visited.has(uri)) {
+            return;
+        }
+        visited.add(uri);
+
+        try {
+            await this.ensureParsedFile(uri);
+        } catch (error) {
+            this.logger.error(`Failed to parse dependency during completion: ${uri}`, error as Error);
+            return;
+        }
+
+        for (const dep of this.symbolIndex.getAvailableDependencies(uri)) {
+            await this.populateIndexTopDownAsync(dep.uri, visited);
+        }
+    }
+
+    private async rebuildProjectTargetInfoForUri(docUri: string): Promise<ProjectTargetInfo> {
         const workspaceFolder = this.getWorkspaceFolderForUri(docUri);
         const workspaceKey = workspaceFolder.toString();
         const projectRootCMake = Utils.joinPath(workspaceFolder, 'CMakeLists.txt');
         const entryCMake = fs.existsSync(projectRootCMake.fsPath)
             ? projectRootCMake.toString()
             : this.getEntryFilePath(docUri);
+        await this.ensureParsedFile(entryCMake);
         const commands = this.getFlatCommands(entryCMake);
         const targetInfoListener = new ProjectTargetInfoListener(
             this.symbolIndex,
             entryCMake,
             workspaceFolder.fsPath,
-            this.getFlatCommands.bind(this),
+            this.getFlatCommandsAsync.bind(this),
             new Set<string>(),
             workspaceFolder.fsPath,
         );
-        targetInfoListener.processCommands(commands);
+        await targetInfoListener.processCommands(commands);
         this.projectTargetInfos.set(workspaceKey, targetInfoListener.targetInfo);
         this.dirtyProjectTargetInfos.delete(workspaceKey);
         return targetInfoListener.targetInfo;
     }
 
-    private getProjectTargetInfoForUri(docUri: string, entryUri?: string): ProjectTargetInfo {
+    private async getProjectTargetInfoForUri(docUri: string, entryUri?: string): Promise<ProjectTargetInfo> {
         const workspaceFolder = this.getWorkspaceFolderForUri(docUri);
         const workspaceKey = workspaceFolder.toString();
         const targetInfo = this.projectTargetInfos.get(workspaceKey);
@@ -817,23 +838,24 @@ export class CMakeLanguageServer {
         if (entryUri) {
             const projectRootCMake = Utils.joinPath(workspaceFolder, 'CMakeLists.txt');
             if (!fs.existsSync(projectRootCMake.fsPath) && entryUri !== docUri) {
+                await this.ensureParsedFile(entryUri);
                 const commands = this.getFlatCommands(entryUri);
                 const targetInfoListener = new ProjectTargetInfoListener(
                     this.symbolIndex,
                     entryUri,
                     workspaceFolder.fsPath,
-                    this.getFlatCommands.bind(this),
+                    this.getFlatCommandsAsync.bind(this),
                     new Set<string>(),
                     workspaceFolder.fsPath,
                 );
-                targetInfoListener.processCommands(commands);
+                await targetInfoListener.processCommands(commands);
                 this.projectTargetInfos.set(workspaceKey, targetInfoListener.targetInfo);
                 this.dirtyProjectTargetInfos.delete(workspaceKey);
                 return targetInfoListener.targetInfo;
             }
         }
 
-        return this.rebuildProjectTargetInfoForUri(docUri);
+        return await this.rebuildProjectTargetInfoForUri(docUri);
     }
 
     private async getExtSettings(): Promise<ExtensionSettings> {
@@ -885,35 +907,23 @@ export class CMakeLanguageServer {
     }
 
     public getFileContext(uri: string): FileContext {
-        if (this.fileContexts.has(uri)) {
-            return this.fileContexts.get(uri)!;
-        }
-
-        return this.parseAndStoreFile(uri).fileContext;
+        return this.fileContexts.get(uri)!;
     }
 
     public getTokenStream(uri: string): CommonTokenStream {
-        if (this.tokenStreams.has(uri)) {
-            return this.tokenStreams.get(uri)!;
-        }
-        this.getFileContext(uri);
         return this.tokenStreams.get(uri)!;
     }
 
     public getFlatCommands(uri: string): FlatCommand[] {
-        if (this.flatCommandsMap.has(uri)) {
-            return this.flatCommandsMap.get(uri)!;
-        }
+        return this.flatCommandsMap.get(uri)!;
+    }
 
-        return this.parseAndStoreFile(uri).flatCommands;
+    public async getFlatCommandsAsync(uri: string): Promise<FlatCommand[]> {
+        await this.ensureParsedFile(uri);
+        return this.getFlatCommands(uri);
     }
 
     private getComments(uri: string): Token[] {
-        if (this.commentsMap.has(uri)) {
-            return this.commentsMap.get(uri)!;
-        }
-
-        this.parseAndStoreFile(uri);
         return this.commentsMap.get(uri)!;
     }
 

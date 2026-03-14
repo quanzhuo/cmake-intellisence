@@ -241,7 +241,7 @@ export class ProjectTargetInfoListener {
         private symbolIndex: SymbolIndex,
         private currentCMake: string,
         private baseDirectory: string,
-        private loadFlatCommands: (uri: string) => FlatCommand[],
+        private loadFlatCommands: (uri: string) => Promise<FlatCommand[]>,
         private parsedFiles: Set<string>,
         private workspaceFolder: string,
         targetInfo?: ProjectTargetInfo,
@@ -265,12 +265,18 @@ export class ProjectTargetInfoListener {
         }
     }
 
-    private findConfigPackage(packageName: string): string | null {
+    private async findConfigPackage(packageName: string): Promise<string | null> {
         const cmakeCacheFile = path.join(this.workspaceFolder, 'build', 'CMakeCache.txt');
-        if (!fs.existsSync(cmakeCacheFile)) {
+        try {
+            const cacheStats = await fs.promises.stat(cmakeCacheFile);
+            if (!cacheStats.isFile()) {
+                return null;
+            }
+        } catch {
             return null;
         }
-        const content = fs.readFileSync(cmakeCacheFile, 'utf-8');
+
+        const content = await fs.promises.readFile(cmakeCacheFile, 'utf-8');
         const escapedName = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const regex = new RegExp(`^${escapedName}_DIR:PATH=(.*)$`, 'm');
         const match = content.match(regex);
@@ -286,14 +292,20 @@ export class ProjectTargetInfoListener {
         ];
 
         for (const pkgConfig of alternatives) {
-            if (fs.existsSync(pkgConfig)) {
+            try {
+                const stats = await fs.promises.stat(pkgConfig);
+                if (!stats.isFile()) {
+                    continue;
+                }
                 return pkgConfig;
+            } catch {
+                continue;
             }
         }
         return null;
     }
 
-    private findPackage(ctx: FlatCommand): void {
+    private async findPackage(ctx: FlatCommand): Promise<void> {
         const args = ctx.argument_list();
         if (args.length <= 0) {
             return;
@@ -302,7 +314,7 @@ export class ProjectTargetInfoListener {
         const packageName = args[0].getText();
         let targetCMakeFile: string | null = path.join(this.symbolIndex.cmakeModulePath ?? '', `Find${packageName}.cmake`);
         if (!fs.existsSync(targetCMakeFile)) {
-            targetCMakeFile = this.findConfigPackage(packageName);
+            targetCMakeFile = await this.findConfigPackage(packageName);
             if (!targetCMakeFile) {
                 return;
             }
@@ -313,13 +325,13 @@ export class ProjectTargetInfoListener {
             return;
         }
 
-        const commands = this.loadFlatCommands(targetCMakeFile);
+        const commands = await this.loadFlatCommands(targetCMakeFile);
         const nextBaseDirectory = path.dirname(URI.parse(targetCMakeFile).fsPath);
         const targetInfoListener = new ProjectTargetInfoListener(this.symbolIndex, targetCMakeFile, nextBaseDirectory, this.loadFlatCommands, this.parsedFiles, this.workspaceFolder, this.targetInfo);
-        targetInfoListener.processCommands(commands);
+        await targetInfoListener.processCommands(commands);
     }
 
-    private include(ctx: FlatCommand): void {
+    private async include(ctx: FlatCommand): Promise<void> {
         const args = ctx.argument_list();
         if (args.length !== 1) {
             return;
@@ -335,13 +347,13 @@ export class ProjectTargetInfoListener {
             return;
         }
 
-        const commands = this.loadFlatCommands(targetCMakeFile);
+        const commands = await this.loadFlatCommands(targetCMakeFile);
         const nextBaseDirectory = path.dirname(URI.parse(targetCMakeFile).fsPath);
         const targetInfoListener = new ProjectTargetInfoListener(this.symbolIndex, targetCMakeFile, nextBaseDirectory, this.loadFlatCommands, this.parsedFiles, this.workspaceFolder, this.targetInfo);
-        targetInfoListener.processCommands(commands);
+        await targetInfoListener.processCommands(commands);
     }
 
-    processCommands(commands: FlatCommand[]): void {
+    async processCommands(commands: FlatCommand[]): Promise<void> {
         if (this.parsedFiles.has(this.currentCMake)) {
             return;
         }
@@ -357,10 +369,10 @@ export class ProjectTargetInfoListener {
                     this.addLibrary(cmd);
                     break;
                 case 'find_package':
-                    this.findPackage(cmd);
+                    await this.findPackage(cmd);
                     break;
                 case 'include':
-                    this.include(cmd);
+                    await this.include(cmd);
                     break;
                 default:
                     break;

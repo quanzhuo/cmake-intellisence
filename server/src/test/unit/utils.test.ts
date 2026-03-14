@@ -8,25 +8,25 @@ import { URI } from 'vscode-uri';
 import { getFileContent } from '../../utils';
 
 suite('Utils Tests', () => {
-    test('getFileContent should return empty text for directories', () => {
+    test('getFileContent should return empty text for directories', async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-'));
         const documents = new TextDocuments(TextDocument);
 
         try {
-            const result = getFileContent(documents, URI.file(tempDir));
+            const result = await getFileContent(documents, URI.file(tempDir));
             assert.strictEqual(result, '');
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });
         }
     });
 
-    test('getFileContent should return empty text for missing paths', () => {
+    test('getFileContent should return empty text for missing paths', async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-missing-'));
         const missingPath = path.join(tempDir, '${CMAKE_CURRENT_LIST_DIR}', 'SelectLibraryConfigurations.cmake');
         const documents = new TextDocuments(TextDocument);
 
         try {
-            const result = getFileContent(documents, URI.file(missingPath));
+            const result = await getFileContent(documents, URI.file(missingPath));
             assert.strictEqual(result, '');
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });
