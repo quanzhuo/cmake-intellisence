@@ -1,5 +1,12 @@
 # Change Log
 
+## v0.7.0
+
+Improvements:
+
+* 多工作区支持
+* 补全体验提升
+
 ## v0.6.0
 
 Improvements:

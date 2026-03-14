@@ -3,7 +3,7 @@
   "displayName": "CMake IntelliSence",
   "description": "CMake format, completion, go to definition, document link, semantic tokens, and more...",
   "author": "quanzhuo",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "engines": {
     "vscode": "^1.85.0"
   },
