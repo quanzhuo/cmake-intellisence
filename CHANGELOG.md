@@ -1,5 +1,11 @@
 # Change Log
 
+## v0.7.1
+
+Bug Fixes:
+
+* Fix issue #8: https://github.com/quanzhuo/cmake-intellisence/issues/8
+
 ## v0.7.0
 
 Improvements:
