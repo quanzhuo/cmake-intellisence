@@ -141,21 +141,37 @@ async function getCMakeModulePath(cmakePath: string, major: number, minor: numbe
     return cmakeRoot ? path.join(cmakeRoot, 'Modules') : undefined;
 }
 
+function extractCMakeRoot(output: string): string | null {
+    const lines = output.split('\n');
+    for (const line of lines) {
+        if (line.startsWith('CMAKE_ROOT')) {
+            const startQuote = line.indexOf('"');
+            const endQuote = line.lastIndexOf('"');
+            if (startQuote !== -1 && endQuote !== -1 && startQuote < endQuote) {
+                return line.substring(startQuote + 1, endQuote);
+            }
+            return null;
+        }
+    }
+    return null;
+}
+
 async function getCMakeRoot(cmakePath: string, major: number, minor: number): Promise<string | null> {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-'));
     try {
-        const { stdout } = await execFilePromise(cmakePath, ['--system-information'], { cwd: os.tmpdir() });
-        const lines = stdout.split('\n');
-        for (const line of lines) {
-            if (line.startsWith('CMAKE_ROOT')) {
-                const startQuote = line.indexOf('"');
-                const endQuote = line.lastIndexOf('"');
-                if (startQuote !== -1 && endQuote !== -1 && startQuote < endQuote) {
-                    return line.substring(startQuote + 1, endQuote);
-                }
-                return null;
+        const { stdout } = await execFilePromise(cmakePath, ['--system-information'], { cwd: tmpDir });
+        return extractCMakeRoot(stdout);
+    } catch (error) {
+        // cmake --system-information may exit with a non-zero code (e.g. when compiler
+        // detection fails in a container environment) but still write CMAKE_ROOT to stdout.
+        const failure = error as { stdout?: string };
+        if (failure.stdout) {
+            const root = extractCMakeRoot(failure.stdout);
+            if (root) {
+                return root;
             }
         }
-    } catch (error) {
+
         if (process.platform === 'win32') {
             for (const dir of ['cmake', `cmake-${major}.${minor}`]) {
                 const cmakeRoot = path.join(path.dirname(cmakePath), '..', 'share', dir);
@@ -163,11 +179,12 @@ async function getCMakeRoot(cmakePath: string, major: number, minor: number): Pr
                     return path.normalize(cmakeRoot);
                 }
             }
-        } else {
-            throw error;
         }
+        // Could not determine CMAKE_ROOT; return null so the caller can proceed without it.
+        return null;
+    } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-    return null;
 }
 
 async function getCMakeVersion(cmakePath: string): Promise<[string, number, number, number]> {
