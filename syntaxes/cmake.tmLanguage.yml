@@ -33,6 +33,11 @@ patterns:
   # line comment
   - name: comment.line.number-sign.cmake
     match: "#(.*$)"
+  # parentheses
+  - name: punctuation.section.parens.begin.cmake
+    match: \(
+  - name: punctuation.section.parens.end.cmake
+    match: \)
   # escaped string
   - name: string.escaped.quoted.double.cmake
     begin: '\\"'
@@ -79,8 +84,7 @@ patterns:
   - name: entity.name.type.cmake
     match: \b(BOOL|FILEPATH|PATH|STRING|INTERNAL)\b
   # variable declaration
-  - name: entity.name.function.cmake
-  - match: \b(?i:(set)\s*\(\s*(\w+)\s+)
+  - match: \b(?i:(set|option)\s*\(\s*(\w+))
     captures:
       "1": { name: entity.name.function.cmake }
       "2": { name: variable.cmake }

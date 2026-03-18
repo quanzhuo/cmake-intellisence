@@ -90,6 +90,43 @@
         "path": "./snippets.json"
       }
     ],
+    "semanticTokenScopes": [
+      {
+        "language": "cmake",
+        "scopes": {
+          "function.declaration": [
+            "entity.name.function.cmake"
+          ],
+          "macro": [
+            "entity.name.function.cmake"
+          ],
+          "macro.declaration": [
+            "entity.name.function.cmake"
+          ],
+          "parameter": [
+            "variable.parameter.cmake"
+          ],
+          "variable": [
+            "storage.other.cmake",
+            "variable.cmake"
+          ],
+          "variable.declaration": [
+            "variable.cmake"
+          ],
+          "keyword": [
+            "keyword.control.cmake",
+            "keyword.other.unary.cmake"
+          ],
+          "operator": [
+            "keyword.other.binary.cmake",
+            "keyword.other.logical.cmake"
+          ],
+          "type": [
+            "entity.name.type.cmake"
+          ]
+        }
+      }
+    ],
     "configuration": [
       {
         "title": "CMake IntelliSence",

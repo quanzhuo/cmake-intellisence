@@ -838,6 +838,122 @@ suite('LSP Integration Tests', () => {
         assert(typesUsed.has(5), 'Should emit variable tokens for bare condition variables');
     });
 
+    test('should classify condition word operators as operators', async function () {
+        const uri = 'file:///test-workspace/semantic_matches.txt';
+        const content = [
+            'set(VAR hello)',
+            'if(VAR MATCHES hello AND NOT DEFINED OTHER_VAR)',
+            'endif()'
+        ].join('\n');
+        openDocument(uri, content);
+
+        await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 1, character: 6 }
+        });
+
+        const result = await connection.sendRequest(SemanticTokensRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(result !== null && result.data !== undefined);
+
+        const tokenData = result.data;
+        let line = 0;
+        let character = 0;
+        const operatorColumns = new Set<number>();
+        const keywordColumns = new Set<number>();
+
+        for (let i = 0; i < tokenData.length; i += 5) {
+            line += tokenData[i];
+            character = tokenData[i] === 0 ? character + tokenData[i + 1] : tokenData[i + 1];
+
+            if (line === 1 && tokenData[i + 3] === 15) {
+                operatorColumns.add(character);
+            }
+
+            if (line === 1 && tokenData[i + 3] === 9) {
+                keywordColumns.add(character);
+            }
+        }
+
+        assert(operatorColumns.has(7), 'MATCHES should be emitted as an operator token');
+        assert(operatorColumns.has(21), 'AND should be emitted as an operator token');
+        assert(operatorColumns.has(25), 'NOT should be emitted as an operator token');
+        assert(keywordColumns.has(29), 'DEFINED should be emitted as a keyword token');
+    });
+
+    test('should classify MATCHES pattern operands as regexp tokens', async function () {
+        const uri = 'file:///test-workspace/semantic_matches_regexp.txt';
+        const content = [
+            'if(CMAKE_BUILD_TYPE MATCHES Debug)',
+            'endif()'
+        ].join('\n');
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(SemanticTokensRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(result !== null && result.data !== undefined);
+
+        const tokenData = result.data;
+        let line = 0;
+        let character = 0;
+        const variableColumns = new Set<number>();
+        const regexpColumns = new Set<number>();
+
+        for (let i = 0; i < tokenData.length; i += 5) {
+            line += tokenData[i];
+            character = tokenData[i] === 0 ? character + tokenData[i + 1] : tokenData[i + 1];
+
+            if (line !== 0) {
+                continue;
+            }
+
+            if (tokenData[i + 3] === 5) {
+                variableColumns.add(character);
+            }
+
+            if (tokenData[i + 3] === 14) {
+                regexpColumns.add(character);
+            }
+        }
+
+        assert(variableColumns.has(3), 'CMAKE_BUILD_TYPE should be emitted as a variable token');
+        assert(regexpColumns.has(28), 'MATCHES pattern operands should be emitted as regexp tokens');
+    });
+
+    test('should classify builtin command keywords as keywords', async function () {
+        const uri = 'file:///test-workspace/semantic_builtin_keywords.txt';
+        const content = 'add_library(my_target INTERFACE IMPORTED GLOBAL)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(SemanticTokensRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(result !== null && result.data !== undefined);
+
+        const tokenData = result.data;
+        let line = 0;
+        let character = 0;
+        const keywordColumns = new Set<number>();
+
+        for (let i = 0; i < tokenData.length; i += 5) {
+            line += tokenData[i];
+            character = tokenData[i] === 0 ? character + tokenData[i + 1] : tokenData[i + 1];
+
+            if (line === 0 && tokenData[i + 3] === 9) {
+                keywordColumns.add(character);
+            }
+        }
+
+        assert(keywordColumns.has(22), 'INTERFACE should be emitted as a keyword token');
+        assert(keywordColumns.has(32), 'IMPORTED should be emitted as a keyword token');
+        assert(keywordColumns.has(41), 'GLOBAL should be emitted as a keyword token');
+    });
+
     test('should classify generator expression names and namespace keywords in semantic tokens', async function () {
         const uri = 'file:///test-workspace/semantic_genex.txt';
         const content = 'target_compile_definitions(tgt PRIVATE $<STRING:HASH,value,ALGORITHM:SHA256>)';

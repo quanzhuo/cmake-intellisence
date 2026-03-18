@@ -374,6 +374,8 @@ export class SemanticTokenListener extends CMakeParserListener {
                 this.pushToken(argToken.line - 1, argToken.column, argToken.text.length, TokenTypes.operator, []);
             } else if (expectation === 'operand' && CONDITION_UNARY_KEYWORDS.includes(normalized)) {
                 this.pushToken(argToken.line - 1, argToken.column, argToken.text.length, TokenTypes.keyword, []);
+            } else if (expectation === 'operand' && index > 0 && args[index - 1].toUpperCase() === 'MATCHES') {
+                this.pushToken(argToken.line - 1, argToken.column, argToken.text.length, TokenTypes.regexp, []);
             } else if (this.isVariable(text)) {
                 this.pushToken(argToken.line - 1, argToken.column, argToken.text.length, TokenTypes.variable, []);
             }
@@ -508,7 +510,7 @@ export class SemanticTokenListener extends CMakeParserListener {
                         argToken.line - 1,
                         argToken.column,
                         argToken.text.length,
-                        TokenTypes.type,
+                        TokenTypes.keyword,
                         []
                     );
                 }
