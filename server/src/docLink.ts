@@ -126,13 +126,32 @@ export class DocumentLinkInfo {
             return [];
         }
 
-        const links = await this.getLinksFromArguments(args, this.uri);
-        links.forEach(link => {
-            const targetPath = path.join(URI.parse(link.target ?? '').fsPath, 'CMakeLists.txt');
-            link.target = URI.file(targetPath).toString();
-            link.tooltip = path.join(link.tooltip ?? '', 'CMakeLists.txt');
-        });
-        return links;
+        // Only the first argument is source_dir; the rest are binary_dir or
+        // keywords (EXCLUDE_FROM_ALL, SYSTEM) and should not become links.
+        const firstArg = args[0];
+        if (!firstArg.stop) {
+            return [];
+        }
+
+        const source = firstArg.getText();
+        const vscodeUri = URI.parse(this.uri);
+        const folder = path.dirname(vscodeUri.fsPath);
+
+        // The argument is always a directory; resolve CMakeLists.txt inside it.
+        const targetFsPath = path.join(folder, source, 'CMakeLists.txt');
+
+        if (!await this.fileExists(targetFsPath)) {
+            return [];
+        }
+
+        return [{
+            range: Range.create(
+                firstArg.start.line - 1, firstArg.start.column,
+                firstArg.stop.line - 1, firstArg.stop.column + source.length
+            ),
+            target: URI.file(targetFsPath).toString(),
+            tooltip: targetFsPath,
+        }];
     }
 
     private async include(cmd: FlatCommand): Promise<DocumentLink[]> {
