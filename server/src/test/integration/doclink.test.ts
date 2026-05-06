@@ -1,0 +1,186 @@
+import * as assert from 'assert';
+import * as cp from 'child_process';
+import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as path from 'path';
+import {
+    createProtocolConnection,
+    DidOpenTextDocumentNotification,
+    DocumentLinkRequest,
+    ExitNotification,
+    InitializedNotification,
+    InitializeParams,
+    InitializeRequest,
+    IPCMessageReader,
+    IPCMessageWriter,
+    ProtocolConnection,
+    PublishDiagnosticsNotification,
+    PublishDiagnosticsParams,
+    RegistrationRequest,
+    ShutdownRequest,
+} from 'vscode-languageserver-protocol/node';
+import { URI } from 'vscode-uri';
+import { ExtensionSettings } from '../../cmakeEnvironment';
+import { waitForServerReady } from './testUtils';
+
+/**
+ * Integration tests for document links (textDocument/documentLink).
+ *
+ * Fixture files live in server/src/test/integration/fixtures/doclink/ so
+ * that real file-system paths can be used for commands that stat() the disk,
+ * such as add_subdirectory().
+ */
+suite('Document Link Integration Tests', () => {
+    let connection: ProtocolConnection;
+    let serverProcess: cp.ChildProcess;
+    let docVersion = 0;
+    const diagnosticEmitter = new EventEmitter();
+
+    // __dirname at runtime = server/out/test/integration/
+    const fixtureDir = path.resolve(
+        __dirname, '..', '..', '..', 'src', 'test', 'integration', 'fixtures', 'doclink'
+    );
+    const fixtureUri = URI.file(fixtureDir).toString();
+
+    const extSettings: ExtensionSettings = {
+        cmakePath: 'cmake',
+        pkgConfigPath: '',
+        cmdCaseDiagnostics: false,
+        loggingLevel: 'off'
+    };
+
+    function fileUri(relativePath: string): string {
+        return URI.file(path.join(fixtureDir, relativePath)).toString();
+    }
+
+    function openDocument(uri: string, content: string): void {
+        docVersion++;
+        connection.sendNotification(DidOpenTextDocumentNotification.type, {
+            textDocument: { uri, languageId: 'cmake', version: docVersion, text: content }
+        });
+    }
+
+    function waitForDiagnostics(uri: string, timeout = 5000): Promise<PublishDiagnosticsParams> {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                diagnosticEmitter.removeListener(uri, handler);
+                reject(new Error(`Timeout waiting for diagnostics on ${uri}`));
+            }, timeout);
+            function handler(params: PublishDiagnosticsParams) {
+                clearTimeout(timer);
+                resolve(params);
+            }
+            diagnosticEmitter.once(uri, handler);
+        });
+    }
+
+    async function openFixture(relativePath: string): Promise<string> {
+        const abs = path.join(fixtureDir, relativePath);
+        const uri = fileUri(relativePath);
+        const diagPromise = waitForDiagnostics(uri);
+        openDocument(uri, fs.readFileSync(abs, 'utf-8'));
+        await diagPromise;
+        return uri;
+    }
+
+    // ── lifecycle ──────────────────────────────────────────────
+
+    suiteSetup(async function () {
+        this.timeout(30000);
+
+        const serverModule = path.resolve(__dirname, '..', '..', 'server.js');
+        serverProcess = cp.fork(serverModule, ['--node-ipc'], {
+            stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+        });
+
+        connection = createProtocolConnection(
+            new IPCMessageReader(serverProcess),
+            new IPCMessageWriter(serverProcess)
+        );
+        connection.listen();
+
+        let configurationRequested: () => void;
+        const configurationPromise = new Promise<void>(r => { configurationRequested = r; });
+        const readyPromise = waitForServerReady(connection);
+
+        connection.onRequest(RegistrationRequest.type, () => { });
+        connection.onRequest('workspace/configuration', () => {
+            configurationRequested();
+            return [
+                extSettings.cmakePath,
+                extSettings.loggingLevel,
+                extSettings.cmdCaseDiagnostics,
+                extSettings.pkgConfigPath
+            ];
+        });
+        connection.onNotification(PublishDiagnosticsNotification.type, params => {
+            diagnosticEmitter.emit(params.uri, params);
+        });
+
+        const initParams: InitializeParams = {
+            processId: process.pid,
+            capabilities: {},
+            rootUri: fixtureUri,
+            locale: 'en',
+            workspaceFolders: [{ uri: fixtureUri, name: 'doclink-test' }]
+        };
+
+        await connection.sendRequest(InitializeRequest.type, initParams);
+        connection.sendNotification(InitializedNotification.type, {});
+        await configurationPromise;
+        await readyPromise;
+    });
+
+    suiteTeardown(async function () {
+        if (connection) {
+            await connection.sendRequest(ShutdownRequest.type);
+            connection.sendNotification(ExitNotification.type);
+            connection.dispose();
+        }
+        if (serverProcess) { serverProcess.kill(); }
+    });
+
+    // ── add_subdirectory ───────────────────────────────────────
+
+    test('add_subdirectory(app) should link to app/CMakeLists.txt', async function () {
+        const uri = await openFixture('CMakeLists.txt');
+
+        const links = await connection.sendRequest(DocumentLinkRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(links !== null && Array.isArray(links), 'Should return a link array');
+
+        const expectedTarget = fileUri('app/CMakeLists.txt');
+
+        // Regression for Issue #11: add_subdirectory with a directory argument
+        // must produce a link pointing to <dir>/CMakeLists.txt.
+        const subDirLink = links.find(l => l.target === expectedTarget);
+        assert(
+            subDirLink !== undefined,
+            `Expected a document link to ${expectedTarget}, got: ${JSON.stringify(links.map(l => l.target))}`
+        );
+
+        // The link range must cover the argument text "app", not the command name.
+        // Fixture line 3 (0-based): add_subdirectory(app)
+        assert.strictEqual(subDirLink.range.start.line, 3, 'Link range should be on line 3');
+        const rangeText = 'app';
+        const rangeLen = subDirLink.range.end.character - subDirLink.range.start.character;
+        assert.strictEqual(rangeLen, rangeText.length, 'Link range should span exactly the argument text');
+    });
+
+    test('add_subdirectory with non-existent directory should produce no link', async function () {
+        const uri = fileUri('nonexistent-test.cmake');
+        const diagPromise = waitForDiagnostics(uri);
+        openDocument(uri, 'add_subdirectory(no_such_dir)\n');
+        await diagPromise;
+
+        const links = await connection.sendRequest(DocumentLinkRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(links !== null && Array.isArray(links), 'Should return a link array');
+        const subDirLinks = links.filter(l => l.target?.includes('no_such_dir'));
+        assert.strictEqual(subDirLinks.length, 0, 'Non-existent subdirectory should produce no link');
+    });
+});
