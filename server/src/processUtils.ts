@@ -1,4 +1,5 @@
 import * as cp from 'child_process';
+import * as path from 'path';
 
 const DEFAULT_EXEC_TIMEOUT_MS = 10_000;
 const DEFAULT_EXEC_MAX_BUFFER = 8 * 1024 * 1024;
@@ -16,10 +17,22 @@ export interface ExecFileFailure extends Error {
 }
 
 export function execFilePromise(file: string, args: string[], options?: cp.ExecFileOptions): Promise<ExecFileResult> {
+    // On Windows, .bat and .cmd files cannot be launched directly by CreateProcess —
+    // Node.js raises EINVAL.  Route them through cmd.exe /c so they execute correctly.
+    let actualFile = file;
+    let actualArgs = args;
+    if (process.platform === 'win32') {
+        const ext = path.extname(file).toLowerCase();
+        if (ext === '.bat' || ext === '.cmd') {
+            actualArgs = ['/c', file, ...args];
+            actualFile = process.env['ComSpec'] ?? 'cmd.exe';
+        }
+    }
+
     return new Promise((resolve, reject) => {
         cp.execFile(
-            file,
-            args,
+            actualFile,
+            actualArgs,
             {
                 encoding: 'utf8',
                 timeout: DEFAULT_EXEC_TIMEOUT_MS,
