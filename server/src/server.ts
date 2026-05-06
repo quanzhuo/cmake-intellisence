@@ -1207,7 +1207,13 @@ export class CMakeLanguageServer {
                 if (logErrors) {
                     this.logger.error(`Failed to get help for ${label}: ${error.stderr ?? ''}`);
                 }
-                workspaceState.cmakeHelpCache.delete(cacheKey);
+                // Only evict the cache when cmake ran but reported "topic not found"
+                // (exit code is a number).  For OS-level spawn errors (code is a string,
+                // e.g. 'EINVAL' when cmake is a .bat file) keep the null result cached
+                // so we don't retry on every hover and flood the user with errors.
+                if (typeof error.code === 'number') {
+                    workspaceState.cmakeHelpCache.delete(cacheKey);
+                }
                 return null;
             });
 
