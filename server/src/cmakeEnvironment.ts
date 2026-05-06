@@ -203,14 +203,20 @@ async function getCMakeVersion(cmakePath: string): Promise<[string, number, numb
 }
 
 async function getBuiltinEntries(cmakePath: string): Promise<[Set<string>, Set<string>, Set<string>, Set<string>, Set<string>]> {
-    const { stdout } = await execFilePromise(cmakePath, ['--help-module-list', '--help-policy-list', '--help-variable-list', '--help-property-list', '--help-command-list']);
-    const tmp = stdout.trim().split('\n\n\n');
+    const [modules, policies, variables, properties, commands] = await Promise.all([
+        execFilePromise(cmakePath, ['--help-module-list']),
+        execFilePromise(cmakePath, ['--help-policy-list']),
+        execFilePromise(cmakePath, ['--help-variable-list']),
+        execFilePromise(cmakePath, ['--help-property-list']),
+        execFilePromise(cmakePath, ['--help-command-list']),
+    ]);
+    const toSet = (stdout: string) => new Set(stdout.trim().split('\n').filter(Boolean));
     return [
-        new Set(tmp[0].split('\n')),
-        new Set(tmp[1].split('\n')),
-        new Set(tmp[2].split('\n')),
-        new Set(tmp[3].split('\n')),
-        new Set(tmp[4].split('\n')),
+        toSet(modules.stdout),
+        toSet(policies.stdout),
+        toSet(variables.stdout),
+        toSet(properties.stdout),
+        toSet(commands.stdout),
     ];
 }
 

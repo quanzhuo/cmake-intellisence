@@ -4,13 +4,13 @@ import * as path from 'path';
 import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams } from 'vscode-languageserver-protocol';
 import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocument';
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
-import { CancellationToken, CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SemanticTokensRangeParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
+import { CancellationToken, CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import { hydrateBuiltinModuleCacheEntry, loadBuiltinModuleCommandCatalog, warmBuiltinModuleCaches } from './builtinModuleIndex';
 import { isCancellationError, throwIfCancelled } from './cancellation';
 import { ExtensionSettings, ProjectTargetInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
 import Completion, { CMakeCompletionType, CompletionItemType, ProjectTargetInfo, findCommandAtPosition, findRecoveredCommandInfoAtPosition, getCompletionHelpLabel, getCompletionInfoAtCursor, getCompletionItemType, getCompletionWorkspaceKey, inComments } from './completion';
-import { DefinitionResolver } from './defination';
+import { DefinitionResolver } from './definition';
 import SemanticDiagnosticsListener, { CommandCaseChecker, DIAG_CODE_CMD_CASE, SyntaxErrorListener } from './diagnostics';
 import { DocumentLinkInfo } from './docLink';
 import { SymbolListener } from './docSymbols';
@@ -109,7 +109,6 @@ export class CMakeLanguageServer {
             this.connection.onShutdown(this.wrapNotification('shutdown', this.onShutdown.bind(this))),
             this.connection.languages.semanticTokens.on(this.wrapRequest('semanticTokens', this.onSemanticTokens.bind(this), { data: [] })),
             this.connection.languages.semanticTokens.onDelta(this.wrapRequest('semanticTokensDelta', this.onSemanticTokensDelta.bind(this), { edits: [] })),
-            this.connection.languages.semanticTokens.onRange(this.wrapRequest('semanticTokensRange', this.onSemanticTokensRange.bind(this), { data: [] })),
             this.documents.onDidChangeContent(this.wrapNotification('didChangeContent', this.onDidChangeContent.bind(this))),
             this.documents.onDidClose(this.wrapNotification('didClose', this.onDidClose.bind(this))),
         );
@@ -654,10 +653,6 @@ export class CMakeLanguageServer {
         const semanticListener = new SemanticTokenListener(docUri.toString(), workspaceState.symbolIndex, entryUri);
         ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(document.uri));
         return semanticListener.buildEdits();
-    }
-
-    private onSemanticTokensRange(params: SemanticTokensRangeParams): Promise<SemanticTokens> {
-        return Promise.resolve({ data: [] });
     }
 
     private onCodeAction(params: CodeActionParams): (Command | CodeAction)[] | null {

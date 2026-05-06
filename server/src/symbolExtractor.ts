@@ -26,6 +26,9 @@ export function extractSymbols(
             case 'option':
                 extractVariable(cmd, cache, uri);
                 break;
+            case 'foreach':
+                extractForeachVariable(cmd, cache, uri);
+                break;
             case 'add_executable':
             case 'add_library':
                 extractTarget(cmd, cache, uri);
@@ -98,6 +101,19 @@ function extractAddSubdirectory(cmd: FlatCommand, cache: FileSymbolCache, baseDi
             if (fs.existsSync(subCMakeListsUri.fsPath)) {
                 cache.addDependency(subCMakeListsUri.toString(), 'subdirectory');
             }
+        }
+    }
+}
+
+// The first argument to foreach() is always the loop variable, regardless of the loop form
+// (foreach(VAR ...), foreach(VAR RANGE n), foreach(VAR IN LISTS/ITEMS ...)).
+function extractForeachVariable(cmd: FlatCommand, cache: FileSymbolCache, uri: string) {
+    const args = cmd.argument_list();
+    if (args.length > 0) {
+        const token = args[0].start;
+        if (token) {
+            const symbol = new Symbol(token.text, SymbolKind.Variable, uri, token.line - 1, token.column);
+            cache.addVariable(symbol);
         }
     }
 }

@@ -9,7 +9,6 @@ import * as util from 'util';
 
 const promisify = util.promisify;
 export const stat = promisify(fs.stat);
-export const mkdir = promisify(fs.mkdir);
 
 /**
  * Try and stat() a file/folder. If stat() fails for *any reason*, returns `null`.
@@ -31,26 +30,12 @@ export async function exists(filePath: string): Promise<boolean> {
 }
 
 /**
- * Creates a directory and all parent directories recursively. If the file
- * already exists, and is not a directory, just return.
+ * Creates a directory and all parent directories recursively.
+ * Uses fs.promises.mkdir with recursive:true which is atomic and concurrent-safe.
  * @param fspath The directory to create
  */
 export async function mkdir_p(fspath: string): Promise<void> {
-    const parent = path.dirname(fspath);
-    if (!await exists(parent)) {
-        await mkdir_p(parent);
-    } else {
-        if (!(await stat(parent)).isDirectory()) {
-            throw new Error(`cannot.create.path', 'Cannot create ${fspath}: ${fspath} is a non-directory`);
-        }
-    }
-    if (!await exists(fspath)) {
-        await mkdir(fspath);
-    } else {
-        if (!(await stat(fspath)).isDirectory()) {
-            throw new Error(`cannot.create.directory', 'Cannot create directory ${fspath}. It exists, and is not a directory!`);
-        }
-    }
+    await fs.promises.mkdir(fspath, { recursive: true });
 }
 
 class WindowsEnvironment {
