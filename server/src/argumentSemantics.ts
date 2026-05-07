@@ -240,3 +240,17 @@ export function resolveCursorTarget(command: FlatCommand, word: string, pos: Pos
             return { text, subject: DefinitionSubject.Variable, semanticKind: ArgumentSemanticKind.Variable, argumentSpan };
     }
 }
+
+export function resolveArgumentTarget(command: FlatCommand, argIndex: number): ResolvedCursorTarget | null {
+    const arg = command.argument_list()[argIndex];
+    const token = arg?.start;
+    if (!arg || !token) {
+        return null;
+    }
+
+    return resolveCursorTarget(
+        command,
+        arg.getText(),
+        { line: token.line - 1, character: token.column },
+    );
+}

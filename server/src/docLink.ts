@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DocumentLink, Range } from "vscode-languageserver";
 import { URI } from 'vscode-uri';
+import { DefinitionSubject, resolveArgumentTarget } from './argumentSemantics';
 import { FlatCommand } from './flatCommands';
 import { ArgumentContext } from './generated/CMakeParser';
 import { SymbolIndex } from './symbolIndex';
@@ -53,16 +54,7 @@ export class DocumentLinkInfo {
                     links = await this.configureFile(cmd);
                     break;
                 default:
-                    argCtxList.push(...cmd.argument_list().filter((argCtx: ArgumentContext) => {
-                        const argText = argCtx.getText();
-                        return argCtx.getChildCount() === 1 &&
-                            (argText.endsWith('.cpp') ||
-                                argText.endsWith('.c') ||
-                                argText.endsWith('.h') ||
-                                argText.endsWith('.hpp') ||
-                                argText.endsWith('.cxx'));
-                    }));
-
+                    argCtxList.push(...this.getSemanticFileArguments(cmd));
             }
 
             this._links.push(...links);
@@ -109,15 +101,15 @@ export class DocumentLinkInfo {
     }
 
     private addExecutable(cmd: FlatCommand): Promise<DocumentLink[]> {
-        return this.addSourceFiles(cmd, ["WIN32", "MACOSX_BUNDLE", "EXCLUDE_FROM_ALL", "IMPORTED", "ALIAS"]);
+        return this.addSourceFiles(cmd);
     }
 
     private addLibrary(cmd: FlatCommand): Promise<DocumentLink[]> {
-        return this.addSourceFiles(cmd, ["STATIC", "SHARED", "MODULE", "OBJECT", "ALIAS", "GLOBAL", "INTERFACE", "IMPORTED"]);
+        return this.addSourceFiles(cmd);
     }
 
     private targetSources(cmd: FlatCommand): Promise<DocumentLink[]> {
-        return this.addSourceFiles(cmd, ["INTERFACE", "PUBLIC", "PRIVATE", "FILE_SET", "TYPE", "BASE_DIRS", "FILES"]);
+        return this.addSourceFiles(cmd);
     }
 
     private async addSubDirectory(cmd: FlatCommand): Promise<DocumentLink[]> {
@@ -129,11 +121,15 @@ export class DocumentLinkInfo {
         // Only the first argument is source_dir; the rest are binary_dir or
         // keywords (EXCLUDE_FROM_ALL, SYSTEM) and should not become links.
         const firstArg = args[0];
+        const resolved = resolveArgumentTarget(cmd, 0);
+        if (!resolved || resolved.subject !== DefinitionSubject.FilePath) {
+            return [];
+        }
         if (!firstArg.stop) {
             return [];
         }
 
-        const source = firstArg.getText();
+        const source = resolved.text;
         const vscodeUri = URI.parse(this.uri);
         const folder = path.dirname(vscodeUri.fsPath);
 
@@ -161,12 +157,18 @@ export class DocumentLinkInfo {
         }
 
         const firstArg: ArgumentContext = args[0];
-        const argName = firstArg.getText();
-        if (this.symbolIndex.getSystemCache().modules.has(argName)) {
+        const resolved = resolveArgumentTarget(cmd, 0);
+        if (!resolved) {
+            return [];
+        }
+
+        if (resolved.subject === DefinitionSubject.IncludeModule && this.symbolIndex.getSystemCache().modules.has(resolved.text)) {
             return this.includeSystemModule(firstArg);
         }
 
-        return this.getLinksFromArguments([firstArg], this.uri);
+        return resolved.subject === DefinitionSubject.FilePath
+            ? this.getLinksFromArguments([firstArg], this.uri)
+            : [];
     }
 
     private findPackage(cmd: FlatCommand): Promise<DocumentLink[]> {
@@ -176,8 +178,12 @@ export class DocumentLinkInfo {
         }
 
         const firstArg: ArgumentContext = args[0];
-        const argName = firstArg.getText();
-        return this.builtinModule(firstArg, `Find${argName}.cmake`);
+        const resolved = resolveArgumentTarget(cmd, 0);
+        if (!resolved || resolved.subject !== DefinitionSubject.FindPackage) {
+            return Promise.resolve([]);
+        }
+
+        return this.builtinModule(firstArg, `Find${resolved.text}.cmake`);
     }
 
     private configureFile(cmd: FlatCommand): Promise<DocumentLink[]> {
@@ -186,7 +192,7 @@ export class DocumentLinkInfo {
             return Promise.resolve([]);
         }
 
-        return this.getLinksFromArguments(args.slice(0, 2), this.uri);
+        return this.getLinksFromArguments(this.getSemanticFileArguments(cmd).slice(0, 2), this.uri);
     }
 
     private includeSystemModule(arg: ArgumentContext): Promise<DocumentLink[]> {
@@ -215,18 +221,15 @@ export class DocumentLinkInfo {
         }
     }
 
-    private addSourceFiles(cmd: FlatCommand, keywords: string[]): Promise<DocumentLink[]> {
-        let args: ArgumentContext[] = cmd.argument_list();
-        if (args.length <= 1) {
-            return Promise.resolve([]);
-        }
-
-        // The first argument is the target name, ignore it
-        args = args.slice(1).filter((argCtx: ArgumentContext) => {
-            const argName = argCtx.getText();
-            return keywords.indexOf(argName) === -1;
+    private getSemanticFileArguments(cmd: FlatCommand): ArgumentContext[] {
+        return cmd.argument_list().filter((argCtx: ArgumentContext, index: number) => {
+            const resolved = resolveArgumentTarget(cmd, index);
+            return resolved?.subject === DefinitionSubject.FilePath;
         });
+    }
 
+    private addSourceFiles(cmd: FlatCommand): Promise<DocumentLink[]> {
+        const args = this.getSemanticFileArguments(cmd);
         if (args.length === 0) {
             return Promise.resolve([]);
         }

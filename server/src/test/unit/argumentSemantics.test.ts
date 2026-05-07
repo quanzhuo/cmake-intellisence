@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { DefinitionSubject, getArgumentSpanAtPosition, resolveCursorTarget } from '../../argumentSemantics';
+import { DefinitionSubject, getArgumentSpanAtPosition, resolveArgumentTarget, resolveCursorTarget } from '../../argumentSemantics';
 import { parseCMakeText } from '../../utils';
 
 suite('Argument Semantics Tests', () => {
@@ -52,5 +52,25 @@ suite('Argument Semantics Tests', () => {
         const result = resolveCursorTarget(command, 'Qt6', position);
         assert.strictEqual(result.subject, DefinitionSubject.Target);
         assert.strictEqual(result.text, 'Qt6::Core');
+    });
+
+    test('resolveArgumentTarget should classify include module arguments via shared semantics', () => {
+        const command = parseCMakeText('include(CMakePrintHelpers)\n').flatCommands[0];
+
+        const result = resolveArgumentTarget(command, 0);
+        assert(result !== null);
+        assert.strictEqual(result.subject, DefinitionSubject.IncludeModule);
+        assert.strictEqual(result.text, 'CMakePrintHelpers');
+    });
+
+    test('resolveArgumentTarget should classify add_library source arguments as file paths', () => {
+        const command = parseCMakeText('add_library(sample STATIC src/lib.cpp include/lib.h)\n').flatCommands[0];
+
+        const sourceResult = resolveArgumentTarget(command, 2);
+        const headerResult = resolveArgumentTarget(command, 3);
+        assert.strictEqual(sourceResult?.subject, DefinitionSubject.FilePath);
+        assert.strictEqual(sourceResult?.text, 'src/lib.cpp');
+        assert.strictEqual(headerResult?.subject, DefinitionSubject.FilePath);
+        assert.strictEqual(headerResult?.text, 'include/lib.h');
     });
 });
