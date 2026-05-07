@@ -508,6 +508,62 @@ suite('Condition Completion Tests', () => {
         }
     });
 
+    test('target_include_directories should suggest project targets for the first argument', async () => {
+        const parsed = parseCMakeText('target_include_directories(My)');
+        const uri = URI.file(path.resolve(__dirname, 'target-include-dirs-completion.cmake')).toString();
+        const completion = new Completion(
+            new Map([[uri, parsed.flatCommands]]),
+            new Map([[uri, parsed.tokenStream]]),
+            {
+                executables: new Set(['MyExe']),
+                libraries: new Set(['MyLib']),
+            },
+            'My',
+            new Logger('test', 'off'),
+            symbolIndex,
+        );
+
+        const result = await completion.onCompletion({
+            textDocument: { uri },
+            position: { line: 0, character: 'target_include_directories(My'.length },
+        });
+
+        const items = Array.isArray(result) ? result : (result?.items ?? []);
+        const labels = items.map(item => item.label.toString());
+
+        assert(labels.includes('MyExe'));
+        assert(labels.includes('MyLib'));
+    });
+
+    test('target_link_libraries should suggest both targets and scope keywords for dependency positions', async () => {
+        const parsed = parseCMakeText('target_link_libraries(root My)');
+        const uri = URI.file(path.resolve(__dirname, 'target-link-libraries-completion.cmake')).toString();
+        const completion = new Completion(
+            new Map([[uri, parsed.flatCommands]]),
+            new Map([[uri, parsed.tokenStream]]),
+            {
+                executables: new Set(['MyExe']),
+                libraries: new Set(['MyLib']),
+            },
+            'My',
+            new Logger('test', 'off'),
+            symbolIndex,
+        );
+
+        const result = await completion.onCompletion({
+            textDocument: { uri },
+            position: { line: 0, character: 'target_link_libraries(root My'.length },
+        });
+
+        const items = Array.isArray(result) ? result : (result?.items ?? []);
+        const labels = items.map(item => item.label.toString());
+
+        assert(labels.includes('MyExe'));
+        assert(labels.includes('MyLib'));
+        assert(labels.includes('PRIVATE'));
+        assert(labels.includes('INTERFACE'));
+    });
+
     test('include dependency resolution should ignore directories', () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-include-dir-'));
         const childDir = path.join(tempDir, '.vscode');

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CompletionItem, CompletionItemKind, CompletionItemTag, CompletionList, CompletionParams, InsertTextFormat, Position } from "vscode-languageserver";
 import { URI } from "vscode-uri";
+import { getTargetLinkLibraryKeywords, isTargetArgumentIndex } from './argumentSemantics';
 import * as builtinCmds from './builtin-cmds.json';
 import { FlatCommand } from "./flatCommands";
 import CMakeLexer from "./generated/CMakeLexer";
@@ -1338,6 +1339,27 @@ export default class Completion {
         }
     }
 
+    private getTargetArgumentSuggestions(info: CMakeCompletionInfo): CompletionItem[] | null {
+        if (!info.context || info.index === undefined || !isTargetArgumentIndex(info.context, info.index)) {
+            return null;
+        }
+
+        const targets = this.getTargetsSuggestion(info) ?? [];
+        if (info.command === 'target_link_libraries' && info.index > 0) {
+            return [
+                ...targets,
+                ...getTargetLinkLibraryKeywords().map((keyword) => {
+                    return {
+                        label: keyword,
+                        kind: CompletionItemKind.Variable,
+                    };
+                })
+            ];
+        }
+
+        return targets;
+    }
+
     private getPropertySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
         const properties = this.symbolIndex
             ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.Property))
@@ -1402,6 +1424,11 @@ export default class Completion {
             return this.getConditionSuggestions(info, word);
         }
 
+        const targetArgumentSuggestions = this.getTargetArgumentSuggestions(info);
+        if (targetArgumentSuggestions) {
+            return targetArgumentSuggestions;
+        }
+
         switch (info.command) {
             case 'find_package': {
                 if (info.index === 0) {
@@ -1427,47 +1454,6 @@ export default class Completion {
                 }
                 break;
             }
-            case 'target_compile_definitions':
-            case 'target_compile_features':
-            case 'target_compile_options':
-            case 'target_include_directories':
-            case 'target_link_directories':
-            case 'target_link_options':
-            case 'target_precompile_headers':
-            case 'target_sources': {
-                if (info.index === 0) {
-                    const targets = this.getTargetsSuggestion(info);
-                    if (targets) {
-                        return targets;
-                    }
-                }
-                break;
-            }
-            case 'target_link_libraries': {
-                if (info.index === 0) {
-                    const targets = this.getTargetsSuggestion(info);
-                    if (targets) {
-                        return targets;
-                    }
-                } else {
-                    const items = [
-                        ...this.getProjectTargetNames(),
-                        'PRIVATE', 'PUBLIC', 'INTERFACE',
-                        'LINK_INTERFACE_LIBRARIES',
-                        'LINK_PRIVATE',
-                        'LINK_PUBLIC',
-                    ];
-                    if (items.length > 0) {
-                        return items.map((lib) => {
-                            return {
-                                label: lib,
-                                kind: CompletionItemKind.Variable,
-                            };
-                        });
-                    }
-                }
-                break;
-            }
             case 'get_property':
             case 'set_property':
             case 'define_property': {
@@ -1477,12 +1463,7 @@ export default class Completion {
                 break;
             }
             case 'get_target_property': {
-                if (info.index === 1) {
-                    const targets = this.getTargetsSuggestion(info);
-                    if (targets) {
-                        return targets;
-                    }
-                } else if (info.index === 2) {
+                if (info.index === 2) {
                     return this.getPropertySuggestions(info, word);
                 }
                 break;

@@ -160,6 +160,10 @@ export function isTargetArgumentIndex(command: FlatCommand, argIndex: number): b
     }
 }
 
+export function getTargetLinkLibraryKeywords(): string[] {
+    return Array.from(TARGET_LINK_LIBRARY_KEYWORDS);
+}
+
 function isSourceFileArgument(commandName: string, argIndex: number, argText: string): boolean {
     if (argIndex === 0) {
         return false;

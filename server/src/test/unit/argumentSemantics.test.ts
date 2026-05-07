@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { DefinitionSubject, getArgumentSpanAtPosition, resolveArgumentTarget, resolveCursorTarget } from '../../argumentSemantics';
+import { DefinitionSubject, getArgumentSpanAtPosition, getTargetLinkLibraryKeywords, resolveArgumentTarget, resolveCursorTarget } from '../../argumentSemantics';
 import { parseCMakeText } from '../../utils';
 
 suite('Argument Semantics Tests', () => {
@@ -72,5 +72,13 @@ suite('Argument Semantics Tests', () => {
         assert.strictEqual(sourceResult?.text, 'src/lib.cpp');
         assert.strictEqual(headerResult?.subject, DefinitionSubject.FilePath);
         assert.strictEqual(headerResult?.text, 'include/lib.h');
+    });
+
+    test('getTargetLinkLibraryKeywords should expose the shared target_link_libraries keywords', () => {
+        const keywords = getTargetLinkLibraryKeywords();
+
+        assert(keywords.includes('PRIVATE'));
+        assert(keywords.includes('INTERFACE'));
+        assert(keywords.includes('LINK_PUBLIC'));
     });
 });
