@@ -13,6 +13,7 @@ import { populateIndexTopDown } from "./symbolIndexManager";
 export enum DestinationType {
     Command,
     Variable,
+    Target,
 }
 
 export abstract class SymbolResolverBase {
@@ -82,6 +83,91 @@ export abstract class SymbolResolverBase {
             }
         }
         return false;
+    }
+
+    protected getDestinationType(command: FlatCommand, word: string, pos: Position): DestinationType {
+        if (this.isQueryingCommand(command, word, pos)) {
+            return DestinationType.Command;
+        }
+
+        if (this.isQueryingTarget(command, pos)) {
+            return DestinationType.Target;
+        }
+
+        return DestinationType.Variable;
+    }
+
+    protected getArgumentIndexAtPosition(command: FlatCommand, pos: Position): number | null {
+        const args = command.argument_list();
+        const targetLine = pos.line + 1;
+
+        for (const [index, arg] of args.entries()) {
+            const token = arg.start;
+            if (!token || token.line !== targetLine) {
+                continue;
+            }
+
+            const startColumn = token.column;
+            const endColumn = startColumn + arg.getText().length;
+            if (pos.character >= startColumn && pos.character <= endColumn) {
+                return index;
+            }
+        }
+
+        return null;
+    }
+
+    protected isQueryingTarget(command: FlatCommand, pos: Position): boolean {
+        const argIndex = this.getArgumentIndexAtPosition(command, pos);
+        if (argIndex === null) {
+            return false;
+        }
+
+        return this.isTargetArgumentIndex(command, argIndex);
+    }
+
+    protected isTargetArgumentIndex(command: FlatCommand, argIndex: number): boolean {
+        const args = command.argument_list();
+        const argText = args[argIndex]?.getText();
+        const commandName = command.ID().symbol.text.toLowerCase();
+
+        switch (commandName) {
+            case 'add_executable':
+            case 'add_library':
+                return argIndex === 0;
+            case 'target_compile_definitions':
+            case 'target_compile_features':
+            case 'target_compile_options':
+            case 'target_include_directories':
+            case 'target_link_directories':
+            case 'target_link_options':
+            case 'target_precompile_headers':
+            case 'target_sources':
+                return argIndex === 0;
+            case 'target_link_libraries': {
+                if (argIndex === 0) {
+                    return true;
+                }
+
+                const keywords = new Set([
+                    'PRIVATE',
+                    'PUBLIC',
+                    'INTERFACE',
+                    'LINK_INTERFACE_LIBRARIES',
+                    'LINK_PRIVATE',
+                    'LINK_PUBLIC',
+                ]);
+                return !!argText && !keywords.has(argText);
+            }
+            case 'get_target_property':
+                return argIndex === 1;
+            case 'if':
+            case 'elseif':
+            case 'while':
+                return argIndex > 0 && args[argIndex - 1]?.getText().toUpperCase() === 'TARGET';
+            default:
+                return false;
+        }
     }
 
     protected isBuiltinCommand(commandName: string): boolean {

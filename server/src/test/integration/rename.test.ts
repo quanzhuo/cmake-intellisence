@@ -216,5 +216,21 @@ suite("Rename Integration Tests", () => {
         assert.strictEqual(result, null, "Should not allow renaming builtin commands");
     });
 
+    test("rename a target across target-aware argument positions", async function () {
+        const uri = await openFixture("targets.cmake");
+        const newName = "core_runtime";
+
+        const result = await renameSymbol(uri, 0, 13, newName) as WorkspaceEdit;
+
+        assert.ok(result && result.changes, "Should return WorkspaceEdit with changes");
+        const changes = result.changes![uri];
+        assert.ok(changes && changes.length > 0, "Should modify targets.cmake");
+        assert.ok(changes.every(change => change.newText === newName), "All text edits should use the new target name");
+        assert.ok(changes.some(change => change.range.start.line === 0), "Should rename target declaration");
+        assert.ok(changes.some(change => change.range.start.line === 2), "Should rename target_link_libraries usage");
+        assert.ok(changes.some(change => change.range.start.line === 3), "Should rename if(TARGET ...) usage");
+        assert.ok(changes.some(change => change.range.start.line === 6), "Should rename get_target_property target usage");
+    });
+
 });
 

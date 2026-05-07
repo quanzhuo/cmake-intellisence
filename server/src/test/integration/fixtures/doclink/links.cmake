@@ -1,0 +1,7 @@
+include(local/include-local.cmake)
+include(CMakePrintHelpers)
+find_package(Threads)
+configure_file(config/input.in config/output.txt)
+add_library(test_lib STATIC src/lib.cpp include/lib.h)
+add_executable(test_app WIN32 app/main.cpp)
+target_sources(test_lib PRIVATE extra/extra.cpp include/generated.h)

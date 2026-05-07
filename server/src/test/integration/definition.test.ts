@@ -204,6 +204,16 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].range.start.line, 0, 'HELPER_VAR defined at line 0');
     });
 
+    test('include file argument should resolve to the included file', async function () {
+        const uri = await openFixture('CMakeLists.txt');
+        const result = await getDefinition(uri, 9, 12);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('include/helpers.cmake'));
+        assert.strictEqual(locs[0].range.start.line, 0, 'File definitions should point at the start of the target file');
+    });
+
     // ── Cross-file: add_subdirectory() ─────────────────────────
 
     test('root function used in subdirectory file', async function () {
@@ -217,6 +227,16 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].uri, fileUri('CMakeLists.txt'),
             'root_func should resolve to root CMakeLists.txt');
         assert.strictEqual(locs[0].range.start.line, 5);
+    });
+
+    test('add_subdirectory argument should resolve to subdirectory CMakeLists.txt', async function () {
+        const uri = await openFixture('CMakeLists.txt');
+        const result = await getDefinition(uri, 11, 18);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('src/CMakeLists.txt'));
+        assert.strictEqual(locs[0].range.start.line, 0, 'Subdirectory definitions should point at the child CMakeLists start');
     });
 
     test('command definition should ignore cached files outside the reachable entry tree', async function () {
@@ -313,6 +333,131 @@ suite('Definition Integration Tests', () => {
         assert(locs.length > 0);
         assert.strictEqual(locs[0].uri, fileUri('include/helpers.cmake'));
         assert.strictEqual(locs[0].range.start.line, 6, 'helper_macro defined at line 6');
+    });
+
+    test('target name used as target_link_libraries receiver should resolve to target definition', async function () {
+        const uri = await openFixture('targets.cmake');
+        const result = await getDefinition(uri, 2, 23);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find the app target definition');
+        assert.strictEqual(locs[0].uri, uri);
+        assert.strictEqual(locs[0].range.start.line, 1, 'app target should resolve to add_executable()');
+    });
+
+    test('target dependency used in target_link_libraries should resolve to target definition', async function () {
+        const uri = await openFixture('targets.cmake');
+        const result = await getDefinition(uri, 2, 35);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find the core target definition');
+        assert.strictEqual(locs[0].uri, uri);
+        assert.strictEqual(locs[0].range.start.line, 0, 'core target should resolve to add_library()');
+    });
+
+    test('target predicate operand in if(TARGET ...) should resolve to target definition', async function () {
+        const uri = await openFixture('targets.cmake');
+        const result = await getDefinition(uri, 3, 11);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find the core target definition');
+        assert.strictEqual(locs[0].uri, uri);
+        assert.strictEqual(locs[0].range.start.line, 0, 'core target should resolve to add_library()');
+    });
+
+    test('target operand in get_target_property should resolve to target definition', async function () {
+        const uri = await openFixture('targets.cmake');
+        const result = await getDefinition(uri, 6, 31);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find the core target definition');
+        assert.strictEqual(locs[0].uri, uri);
+        assert.strictEqual(locs[0].range.start.line, 0, 'core target should resolve to add_library()');
+    });
+
+    test('target receiver in target_sources should resolve to target definition', async function () {
+        const uri = await openFixture('targets.cmake');
+        const result = await getDefinition(uri, 7, 16);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find the app target definition');
+        assert.strictEqual(locs[0].uri, uri);
+        assert.strictEqual(locs[0].range.start.line, 1, 'app target should resolve to add_executable()');
+    });
+
+    test('configure_file input should resolve to the referenced file', async function () {
+        const uri = await openFixture('files.cmake');
+        const result = await getDefinition(uri, 0, 18);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('config/input.in'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
+    test('source file argument in add_library should resolve to the referenced file', async function () {
+        const uri = await openFixture('files.cmake');
+        const result = await getDefinition(uri, 1, 28);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('sources/lib.cpp'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
+    test('source file argument in add_executable should resolve to the referenced file', async function () {
+        const uri = await openFixture('files.cmake');
+        const result = await getDefinition(uri, 2, 26);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('sources/tool.cpp'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
+    test('source file argument in target_sources should resolve to the referenced file', async function () {
+        const uri = await openFixture('files.cmake');
+        const result = await getDefinition(uri, 3, 30);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('sources/extra.cpp'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
+    test('include file argument using CMAKE_CURRENT_LIST_DIR should resolve to the included file', async function () {
+        const uri = await openFixture('builtin-paths.cmake');
+        const result = await getDefinition(uri, 0, 35);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('include/helpers.cmake'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
+    test('add_subdirectory argument using CMAKE_CURRENT_LIST_DIR should resolve to child CMakeLists.txt', async function () {
+        const uri = await openFixture('builtin-paths.cmake');
+        const result = await getDefinition(uri, 1, 43);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('src/CMakeLists.txt'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
+    test('configure_file input using CMAKE_CURRENT_LIST_DIR should resolve to the referenced file', async function () {
+        const uri = await openFixture('builtin-paths.cmake');
+        const result = await getDefinition(uri, 2, 43);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('config/input.in'));
+        assert.strictEqual(locs[0].range.start.line, 0);
     });
 
     // ── Missing Coverage: Edge Cases and Negative Scopes ───────────────────────

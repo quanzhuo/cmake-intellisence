@@ -1,0 +1,8 @@
+add_library(core INTERFACE)
+add_executable(app IMPORTED)
+target_link_libraries(app PRIVATE core)
+if(TARGET core)
+  message(STATUS "found")
+endif()
+get_target_property(core_type core TYPE)
+target_sources(app PRIVATE app.cpp)

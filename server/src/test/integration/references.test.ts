@@ -256,5 +256,29 @@ suite("References Integration Tests", () => {
         assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 17), "math output usage should remain");
     });
 
+    test("find references of a target across target-aware argument positions", async function () {
+        const uri = await openFixture("targets.cmake");
+
+        const result = await getReferences(uri, 0, 13);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.ok(locs.length > 0, "Should find target references");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 0), "Should include add_library declaration");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 2), "Should include target_link_libraries dependency usage");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 3), "Should include if(TARGET ...) usage");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 6), "Should include get_target_property target usage");
+    });
+
+    test("target references should exclude declarations when includeDeclaration is false", async function () {
+        const uri = await openFixture("targets.cmake");
+
+        const result = await getReferences(uri, 0, 13, false);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.ok(locs.length > 0, "Should still find target usages");
+        assert.ok(!locs.some(l => l.uri === uri && l.range.start.line === 0), "Target declaration should be excluded");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 2), "Target usages should remain");
+    });
+
 });
 

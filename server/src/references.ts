@@ -22,6 +22,11 @@ export class ReferenceResolver extends SymbolResolverBase {
         }
     }
 
+    private isTargetDeclaration(cmd: import("./flatCommands").FlatCommand, argIndex: number): boolean {
+        const commandName = cmd.ID().symbol.text.toLowerCase();
+        return argIndex === 0 && (commandName === 'add_library' || commandName === 'add_executable');
+    }
+
     public async resolve(params: ReferenceParams): Promise<Location[] | null> {
         const document = this.documents.get(params.textDocument.uri);
         if (!document) { return null; }
@@ -31,7 +36,9 @@ export class ReferenceResolver extends SymbolResolverBase {
 
         await this.determineContextAndRoot();
 
-        const isCommand = this.isQueryingCommand(this.command, targetWord, params.position);
+        const destinationType = this.getDestinationType(this.command, targetWord, params.position);
+        const isCommand = destinationType === DestinationType.Command;
+        const isTarget = destinationType === DestinationType.Target;
         const searchName = isCommand ? targetWord.toLowerCase() : targetWord;
         const includeDeclaration = params.context.includeDeclaration;
 
@@ -76,6 +83,32 @@ export class ReferenceResolver extends SymbolResolverBase {
                                 });
                             }
                         }
+                    }
+                } else if (isTarget) {
+                    const args = cmd.argument_list();
+                    for (const [argIndex, arg] of args.entries()) {
+                        const token = arg.start;
+                        if (!token) { continue; }
+
+                        if (!this.isTargetArgumentIndex(cmd, argIndex)) {
+                            continue;
+                        }
+
+                        if (!includeDeclaration && this.isTargetDeclaration(cmd, argIndex)) {
+                            continue;
+                        }
+
+                        if (token.text !== searchName) {
+                            continue;
+                        }
+
+                        results.push({
+                            uri,
+                            range: {
+                                start: { line: token.line - 1, character: token.column },
+                                end: { line: token.line - 1, character: token.column + token.text.length }
+                            }
+                        });
                     }
                 } else {
                     const args = cmd.argument_list();

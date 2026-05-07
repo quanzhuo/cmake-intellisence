@@ -183,4 +183,26 @@ suite('Document Link Integration Tests', () => {
         const subDirLinks = links.filter(l => l.target?.includes('no_such_dir'));
         assert.strictEqual(subDirLinks.length, 0, 'Non-existent subdirectory should produce no link');
     });
+
+    test('should link supported file-bearing commands to concrete files', async function () {
+        const uri = await openFixture('links.cmake');
+
+        const links = await connection.sendRequest(DocumentLinkRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(links !== null && Array.isArray(links), 'Should return a link array');
+
+        const linkTargets = new Set(links.map(link => link.target));
+        assert(linkTargets.has(fileUri('local/include-local.cmake')), 'include(file) should link to the local include file');
+        assert(linkTargets.has(fileUri('config/input.in')), 'configure_file() should link the input file');
+        assert(linkTargets.has(fileUri('config/output.txt')), 'configure_file() should link the output file when it exists');
+        assert(linkTargets.has(fileUri('src/lib.cpp')), 'add_library() should link source files');
+        assert(linkTargets.has(fileUri('include/lib.h')), 'add_library() should link header files');
+        assert(linkTargets.has(fileUri('app/main.cpp')), 'add_executable() should link source files while ignoring WIN32');
+        assert(linkTargets.has(fileUri('extra/extra.cpp')), 'target_sources() should link source files');
+        assert(linkTargets.has(fileUri('include/generated.h')), 'target_sources() should link header-like files');
+        assert(Array.from(linkTargets).some(target => target?.endsWith('/CMakePrintHelpers.cmake')), 'include(module) should link to builtin modules');
+        assert(Array.from(linkTargets).some(target => target?.endsWith('/FindThreads.cmake')), 'find_package() should link to Find-modules');
+    });
 });

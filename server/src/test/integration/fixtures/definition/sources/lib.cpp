@@ -1,0 +1,1 @@
+int sample() { return 0; }

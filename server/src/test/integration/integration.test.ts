@@ -3,9 +3,12 @@ import * as cp from 'child_process';
 import { EventEmitter } from 'events';
 import * as path from 'path';
 import {
+    CodeActionRequest,
     CompletionItemKind,
     CompletionRequest,
     CompletionResolveRequest,
+    DidChangeConfigurationNotification,
+    DidChangeTextDocumentNotification,
     DidOpenTextDocumentNotification,
     DocumentFormattingRequest,
     DocumentLinkRequest,
@@ -21,6 +24,7 @@ import {
     PublishDiagnosticsNotification,
     PublishDiagnosticsParams,
     RegistrationRequest,
+    SemanticTokensDeltaRequest,
     SemanticTokensRequest,
     ShutdownRequest,
     SignatureHelpRequest,
@@ -36,6 +40,7 @@ suite('LSP Integration Tests', () => {
     let symbolIndex: SymbolIndex;
     let docVersion = 0;
     const diagnosticEmitter = new EventEmitter();
+    const configurationPullWaiters: Array<() => void> = [];
     const extSettings: ExtensionSettings = {
         cmakePath: 'cmake',
         pkgConfigPath: '',
@@ -70,11 +75,13 @@ suite('LSP Integration Tests', () => {
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest('workspace/configuration', () => {
             configurationRequested();
+            configurationPullWaiters.shift()?.();
             return [
                 extSettings.cmakePath,
                 extSettings.loggingLevel,
                 extSettings.cmdCaseDiagnostics,
-                extSettings.pkgConfigPath
+                extSettings.pkgConfigPath,
+                extSettings.workspaceIgnoreDirectories,
             ];
         });
 
@@ -139,6 +146,17 @@ suite('LSP Integration Tests', () => {
         });
     }
 
+    function changeDocument(uri: string, content: string): void {
+        docVersion++;
+        connection.sendNotification(DidChangeTextDocumentNotification.type, {
+            textDocument: {
+                uri,
+                version: docVersion,
+            },
+            contentChanges: [{ text: content }]
+        });
+    }
+
     function waitForDiagnostics(uri: string, timeout = 5000): Promise<PublishDiagnosticsParams> {
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
@@ -150,6 +168,25 @@ suite('LSP Integration Tests', () => {
                 resolve(params);
             }
             diagnosticEmitter.once(uri, handler);
+        });
+    }
+
+    function waitForConfigurationPull(timeout = 5000): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                const index = configurationPullWaiters.indexOf(handler);
+                if (index >= 0) {
+                    configurationPullWaiters.splice(index, 1);
+                }
+                reject(new Error('Timeout waiting for configuration pull'));
+            }, timeout);
+
+            const handler = () => {
+                clearTimeout(timer);
+                resolve();
+            };
+
+            configurationPullWaiters.push(handler);
         });
     }
 
@@ -717,6 +754,50 @@ suite('LSP Integration Tests', () => {
         assert(result.diagnostics.length > 0, 'Unclosed if() should produce diagnostics');
     });
 
+    test('should provide a quick fix code action for command case diagnostics', async function () {
+        const uri = 'file:///test-workspace/code-action-case.txt';
+        const diagPromise = waitForDiagnostics(uri);
+        openDocument(uri, 'PROJECT(MyProject)');
+
+        const diagnostics = await diagPromise;
+        const caseDiagnostic = diagnostics.diagnostics.find(d => d.code === 0);
+        assert(caseDiagnostic !== undefined, 'Should publish a command case diagnostic');
+
+        const actions = await connection.sendRequest(CodeActionRequest.type, {
+            textDocument: { uri },
+            range: caseDiagnostic!.range,
+            context: { diagnostics: [caseDiagnostic!] }
+        });
+
+        assert(actions !== null, 'Code action response should not be null');
+        assert(Array.isArray(actions), 'Code action response should be an array');
+        assert(actions.length > 0, 'Should return at least one code action');
+
+        const quickFix = actions[0] as { title?: string; edit?: { changes?: Record<string, Array<{ newText: string }>> } };
+        assert(quickFix.title?.includes('PROJECT'), 'Quick fix title should reference the offending command');
+        assert.strictEqual(quickFix.edit?.changes?.[uri]?.[0]?.newText, 'project');
+    });
+
+    test('should apply changed configuration to subsequent diagnostics', async function () {
+        extSettings.cmdCaseDiagnostics = false;
+        const configPull = waitForConfigurationPull();
+        connection.sendNotification(DidChangeConfigurationNotification.type, { settings: {} });
+        await configPull;
+
+        const uri = 'file:///test-workspace/diag-case-config-disabled.txt';
+        const diagPromise = waitForDiagnostics(uri);
+        openDocument(uri, 'PROJECT(MyProject)');
+
+        const result = await diagPromise;
+        const caseDiags = result.diagnostics.filter(d => d.code === 0 && d.source === 'cmake-intellisence');
+        assert.strictEqual(caseDiags.length, 0, 'Command case diagnostics should respect updated configuration');
+
+        extSettings.cmdCaseDiagnostics = true;
+        const restoreConfigPull = waitForConfigurationPull();
+        connection.sendNotification(DidChangeConfigurationNotification.type, { settings: {} });
+        await restoreConfigPull;
+    });
+
     //#endregion ── Diagnostics ────────────────────────────────────────────
 
     //#region ── Semantic Tokens ────────────────────────────────────────
@@ -882,6 +963,33 @@ suite('LSP Integration Tests', () => {
         assert(typesUsed.has(6), 'Should emit property tokens for TARGET_PROPERTY property names');
         assert(typesUsed.has(3), 'Should emit enum tokens for CONFIG and COMPILE_LANGUAGE arguments');
         assert(typesUsed.has(12), 'Should emit string tokens for target-name style generator expression arguments');
+    });
+
+    test('should provide semantic token deltas after document changes', async function () {
+        const uri = 'file:///test-workspace/semantic-delta.txt';
+        openDocument(uri, 'set(MY_VAR "hello")\nmessage(STATUS ${MY_VAR})');
+
+        const full = await connection.sendRequest(SemanticTokensRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(full !== null && full.data !== undefined, 'Initial semantic token response should contain data');
+        assert(typeof full.resultId === 'string' && full.resultId.length > 0, 'Initial semantic token response should expose a result id');
+
+        changeDocument(uri, 'set(MY_VAR "goodbye")\nmessage(STATUS ${MY_VAR})\nmessage(STATUS ${MY_VAR})');
+
+        const delta = await connection.sendRequest(SemanticTokensDeltaRequest.type, {
+            textDocument: { uri },
+            previousResultId: full.resultId,
+        });
+
+        assert(delta !== null, 'Semantic token delta response should not be null');
+        const deltaLike = delta as { edits?: Array<unknown>; data?: number[] };
+        if (Array.isArray(deltaLike.edits)) {
+            assert(deltaLike.edits.length > 0, 'Semantic token delta should include edits after a document change');
+        } else {
+            assert(Array.isArray(deltaLike.data) && deltaLike.data.length > 0, 'Fallback full semantic token response should contain data');
+        }
     });
 
     //#endregion ── Semantic Tokens ────────────────────────────────────────
