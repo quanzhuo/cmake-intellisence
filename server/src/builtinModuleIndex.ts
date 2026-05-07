@@ -277,6 +277,7 @@ export async function warmBuiltinModuleCaches(options: BuiltinModuleWarmupOption
     const persisted = await readBuiltinModuleCache(options);
     const persistedEntries = persisted?.entries ?? {};
     const nextEntries: Record<string, PersistedBuiltinModuleEntry> = {};
+    const stagedCaches: Array<{ uri: string; cache: FileSymbolCache }> = [];
     const moduleFiles = await collectBuiltinModuleFiles(options.cmakeModulePath);
     const builtinModuleCommands: string[] = [];
     const seenCommands = new Set<string>();
@@ -298,7 +299,7 @@ export async function warmBuiltinModuleCaches(options: BuiltinModuleWarmupOption
         const persistedEntry = persistedEntries[uri];
         if (isPersistedEntryFresh(persistedEntry, stats)) {
             const cache = deserializeFileSymbolCache(persistedEntry.cache);
-            options.symbolIndex.setCache(uri, cache);
+            stagedCaches.push({ uri, cache });
             nextEntries[uri] = persistedEntry;
             appendBuiltinModuleCommands(builtinModuleCommands, seenCommands, persistedEntry.cache.commands);
             loadedFromCache++;
@@ -306,7 +307,7 @@ export async function warmBuiltinModuleCaches(options: BuiltinModuleWarmupOption
             const text = await fs.promises.readFile(filePath, 'utf8');
             const parsed = parseCMakeText(text);
             const cache = extractSymbols(uri, parsed.flatCommands, URI.file(path.dirname(filePath)), options.symbolIndex);
-            options.symbolIndex.setCache(uri, cache);
+            stagedCaches.push({ uri, cache });
             const serializedCache = serializeFileSymbolCache(cache);
             nextEntries[uri] = {
                 mtimeMs: stats.mtimeMs,
@@ -323,6 +324,9 @@ export async function warmBuiltinModuleCaches(options: BuiltinModuleWarmupOption
     }
 
     if (!options.shouldCancel?.()) {
+        for (const entry of stagedCaches) {
+            options.symbolIndex.setCache(entry.uri, entry.cache);
+        }
         options.symbolIndex.replaceBuiltinModuleCommandCatalog(builtinModuleCommands);
         await writeBuiltinModuleCache(options, nextEntries);
         await writeBuiltinModuleCommandCatalog(options, builtinModuleCommands);

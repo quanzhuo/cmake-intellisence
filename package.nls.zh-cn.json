@@ -2,6 +2,7 @@
     "cmakePath": "设置 CMake 命令的路径",
     "cmdCaseDiagnostics": "是否针对非小写的 cmake 命令生成警告信息",
     "loggingLevel": "控制日志级别",
+    "workspaceIgnoreDirectories": "设置在索引工作区 CMake 文件时需要跳过的目录名列表",
     "diagnostics.breakContinue": "命令 '{0}' 只能在循环中使用",
     "diagnostics.cmdCase": "建议使用小写形式的 CMake 命令",
     "codeAction.cmdCase": "将命令 '{0}' 改为小写形式",

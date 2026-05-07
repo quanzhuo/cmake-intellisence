@@ -16,6 +16,7 @@ export interface ExtensionSettings {
     cmakePath: string;
     pkgConfigPath: string;
     cmdCaseDiagnostics: boolean;
+    workspaceIgnoreDirectories?: string[];
 }
 
 const BUILTIN_ENTRIES_CACHE_VERSION = 1;
@@ -370,12 +371,16 @@ async function writeBuiltinEntriesCache(
         commands: [...entries[4]],
     };
 
+    let tmpFile: string | undefined;
     try {
         await mkdir_p(path.dirname(filePath));
-        const tmpFile = `${filePath}.${process.pid}.tmp`;
+        tmpFile = `${filePath}.${process.pid}.tmp`;
         await fs.promises.writeFile(tmpFile, JSON.stringify(payload), 'utf8');
         await fs.promises.rename(tmpFile, filePath);
     } catch {
+        if (tmpFile) {
+            await fs.promises.rm(tmpFile, { force: true }).catch(() => undefined);
+        }
         // Cache write failures should never block environment initialization.
     }
 }

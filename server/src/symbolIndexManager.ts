@@ -1,0 +1,74 @@
+import { hydrateBuiltinModuleCacheEntry } from './builtinModuleIndex';
+import { isCancellationError, throwIfCancelled } from './cancellation';
+import { SymbolIndex } from './symbolIndex';
+
+type DependencyErrorAction = 'continue' | 'throw';
+
+export interface PopulateIndexTopDownOptions {
+    rootUri: string;
+    symbolIndex: SymbolIndex;
+    loadFlatCommands: (uri: string) => Promise<unknown>;
+    shouldCancel?: () => boolean;
+    visited?: Set<string>;
+    onDependencyError?: (uri: string, error: unknown) => DependencyErrorAction | Promise<DependencyErrorAction>;
+}
+
+export async function ensureSymbolIndexCache(
+    symbolIndex: SymbolIndex,
+    loadFlatCommands: (uri: string) => Promise<unknown>,
+    uri: string,
+    shouldCancel?: () => boolean,
+): Promise<void> {
+    if (symbolIndex.getCache(uri)) {
+        return;
+    }
+
+    let hydrated = false;
+    if (symbolIndex.cmakeModulePath) {
+        hydrated = await hydrateBuiltinModuleCacheEntry({
+            symbolIndex,
+            cmakePath: symbolIndex.cmakePath,
+            cmakeVersion: symbolIndex.cmakeVersion,
+            cmakeModulePath: symbolIndex.cmakeModulePath,
+        }, uri);
+    }
+
+    if (!hydrated) {
+        throwIfCancelled(shouldCancel);
+        await loadFlatCommands(uri);
+    }
+}
+
+export async function populateIndexTopDown(options: PopulateIndexTopDownOptions): Promise<void> {
+    const visited = options.visited ?? new Set<string>();
+    const stack = [options.rootUri];
+
+    while (stack.length > 0) {
+        throwIfCancelled(options.shouldCancel);
+        const uri = stack.pop()!;
+        if (visited.has(uri)) {
+            continue;
+        }
+        visited.add(uri);
+
+        try {
+            await ensureSymbolIndexCache(options.symbolIndex, options.loadFlatCommands, uri, options.shouldCancel);
+            throwIfCancelled(options.shouldCancel);
+        } catch (error) {
+            if (isCancellationError(error)) {
+                throw error;
+            }
+
+            const action = await options.onDependencyError?.(uri, error) ?? 'throw';
+            if (action === 'continue') {
+                continue;
+            }
+            throw error;
+        }
+
+        const dependencies = options.symbolIndex.getAvailableDependencies(uri);
+        for (let index = dependencies.length - 1; index >= 0; index--) {
+            stack.push(dependencies[index].uri);
+        }
+    }
+}

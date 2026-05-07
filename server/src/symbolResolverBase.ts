@@ -3,12 +3,12 @@ import * as path from "path";
 import { TextDocuments } from "vscode-languageserver";
 import { Position, TextDocument } from "vscode-languageserver-textdocument";
 import { URI, Utils } from "vscode-uri";
-import { hydrateBuiltinModuleCacheEntry } from "./builtinModuleIndex";
 import { throwIfCancelled } from "./cancellation";
 import { FlatCommand } from "./flatCommands";
 import { Logger } from "./logging";
 import { getWordAtPosition } from "./server";
 import { SymbolIndex } from "./symbolIndex";
+import { populateIndexTopDown } from "./symbolIndexManager";
 
 export enum DestinationType {
     Command,
@@ -43,7 +43,17 @@ export abstract class SymbolResolverBase {
         }
 
         // Ensure the symbol index is fully populated starting from the root file
-        await this.populateIndexTopDown(this.entryFile.toString(), new Set());
+        await populateIndexTopDown({
+            rootUri: this.entryFile.toString(),
+            visited: new Set(),
+            symbolIndex: this.symbolIndex,
+            loadFlatCommands: this.getFlatCommands,
+            shouldCancel: this.shouldCancel,
+            onDependencyError: async (uri, error): Promise<'continue'> => {
+                this.logger.error(`Failed to index dependency ${uri}`, error as Error);
+                return 'continue';
+            },
+        });
     }
 
     protected getTargetWord(document: TextDocument, position: Position): string | null {
@@ -76,33 +86,5 @@ export abstract class SymbolResolverBase {
 
     protected isBuiltinCommand(commandName: string): boolean {
         return this.symbolIndex.hasBuiltinCommand(commandName);
-    }
-
-    private async populateIndexTopDown(uri: string, visited: Set<string>): Promise<void> {
-        throwIfCancelled(this.shouldCancel);
-        if (visited.has(uri)) { return; }
-        visited.add(uri);
-
-        if (!this.symbolIndex.getCache(uri)) {
-            let hydrated = false;
-            if (this.symbolIndex.cmakeModulePath) {
-                hydrated = await hydrateBuiltinModuleCacheEntry({
-                    symbolIndex: this.symbolIndex,
-                    cmakePath: this.symbolIndex.cmakePath,
-                    cmakeVersion: this.symbolIndex.cmakeVersion,
-                    cmakeModulePath: this.symbolIndex.cmakeModulePath,
-                }, uri);
-            }
-
-            if (!hydrated) {
-                throwIfCancelled(this.shouldCancel);
-                await this.getFlatCommands(uri); // Causes symbolIndex to cache this file
-            }
-        }
-
-        for (const dep of this.symbolIndex.getAvailableDependencies(uri)) {
-            throwIfCancelled(this.shouldCancel);
-            await this.populateIndexTopDown(dep.uri, visited);
-        }
     }
 }

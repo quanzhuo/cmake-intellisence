@@ -6,7 +6,7 @@ import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocumen
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
 import { CancellationToken, CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
-import { hydrateBuiltinModuleCacheEntry, loadBuiltinModuleCommandCatalog, warmBuiltinModuleCaches } from './builtinModuleIndex';
+import { loadBuiltinModuleCommandCatalog, warmBuiltinModuleCaches } from './builtinModuleIndex';
 import { isCancellationError, throwIfCancelled } from './cancellation';
 import { BuiltinEntriesLoadStats, ExtensionSettings, ProjectTargetInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
 import Completion, { CMakeCompletionType, CompletionItemType, ProjectTargetInfo, findCommandAtPosition, findRecoveredCommandInfoAtPosition, getCompletionHelpLabel, getCompletionInfoAtCursor, getCompletionItemType, getCompletionWorkspaceKey, inComments } from './completion';
@@ -28,6 +28,7 @@ import { SemanticTokenListener, getTokenBuilder, getTokenModifiers, getTokenType
 import { buildSignatureHelp, buildSignatureHelpForInvocation } from './signatureHelp';
 import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex } from './symbolIndex';
+import { populateIndexTopDown } from './symbolIndexManager';
 import { READY_NOTIFICATION } from './testing';
 import { ParsedCMakeFile, getFileContent, parseCMakeText } from './utils';
 import { WorkspaceSymbolResolver } from './workspaceSymbol';
@@ -43,12 +44,23 @@ type WorkspaceState = {
     symbolIndex: SymbolIndex;
     projectTargetInfo?: ProjectTargetInfo;
     projectTargetInfoDirty: boolean;
+    projectTargetInfoVersion: number;
+    projectTargetInfoBuild?: Promise<ProjectTargetInfo>;
     workspaceIndexing?: Promise<void>;
-    cmakeHelpCache: Map<string, Promise<string | null>>;
+    workspaceIndexingGeneration?: number;
+    cmakeHelpCache: Map<string, HelpCacheEntry>;
     environmentInitialization?: Promise<void>;
     environmentGeneration: number;
+    environmentReady: boolean;
     extSettings: ExtensionSettings;
 };
+
+type HelpCacheEntry = {
+    request: Promise<string | null>;
+    expiresAt?: number;
+};
+
+const CMAKE_HELP_NULL_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export function getWordAtPosition(textDocument: TextDocument, position: Position): Word {
     const lineRange: Range = {
@@ -87,6 +99,7 @@ export class CMakeLanguageServer {
         loggingLevel: 'off',
         cmdCaseDiagnostics: false,
         pkgConfigPath: 'pkg-config',
+        workspaceIgnoreDirectories: ['.git', '.hg', '.svn', 'node_modules', 'dist', 'out', 'build', 'cmake-build-debug', 'cmake-build-release'],
     };
 
     constructor() {
@@ -136,8 +149,10 @@ export class CMakeLanguageServer {
             workspaceFolder,
             symbolIndex: new SymbolIndex(),
             projectTargetInfoDirty: false,
-            cmakeHelpCache: new Map<string, Promise<string | null>>(),
+            projectTargetInfoVersion: 0,
+            cmakeHelpCache: new Map<string, HelpCacheEntry>(),
             environmentGeneration: 0,
+            environmentReady: false,
             extSettings: { ...this.defaultExtSettings },
         };
     }
@@ -218,7 +233,7 @@ export class CMakeLanguageServer {
 
         const result: InitializeResult = {
             capabilities: {
-                textDocumentSync: TextDocumentSyncKind.Incremental,
+                textDocumentSync: TextDocumentSyncKind.Full,
                 hoverProvider: true,
                 signatureHelpProvider: {
                     triggerCharacters: ['('],
@@ -706,14 +721,26 @@ export class CMakeLanguageServer {
         await Promise.all(this.getWorkspaceFolders().map(async folder => {
             const workspaceState = this.getWorkspaceState(folder);
             const extSettings = await this.getExtSettings(folder.toString());
-            if (extSettings.cmakePath !== workspaceState.extSettings.cmakePath || extSettings.pkgConfigPath !== workspaceState.extSettings.pkgConfigPath) {
-                workspaceState.environmentInitialization = this.initializeEnvironment(folder, extSettings);
-                await workspaceState.environmentInitialization;
+            const environmentChanged = extSettings.cmakePath !== workspaceState.extSettings.cmakePath
+                || extSettings.pkgConfigPath !== workspaceState.extSettings.pkgConfigPath;
+            const workspaceIgnoreDirectoriesChanged = !this.haveSameStringEntries(
+                this.getWorkspaceIgnoreDirectories(workspaceState.extSettings),
+                this.getWorkspaceIgnoreDirectories(extSettings),
+            );
+
+            if (environmentChanged) {
+                await this.startEnvironmentInitialization(folder, extSettings);
+                this.clearWorkspaceFolderSnapshots(folder);
                 await this.ensureWorkspaceFolderIndexed(folder);
                 return;
             }
             workspaceState.extSettings = extSettings;
             this.logger.setLevel(extSettings.loggingLevel);
+
+            if (workspaceIgnoreDirectoriesChanged) {
+                this.clearWorkspaceFolderSnapshots(folder);
+                await this.ensureWorkspaceFolderIndexed(folder);
+            }
         }));
     }
 
@@ -770,7 +797,7 @@ export class CMakeLanguageServer {
         return linkInfo.links;
     }
 
-    private onDidClose(event: TextDocumentChangeEvent<TextDocument>) {
+    private async onDidClose(event: TextDocumentChangeEvent<TextDocument>) {
         const uri = event.document.uri;
         tokenBuilders.delete(uri);
         this.fileContexts.delete(uri);
@@ -781,15 +808,14 @@ export class CMakeLanguageServer {
         const isPersistedWorkspaceFile = this.isUriInsideWorkspace(docUri, workspaceFolderUri) && fs.existsSync(docUri.fsPath);
 
         if (isPersistedWorkspaceFile) {
-            this.indexWorkspaceFile(uri);
+            await this.indexWorkspaceFile(uri);
         } else {
             this.flatCommandsMap.delete(uri);
             this.getWorkspaceState(workspaceFolderUri).symbolIndex.deleteCache(uri);
         }
 
         const workspaceState = this.getWorkspaceState(workspaceFolderUri);
-        workspaceState.projectTargetInfo = undefined;
-        workspaceState.projectTargetInfoDirty = false;
+        this.resetProjectTargetInfo(workspaceState, false);
     }
 
     private onShutdown() {
@@ -801,7 +827,15 @@ export class CMakeLanguageServer {
     // #endregion
 
     private markProjectTargetInfoDirty(docUri: string) {
-        this.getWorkspaceStateForUri(docUri).projectTargetInfoDirty = true;
+        const workspaceState = this.getWorkspaceStateForUri(docUri);
+        workspaceState.projectTargetInfoDirty = true;
+        workspaceState.projectTargetInfoVersion++;
+    }
+
+    private resetProjectTargetInfo(workspaceState: WorkspaceState, dirty: boolean) {
+        workspaceState.projectTargetInfo = undefined;
+        workspaceState.projectTargetInfoDirty = dirty;
+        workspaceState.projectTargetInfoVersion++;
     }
 
     private getWorkspaceFolderForUri(docUri: string): URI {
@@ -837,6 +871,53 @@ export class CMakeLanguageServer {
         return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
     }
 
+    private haveSameStringEntries(left: string[], right: string[]): boolean {
+        if (left.length !== right.length) {
+            return false;
+        }
+
+        const leftSet = new Set(left);
+        if (leftSet.size !== right.length) {
+            return false;
+        }
+
+        return right.every(entry => leftSet.has(entry));
+    }
+
+    private getWorkspaceIgnoreDirectories(settings: ExtensionSettings): string[] {
+        return settings.workspaceIgnoreDirectories ?? this.defaultExtSettings.workspaceIgnoreDirectories ?? [];
+    }
+
+    private clearWorkspaceFolderSnapshots(workspaceFolder: URI): void {
+        for (const uri of [...this.fileContexts.keys()]) {
+            if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
+                this.fileContexts.delete(uri);
+            }
+        }
+
+        for (const uri of [...this.tokenStreams.keys()]) {
+            if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
+                this.tokenStreams.delete(uri);
+            }
+        }
+
+        for (const uri of [...this.flatCommandsMap.keys()]) {
+            if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
+                this.flatCommandsMap.delete(uri);
+            }
+        }
+
+        for (const uri of [...this.commentsMap.keys()]) {
+            if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
+                this.commentsMap.delete(uri);
+            }
+        }
+
+        const workspaceState = this.getWorkspaceState(workspaceFolder);
+        workspaceState.symbolIndex.deleteCachesInDirectory(workspaceFolder.fsPath);
+        this.resetProjectTargetInfo(workspaceState, false);
+    }
+
     private async ensureAllWorkspaceFoldersIndexed(): Promise<void> {
         await Promise.all(this.getWorkspaceFolders().map(folder => this.ensureWorkspaceFolderIndexed(folder)));
     }
@@ -847,24 +928,43 @@ export class CMakeLanguageServer {
 
     private ensureWorkspaceFolderIndexed(workspaceFolder: URI): Promise<void> {
         const workspaceState = this.getWorkspaceState(workspaceFolder);
+        const generation = workspaceState.environmentGeneration;
         const existing = workspaceState.workspaceIndexing;
-        if (existing) {
+        if (existing && workspaceState.workspaceIndexingGeneration === generation) {
             return existing;
         }
 
-        const indexing = this.indexWorkspaceFolder(workspaceFolder).catch(error => {
-            workspaceState.workspaceIndexing = undefined;
-            this.logger.error(`Failed to index workspace folder ${workspaceFolder.fsPath}`, error as Error);
-        });
+        const indexing = this.indexWorkspaceFolder(workspaceFolder, generation)
+            .catch(error => {
+                this.logger.error(`Failed to index workspace folder ${workspaceFolder.fsPath}`, error as Error);
+            })
+            .finally(() => {
+                if (workspaceState.workspaceIndexing === indexing) {
+                    workspaceState.workspaceIndexing = undefined;
+                    workspaceState.workspaceIndexingGeneration = undefined;
+                }
+            });
         workspaceState.workspaceIndexing = indexing;
+        workspaceState.workspaceIndexingGeneration = generation;
         return indexing;
     }
 
-    private async indexWorkspaceFolder(workspaceFolder: URI): Promise<void> {
+    private async indexWorkspaceFolder(workspaceFolder: URI, generation: number): Promise<void> {
         const start = Date.now();
-        const files = await this.collectWorkspaceCMakeFiles(workspaceFolder.fsPath);
+        const workspaceState = this.getWorkspaceState(workspaceFolder);
+        const files = await this.collectWorkspaceCMakeFiles(
+            workspaceFolder.fsPath,
+            this.getWorkspaceIgnoreDirectories(workspaceState.extSettings),
+        );
         for (const filePath of files) {
-            await this.indexWorkspaceFile(URI.file(filePath).toString());
+            if (!this.isEnvironmentGenerationCurrent(workspaceFolder, generation)) {
+                return;
+            }
+            await this.indexWorkspaceFile(URI.file(filePath).toString(), generation);
+        }
+
+        if (!this.isEnvironmentGenerationCurrent(workspaceFolder, generation)) {
+            return;
         }
 
         const elapsedMs = Date.now() - start;
@@ -873,9 +973,13 @@ export class CMakeLanguageServer {
         );
     }
 
-    private async collectWorkspaceCMakeFiles(rootPath: string): Promise<string[]> {
+    private isEnvironmentGenerationCurrent(workspaceFolder: URI, generation: number): boolean {
+        return this.getWorkspaceState(workspaceFolder).environmentGeneration === generation;
+    }
+
+    private async collectWorkspaceCMakeFiles(rootPath: string, ignoredDirectoryNames: readonly string[]): Promise<string[]> {
         const results: string[] = [];
-        const ignoredDirectories = new Set(['.git', '.hg', '.svn', 'node_modules', 'dist', 'out', 'build', 'cmake-build-debug', 'cmake-build-release']);
+        const ignoredDirectories = new Set(ignoredDirectoryNames);
 
         const visit = async (dirPath: string): Promise<void> => {
             const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
@@ -904,14 +1008,17 @@ export class CMakeLanguageServer {
         return results;
     }
 
-    private async indexWorkspaceFile(uri: string): Promise<void> {
+    private async indexWorkspaceFile(uri: string, generation?: number): Promise<void> {
         const text = await getFileContent(this.documents, URI.parse(uri));
         const parsedFile = this.parseCMakeFile({ uri, getText: () => text }, 'workspace index');
-        this.storeParsedFileSnapshot(uri, parsedFile);
+        this.storeParsedFileSnapshot(uri, parsedFile, generation);
     }
 
-    private storeParsedFileSnapshot(uri: string, parsedFile: ParsedCMakeFile) {
+    private storeParsedFileSnapshot(uri: string, parsedFile: ParsedCMakeFile, generation?: number) {
         const workspaceState = this.getWorkspaceStateForUri(uri);
+        if (generation !== undefined && workspaceState.environmentGeneration !== generation) {
+            return;
+        }
         this.fileContexts.set(uri, parsedFile.fileContext);
         this.tokenStreams.set(uri, parsedFile.tokenStream);
         this.flatCommandsMap.set(uri, parsedFile.flatCommands);
@@ -959,50 +1066,19 @@ export class CMakeLanguageServer {
         await this.parseAndStoreFileAsync(uri);
     }
 
-    private async ensureDependencyIndexed(uri: string): Promise<void> {
-        const workspaceState = this.getWorkspaceStateForUri(uri);
-        if (workspaceState.symbolIndex.getCache(uri)) {
-            return;
-        }
-
-        if (workspaceState.symbolIndex.cmakeModulePath) {
-            const hydrated = await hydrateBuiltinModuleCacheEntry({
-                symbolIndex: workspaceState.symbolIndex,
-                cmakePath: workspaceState.symbolIndex.cmakePath,
-                cmakeVersion: workspaceState.symbolIndex.cmakeVersion,
-                cmakeModulePath: workspaceState.symbolIndex.cmakeModulePath,
-            }, uri);
-            if (hydrated) {
-                return;
-            }
-        }
-
-        await this.ensureParsedFile(uri);
-    }
-
     private async populateIndexTopDownAsync(uri: string, visited: Set<string>, token?: CancellationToken): Promise<void> {
-        throwIfCancelled(token);
-        if (visited.has(uri)) {
-            return;
-        }
-        visited.add(uri);
-
-        try {
-            await this.ensureDependencyIndexed(uri);
-            throwIfCancelled(token);
-        } catch (error) {
-            if (isCancellationError(error)) {
-                throw error;
-            }
-            this.logger.error(`Failed to parse dependency during completion: ${uri}`, error as Error);
-            return;
-        }
-
         const workspaceState = this.getWorkspaceStateForUri(uri);
-        for (const dep of workspaceState.symbolIndex.getAvailableDependencies(uri)) {
-            throwIfCancelled(token);
-            await this.populateIndexTopDownAsync(dep.uri, visited, token);
-        }
+        await populateIndexTopDown({
+            rootUri: uri,
+            visited,
+            symbolIndex: workspaceState.symbolIndex,
+            loadFlatCommands: this.getFlatCommandsAsync.bind(this),
+            shouldCancel: () => token?.isCancellationRequested ?? false,
+            onDependencyError: async (dependencyUri, error): Promise<'continue'> => {
+                this.logger.error(`Failed to parse dependency during completion: ${dependencyUri}`, error as Error);
+                return 'continue';
+            },
+        });
     }
 
     private async rebuildProjectTargetInfoForUri(docUri: string): Promise<ProjectTargetInfo> {
@@ -1023,8 +1099,6 @@ export class CMakeLanguageServer {
             workspaceFolder.fsPath,
         );
         await targetInfoListener.processCommands(commands);
-        workspaceState.projectTargetInfo = targetInfoListener.targetInfo;
-        workspaceState.projectTargetInfoDirty = false;
         return targetInfoListener.targetInfo;
     }
 
@@ -1034,6 +1108,28 @@ export class CMakeLanguageServer {
         if (workspaceState.projectTargetInfo && !workspaceState.projectTargetInfoDirty) {
             return workspaceState.projectTargetInfo;
         }
+
+        if (workspaceState.projectTargetInfoBuild) {
+            return await workspaceState.projectTargetInfoBuild;
+        }
+
+        const buildPromise = this.buildProjectTargetInfoForUri(workspaceState, workspaceFolder, docUri, entryUri)
+            .finally(() => {
+                if (workspaceState.projectTargetInfoBuild === buildPromise) {
+                    workspaceState.projectTargetInfoBuild = undefined;
+                }
+            });
+        workspaceState.projectTargetInfoBuild = buildPromise;
+        return await buildPromise;
+    }
+
+    private async buildProjectTargetInfoForUri(
+        workspaceState: WorkspaceState,
+        workspaceFolder: URI,
+        docUri: string,
+        entryUri?: string,
+    ): Promise<ProjectTargetInfo> {
+        const targetInfoVersion = workspaceState.projectTargetInfoVersion;
 
         if (entryUri) {
             const projectRootCMake = Utils.joinPath(workspaceFolder, 'CMakeLists.txt');
@@ -1049,13 +1145,21 @@ export class CMakeLanguageServer {
                     workspaceFolder.fsPath,
                 );
                 await targetInfoListener.processCommands(commands);
-                workspaceState.projectTargetInfo = targetInfoListener.targetInfo;
-                workspaceState.projectTargetInfoDirty = false;
-                return targetInfoListener.targetInfo;
+                const targetInfo = targetInfoListener.targetInfo;
+                if (targetInfoVersion === workspaceState.projectTargetInfoVersion) {
+                    workspaceState.projectTargetInfo = targetInfo;
+                    workspaceState.projectTargetInfoDirty = false;
+                }
+                return targetInfo;
             }
         }
 
-        return await this.rebuildProjectTargetInfoForUri(docUri);
+        const targetInfo = await this.rebuildProjectTargetInfoForUri(docUri);
+        if (targetInfoVersion === workspaceState.projectTargetInfoVersion) {
+            workspaceState.projectTargetInfo = targetInfo;
+            workspaceState.projectTargetInfoDirty = false;
+        }
+        return targetInfo;
     }
 
     private async getExtSettings(scopeUri?: string): Promise<ExtensionSettings> {
@@ -1064,29 +1168,40 @@ export class CMakeLanguageServer {
             loggingLevel,
             cmdCaseDiagnostics,
             pkgConfigPath,
+            workspaceIgnoreDirectories,
         ] = await this.connection.workspace.getConfiguration([
             { section: 'cmakeIntelliSence.cmakePath', scopeUri },
             { section: 'cmakeIntelliSence.loggingLevel', scopeUri },
             { section: 'cmakeIntelliSence.cmdCaseDiagnostics', scopeUri },
             { section: 'cmakeIntelliSence.pkgConfigPath', scopeUri },
+            { section: 'cmakeIntelliSence.workspaceIgnoreDirectories', scopeUri },
         ]);
+
+        const normalizedWorkspaceIgnoreDirectories = Array.isArray(workspaceIgnoreDirectories)
+            ? workspaceIgnoreDirectories
+                .filter((entry): entry is string => typeof entry === 'string')
+                .map(entry => entry.trim())
+                .filter(Boolean)
+            : this.defaultExtSettings.workspaceIgnoreDirectories;
 
         return {
             cmakePath,
             loggingLevel,
             cmdCaseDiagnostics,
             pkgConfigPath,
+            workspaceIgnoreDirectories: normalizedWorkspaceIgnoreDirectories,
         };
     }
 
     private async initializeEnvironment(workspaceFolder: URI, settings?: ExtensionSettings): Promise<void> {
         const workspaceState = this.getWorkspaceState(workspaceFolder);
         const generation = ++workspaceState.environmentGeneration;
+        workspaceState.environmentReady = false;
         workspaceState.extSettings = settings ?? await this.getExtSettings(workspaceFolder.toString());
         this.logger.setLevel(workspaceState.extSettings.loggingLevel);
         workspaceState.workspaceIndexing = undefined;
-        workspaceState.projectTargetInfo = undefined;
-        workspaceState.projectTargetInfoDirty = false;
+        workspaceState.workspaceIndexingGeneration = undefined;
+        this.resetProjectTargetInfo(workspaceState, false);
         workspaceState.cmakeHelpCache.clear();
         const previousModulePath = workspaceState.symbolIndex.cmakeModulePath;
         if (previousModulePath) {
@@ -1112,9 +1227,13 @@ export class CMakeLanguageServer {
                     this.logger.debug(`Loaded builtin module command catalog: commands=${catalog.length}`);
                 }
             }
+            if (generation === workspaceState.environmentGeneration) {
+                workspaceState.environmentReady = true;
+            }
         } catch (e: any) {
             this.logger.error('Failed to initialize CMake environment', e instanceof Error ? e : new Error(String(e)));
             this.connection.window.showErrorMessage(e.message);
+            workspaceState.environmentReady = false;
         }
 
         void this.warmBuiltinModuleCachesInBackground(workspaceState, generation);
@@ -1159,16 +1278,34 @@ export class CMakeLanguageServer {
         }
 
         const workspaceState = this.getWorkspaceState(workspaceFolder);
-        if (workspaceState.environmentInitialization) {
-            await workspaceState.environmentInitialization;
-        }
-
-        if (workspaceState.symbolIndex.getSystemCache().commands.size > 0) {
+        if (workspaceState.environmentReady) {
             return;
         }
 
-        workspaceState.environmentInitialization = this.initializeEnvironment(workspaceFolder);
-        await workspaceState.environmentInitialization;
+        await this.startEnvironmentInitialization(workspaceFolder);
+    }
+
+    private async startEnvironmentInitialization(workspaceFolder: URI, settings?: ExtensionSettings): Promise<void> {
+        const workspaceState = this.getWorkspaceState(workspaceFolder);
+        if (workspaceState.environmentInitialization) {
+            await workspaceState.environmentInitialization;
+            if (!workspaceState.environmentReady) {
+                throw new Error(`Failed to initialize CMake environment for ${workspaceFolder.fsPath}`);
+            }
+            return;
+        }
+
+        const initialization = this.initializeEnvironment(workspaceFolder, settings)
+            .finally(() => {
+                if (workspaceState.environmentInitialization === initialization) {
+                    workspaceState.environmentInitialization = undefined;
+                }
+            });
+        workspaceState.environmentInitialization = initialization;
+        await initialization;
+        if (!workspaceState.environmentReady) {
+            throw new Error(`Failed to initialize CMake environment for ${workspaceFolder.fsPath}`);
+        }
     }
 
     private requireCachedValue<T>(cacheName: string, uri: string, value: T | undefined): T {
@@ -1203,11 +1340,17 @@ export class CMakeLanguageServer {
     private getCMakeHelp(workspaceState: WorkspaceState, helpArg: string, label: string, logErrors = false): Promise<string | null> {
         const cacheKey = `${helpArg}\0${label}`;
         const existing = workspaceState.cmakeHelpCache.get(cacheKey);
+        if (existing && (!existing.expiresAt || existing.expiresAt > Date.now())) {
+            return existing.request;
+        }
         if (existing) {
-            return existing;
+            workspaceState.cmakeHelpCache.delete(cacheKey);
         }
 
-        const request = execFilePromise(workspaceState.symbolIndex.cmakePath, [helpArg, label])
+        const cacheEntry: HelpCacheEntry = {
+            request: Promise.resolve(null),
+        };
+        cacheEntry.request = execFilePromise(workspaceState.symbolIndex.cmakePath, [helpArg, label])
             .then(({ stdout }) => rstToMarkdown(stdout))
             .catch((error: ExecFileFailure) => {
                 if (logErrors) {
@@ -1216,15 +1359,18 @@ export class CMakeLanguageServer {
                 // Only evict the cache when cmake ran but reported "topic not found"
                 // (exit code is a number).  For OS-level spawn errors (code is a string,
                 // e.g. 'EINVAL' when cmake is a .bat file) keep the null result cached
-                // so we don't retry on every hover and flood the user with errors.
+                // so we don't retry on every hover and flood the user with errors,
+                // but still eventually retry in case the executable/environment changed.
                 if (typeof error.code === 'number') {
                     workspaceState.cmakeHelpCache.delete(cacheKey);
+                } else {
+                    cacheEntry.expiresAt = Date.now() + CMAKE_HELP_NULL_CACHE_TTL_MS;
                 }
                 return null;
             });
 
-        workspaceState.cmakeHelpCache.set(cacheKey, request);
-        return request;
+        workspaceState.cmakeHelpCache.set(cacheKey, cacheEntry);
+        return cacheEntry.request;
     }
 }
 

@@ -11,6 +11,31 @@ import { SymbolIndex, SymbolKind } from "./symbolIndex";
 
 export { builtinCmds };
 
+const FILE_SUGGESTION_STAT_CONCURRENCY = 10;
+
+async function mapWithConcurrency<TInput, TOutput>(
+    inputs: TInput[],
+    limit: number,
+    mapper: (input: TInput) => Promise<TOutput>,
+): Promise<TOutput[]> {
+    if (inputs.length === 0) {
+        return [];
+    }
+
+    const results = new Array<TOutput>(inputs.length);
+    let nextIndex = 0;
+    const workerCount = Math.min(limit, inputs.length);
+
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+        while (nextIndex < inputs.length) {
+            const currentIndex = nextIndex++;
+            results[currentIndex] = await mapper(inputs[currentIndex]);
+        }
+    }));
+
+    return results;
+}
+
 export enum CMakeCompletionType {
     Command,
     Module,
@@ -1227,14 +1252,19 @@ export default class Completion {
         const filteredFiles = files.filter(file => file.includes(filter));
 
         // Create completion items
-        const suggestions: CompletionItem[] = await Promise.all(filteredFiles.map(async (file) => {
+        const suggestions = (await mapWithConcurrency(filteredFiles, FILE_SUGGESTION_STAT_CONCURRENCY, async (file) => {
             const filePath = path.join(dir, file);
-            const stat = await fs.promises.stat(filePath);
-            return {
-                label: file,
-                kind: stat.isDirectory() ? CompletionItemKind.Folder : CompletionItemKind.File,
-            };
-        }));
+            try {
+                const stat = await fs.promises.stat(filePath);
+                return {
+                    label: file,
+                    kind: stat.isDirectory() ? CompletionItemKind.Folder : CompletionItemKind.File,
+                } as CompletionItem;
+            } catch (error) {
+                this.logger.warning(`Error stating completion candidate ${filePath}: ${error}`);
+                return null;
+            }
+        })).filter((item): item is CompletionItem => item !== null);
 
         return suggestions;
     }

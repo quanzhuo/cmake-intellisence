@@ -104,6 +104,24 @@
             "default": "pkg-config",
             "description": "%pkgConfigPath%"
           },
+          "cmakeIntelliSence.workspaceIgnoreDirectories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              ".git",
+              ".hg",
+              ".svn",
+              "node_modules",
+              "dist",
+              "out",
+              "build",
+              "cmake-build-debug",
+              "cmake-build-release"
+            ],
+            "description": "%workspaceIgnoreDirectories%"
+          },
           "cmakeIntelliSence.cmdCaseDiagnostics": {
             "type": "boolean",
             "description": "%cmdCaseDiagnostics%",

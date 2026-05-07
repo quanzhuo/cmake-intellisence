@@ -203,4 +203,44 @@ suite('Builtin Module Index Tests', () => {
             fs.rmSync(tempRoot, { recursive: true, force: true });
         }
     });
+
+    test('warmBuiltinModuleCaches should not publish partial caches when cancelled mid-flight', async () => {
+        const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-builtin-cancel-'));
+        const moduleDir = path.join(tempRoot, 'Modules');
+        const previousLocalAppData = process.env.LOCALAPPDATA;
+        const previousAppData = process.env.APPDATA;
+        process.env.LOCALAPPDATA = tempRoot;
+        process.env.APPDATA = tempRoot;
+        fs.mkdirSync(moduleDir, { recursive: true });
+        fs.writeFileSync(path.join(moduleDir, 'Foo.cmake'), 'function(Foo_DoWork)\nendfunction()\n', 'utf8');
+        fs.writeFileSync(path.join(moduleDir, 'Bar.cmake'), 'function(Bar_DoWork)\nendfunction()\n', 'utf8');
+
+        try {
+            const symbolIndex = new SymbolIndex();
+            symbolIndex.cmakeModulePath = moduleDir;
+            let cancelled = false;
+            let callCount = 0;
+
+            await warmBuiltinModuleCaches({
+                symbolIndex,
+                cmakePath: 'cmake',
+                cmakeVersion: '3.29.0',
+                cmakeModulePath: moduleDir,
+                shouldCancel: () => {
+                    callCount++;
+                    if (callCount > 1) {
+                        cancelled = true;
+                    }
+                    return cancelled;
+                },
+            });
+
+            assert.strictEqual(symbolIndex.getAllCaches().length, 0);
+            assert.strictEqual(Array.from(symbolIndex.getAllBuiltinCommands()).length, 0);
+        } finally {
+            process.env.LOCALAPPDATA = previousLocalAppData;
+            process.env.APPDATA = previousAppData;
+            fs.rmSync(tempRoot, { recursive: true, force: true });
+        }
+    });
 });

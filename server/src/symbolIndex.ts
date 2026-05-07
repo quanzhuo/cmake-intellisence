@@ -6,6 +6,9 @@ function pathSeparatorFor(fsPath: string): '\\' | '/' {
     return fsPath.includes('\\') ? '\\' : '/';
 }
 
+const DEFAULT_MAX_FILE_CACHES = 2048;
+const MAX_VISIBLE_FILES_DEPTH = 100;
+
 export enum SymbolKind {
     // eslint-disable-next-line @typescript-eslint/naming-convention
     Function,
@@ -144,6 +147,9 @@ export class SymbolIndex {
     private systemCache: FileSymbolCache = new FileSymbolCache('cmake-builtin://system');
     private builtinModuleCommandCatalog: Map<string, string> = new Map();
 
+    constructor(private readonly maxFileCaches: number = DEFAULT_MAX_FILE_CACHES) {
+    }
+
     setSystemCache(cache: FileSymbolCache): void {
         this.systemCache = cache;
     }
@@ -177,11 +183,32 @@ export class SymbolIndex {
     }
 
     setCache(uri: string, cache: FileSymbolCache): void {
+        if (this.fileCaches.has(uri)) {
+            this.fileCaches.delete(uri);
+        }
         this.fileCaches.set(uri, cache);
+        this.evictLeastRecentlyUsedCaches();
     }
 
     getCache(uri: string): FileSymbolCache | undefined {
-        return this.fileCaches.get(uri);
+        const cache = this.fileCaches.get(uri);
+        if (!cache) {
+            return undefined;
+        }
+
+        this.fileCaches.delete(uri);
+        this.fileCaches.set(uri, cache);
+        return cache;
+    }
+
+    private evictLeastRecentlyUsedCaches(): void {
+        while (this.fileCaches.size > this.maxFileCaches) {
+            const oldestUri = this.fileCaches.keys().next().value as string | undefined;
+            if (!oldestUri) {
+                return;
+            }
+            this.fileCaches.delete(oldestUri);
+        }
     }
 
     deleteCache(uri: string): void {
@@ -487,58 +514,66 @@ export class SymbolIndex {
      * precisely simulating CMake's dynamic scoping (include vs add_subdirectory).
      */
     public getVisibleFilesForVariable(startUri: string, targetUri: string): string[] {
-        let resultPath: string[] | null = null;
         const visited = new Set<string>();
+        const stack: Array<{ uri: string; visibleFiles: string[]; depth: number }> = [{ uri: startUri, visibleFiles: [], depth: 0 }];
 
-        const simulateExecution = (currentUri: string, visibleFiles: string[]): boolean => {
-            if (visited.has(currentUri)) {
-                return false;
+        while (stack.length > 0) {
+            const current = stack.pop()!;
+            if (current.depth > MAX_VISIBLE_FILES_DEPTH || visited.has(current.uri)) {
+                continue;
             }
-            visited.add(currentUri);
+            visited.add(current.uri);
 
-            visibleFiles.push(currentUri);
+            const visibleFiles = [...current.visibleFiles, current.uri];
+            if (current.uri === targetUri) {
+                return this.collectVisibleIncludes(targetUri, visibleFiles);
+            }
 
-            if (currentUri === targetUri) {
-                const targetCache = this.getCache(currentUri);
-                if (targetCache) {
-                    const gatherIncludes = (u: string) => {
-                        const c = this.getCache(u);
-                        if (!c) { return; }
-                        for (const dep of this.getAvailableDependencies(c.uri)) {
-                            if (dep.type === "include" && !visited.has(dep.uri)) {
-                                visited.add(dep.uri);
-                                visibleFiles.push(dep.uri);
-                                gatherIncludes(dep.uri);
-                            }
-                        }
-                    };
-                    gatherIncludes(currentUri);
+            const cache = this.getCache(current.uri);
+            if (!cache) {
+                continue;
+            }
+
+            const dependencies = this.getAvailableDependencies(cache.uri);
+            for (let index = dependencies.length - 1; index >= 0; index--) {
+                const dependency = dependencies[index];
+                stack.push({
+                    uri: dependency.uri,
+                    visibleFiles: dependency.type === 'include' ? visibleFiles : [...visibleFiles],
+                    depth: current.depth + 1,
+                });
+            }
+        }
+
+        return [];
+    }
+
+    private collectVisibleIncludes(targetUri: string, visibleFiles: string[]): string[] {
+        const result = [...visibleFiles];
+        const seen = new Set(result);
+        const stack: Array<{ uri: string; depth: number }> = [{ uri: targetUri, depth: 0 }];
+
+        while (stack.length > 0) {
+            const current = stack.pop()!;
+            if (current.depth >= MAX_VISIBLE_FILES_DEPTH) {
+                continue;
+            }
+
+            const cache = this.getCache(current.uri);
+            if (!cache) {
+                continue;
+            }
+
+            for (const dependency of this.getAvailableDependencies(cache.uri)) {
+                if (dependency.type !== 'include' || seen.has(dependency.uri)) {
+                    continue;
                 }
-
-                resultPath = [...visibleFiles];
-                return true;
+                seen.add(dependency.uri);
+                result.push(dependency.uri);
+                stack.push({ uri: dependency.uri, depth: current.depth + 1 });
             }
+        }
 
-            const cache = this.getCache(currentUri);
-            if (!cache) { return false; }
-
-            for (const dep of this.getAvailableDependencies(cache.uri)) {
-                if (dep.type === "include") {
-                    if (simulateExecution(dep.uri, visibleFiles)) {
-                        return true;
-                    }
-                } else {
-                    const childScope = [...visibleFiles];
-                    if (simulateExecution(dep.uri, childScope)) {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        };
-
-        simulateExecution(startUri, []);
-        return resultPath || [];
+        return result;
     }
 }
