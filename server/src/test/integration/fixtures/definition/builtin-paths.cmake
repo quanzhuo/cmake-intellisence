@@ -1,3 +1,5 @@
 include(${CMAKE_CURRENT_LIST_DIR}/include/helpers.cmake)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/src)
 configure_file(${CMAKE_CURRENT_LIST_DIR}/config/input.in ${CMAKE_CURRENT_LIST_DIR}/config/output.txt)
+add_library(builtin_sample STATIC sources/lib.cpp)
+target_sources(builtin_sample PRIVATE ${CMAKE_CURRENT_LIST_DIR}/sources/extra.cpp)

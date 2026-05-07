@@ -460,6 +460,16 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].range.start.line, 0);
     });
 
+    test('target_sources file argument using CMAKE_CURRENT_LIST_DIR should resolve to the referenced file', async function () {
+        const uri = await openFixture('builtin-paths.cmake');
+        const result = await getDefinition(uri, 4, 47);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('sources/extra.cpp'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
     test('include file argument using a set variable should resolve to the included file', async function () {
         const uri = await openFixture('variable-paths.cmake');
         const result = await getDefinition(uri, 2, 12);
@@ -497,6 +507,26 @@ suite('Definition Integration Tests', () => {
         assert(result !== null, 'Definition should not be null');
         const locs = (Array.isArray(result) ? result : [result]) as Location[];
         assert.strictEqual(locs[0].uri, fileUri('sources/extra.cpp'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
+    test('include file argument using set(VAR prefix/${OTHER}) should resolve to the included file', async function () {
+        const uri = await openFixture('variable-paths.cmake');
+        const result = await getDefinition(uri, 13, 12);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('include/helpers.cmake'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
+    test('add_subdirectory using a set variable for a nested path should resolve to child CMakeLists.txt', async function () {
+        const uri = await openFixture('variable-paths.cmake');
+        const result = await getDefinition(uri, 15, 20);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('src/lib/CMakeLists.txt'));
         assert.strictEqual(locs[0].range.start.line, 0);
     });
 
