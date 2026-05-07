@@ -62,7 +62,7 @@ function resolveExecutablePath(executable: string, label: string): string {
 function expandVariables(variables: Set<string>): Set<string> {
     const expandedVariables = new Set<string>();
     const languages = ['C', 'CXX'];
-    const buildTypes = ['Debug', 'Release', 'MinSizeRel', 'RelWithDebInfo'];
+    const buildTypes = ['DEBUG', 'RELEASE', 'MINSIZEREL', 'RELWITHDEBINFO'];
 
     const countLeftAngle = (str: string): number => (str.match(/</g)?.length ?? 0);
 
@@ -109,7 +109,7 @@ function expandVariables(variables: Set<string>): Set<string> {
 function expandProperties(properties: Set<string>): Set<string> {
     const expandedProperties = new Set<string>();
     const languages = ['C', 'CXX'];
-    const buildTypes = ['Debug', 'Release', 'MinSizeRel', 'RelWithDebInfo'];
+    const buildTypes = ['DEBUG', 'RELEASE', 'MINSIZEREL', 'RELWITHDEBINFO'];
     const countLeftAngle = (str: string): number => (str.match(/</g)?.length ?? 0);
     for (const property of properties) {
         const angleCount = countLeftAngle(property);
