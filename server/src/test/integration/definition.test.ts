@@ -390,6 +390,17 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].range.start.line, 1, 'app target should resolve to add_executable()');
     });
 
+    test('target receiver in target_include_directories should resolve to target definition', async function () {
+        const uri = await openFixture('targets.cmake');
+        const result = await getDefinition(uri, 8, 28);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find the app target definition');
+        assert.strictEqual(locs[0].uri, uri);
+        assert.strictEqual(locs[0].range.start.line, 1, 'app target should resolve to add_executable()');
+    });
+
     test('configure_file input should resolve to the referenced file', async function () {
         const uri = await openFixture('files.cmake');
         const result = await getDefinition(uri, 0, 18);
