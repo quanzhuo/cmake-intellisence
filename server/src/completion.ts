@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CompletionItem, CompletionItemKind, CompletionItemTag, CompletionList, CompletionParams, InsertTextFormat, Position } from "vscode-languageserver";
 import { URI } from "vscode-uri";
-import { getTargetLinkLibraryKeywords, isTargetArgumentIndex } from './argumentSemantics';
+import { ArgumentSemanticKind, getArgumentSemanticKinds, getTargetLinkLibraryKeywords, isTargetArgumentIndex } from './argumentSemantics';
 import * as builtinCmds from './builtin-cmds.json';
 import { FlatCommand } from "./flatCommands";
 import CMakeLexer from "./generated/CMakeLexer";
@@ -1360,6 +1360,14 @@ export default class Completion {
         return targets;
     }
 
+    private getArgumentSemanticKinds(info: CMakeCompletionInfo): Set<ArgumentSemanticKind> | null {
+        if (!info.context || info.index === undefined) {
+            return null;
+        }
+
+        return getArgumentSemanticKinds(info.context, info.index);
+    }
+
     private getPropertySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
         const properties = this.symbolIndex
             ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.Property))
@@ -1429,22 +1437,21 @@ export default class Completion {
             return targetArgumentSuggestions;
         }
 
+        const argumentSemanticKinds = this.getArgumentSemanticKinds(info);
+        if (argumentSemanticKinds?.has(ArgumentSemanticKind.FindPackage)) {
+            return this.getModuleSuggestions(word, 'find_package');
+        }
+
+        if (argumentSemanticKinds?.has(ArgumentSemanticKind.IncludeModule)) {
+            return uniqueCompletionItems([
+                ...this.getModuleSuggestions(word, 'include'),
+                ...(argumentSemanticKinds.has(ArgumentSemanticKind.FilePath)
+                    ? (await this.getFileSuggestions(info, word) ?? [])
+                    : []),
+            ]);
+        }
+
         switch (info.command) {
-            case 'find_package': {
-                if (info.index === 0) {
-                    return this.getModuleSuggestions(word, 'find_package');
-                }
-                break;
-            }
-            case 'include': {
-                if (info.index === 0) {
-                    return uniqueCompletionItems([
-                        ...this.getModuleSuggestions(word, 'include'),
-                        ...(await this.getFileSuggestions(info, word) ?? []),
-                    ]);
-                }
-                break;
-            }
             case 'cmake_policy': {
                 if (info.index === 1) {
                     const firstArg = info.context?.argument(0)?.getText() ?? args[0];

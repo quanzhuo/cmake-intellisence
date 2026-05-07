@@ -181,6 +181,56 @@ function isSourceFileArgument(commandName: string, argIndex: number, argText: st
     }
 }
 
+export function getArgumentSemanticKinds(command: FlatCommand, argIndex: number): Set<ArgumentSemanticKind> {
+    const kinds = new Set<ArgumentSemanticKind>();
+    const args = command.argument_list();
+    const argText = args[argIndex]?.getText();
+    if (!argText) {
+        return kinds;
+    }
+
+    if (isTargetArgumentIndex(command, argIndex)) {
+        kinds.add(ArgumentSemanticKind.Target);
+    }
+
+    const commandName = command.ID().symbol.text.toLowerCase();
+    switch (commandName) {
+        case 'include':
+            if (argIndex === 0) {
+                // Completion should offer both module and path candidates here.
+                kinds.add(ArgumentSemanticKind.IncludeModule);
+                kinds.add(ArgumentSemanticKind.FilePath);
+            }
+            break;
+        case 'find_package':
+            if (argIndex === 0) {
+                kinds.add(ArgumentSemanticKind.FindPackage);
+            }
+            break;
+        case 'add_subdirectory':
+            if (argIndex === 0) {
+                kinds.add(ArgumentSemanticKind.FilePath);
+            }
+            break;
+        case 'configure_file':
+            if (argIndex <= 1) {
+                kinds.add(ArgumentSemanticKind.FilePath);
+            }
+            break;
+        case 'add_executable':
+        case 'add_library':
+        case 'target_sources':
+            if (isSourceFileArgument(commandName, argIndex, argText)) {
+                kinds.add(ArgumentSemanticKind.FilePath);
+            }
+            break;
+        default:
+            break;
+    }
+
+    return kinds;
+}
+
 export function getDefinitionSubject(command: FlatCommand, word: string, pos: Position): DefinitionSubject {
     if (isCommandPosition(command, word, pos)) {
         return DefinitionSubject.Command;

@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { DefinitionSubject, getArgumentSpanAtPosition, getTargetLinkLibraryKeywords, resolveArgumentTarget, resolveCursorTarget } from '../../argumentSemantics';
+import { ArgumentSemanticKind, DefinitionSubject, getArgumentSemanticKinds, getArgumentSpanAtPosition, getTargetLinkLibraryKeywords, resolveArgumentTarget, resolveCursorTarget } from '../../argumentSemantics';
 import { parseCMakeText } from '../../utils';
 
 suite('Argument Semantics Tests', () => {
@@ -80,5 +80,21 @@ suite('Argument Semantics Tests', () => {
         assert(keywords.includes('PRIVATE'));
         assert(keywords.includes('INTERFACE'));
         assert(keywords.includes('LINK_PUBLIC'));
+    });
+
+    test('getArgumentSemanticKinds should expose both include-module and file-path semantics for include()', () => {
+        const command = parseCMakeText('include(helper.cmake)\n').flatCommands[0];
+
+        const kinds = getArgumentSemanticKinds(command, 0);
+        assert(kinds.has(ArgumentSemanticKind.IncludeModule));
+        assert(kinds.has(ArgumentSemanticKind.FilePath));
+    });
+
+    test('getArgumentSemanticKinds should expose find-package semantics for find_package()', () => {
+        const command = parseCMakeText('find_package(Threads REQUIRED)\n').flatCommands[0];
+
+        const kinds = getArgumentSemanticKinds(command, 0);
+        assert(kinds.has(ArgumentSemanticKind.FindPackage));
+        assert(!kinds.has(ArgumentSemanticKind.FilePath));
     });
 });
