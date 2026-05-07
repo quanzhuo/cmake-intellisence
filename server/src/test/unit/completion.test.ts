@@ -508,6 +508,112 @@ suite('Condition Completion Tests', () => {
         }
     });
 
+    test('add_subdirectory should suggest filesystem directories for the first argument', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-add-subdir-'));
+        const docPath = path.join(tempDir, 'CMakeLists.txt');
+        const childDir = path.join(tempDir, 'app');
+
+        try {
+            fs.writeFileSync(docPath, 'add_subdirectory(ap)', 'utf8');
+            fs.mkdirSync(childDir);
+
+            const parsed = parseCMakeText('add_subdirectory(ap)');
+            const uri = URI.file(docPath).toString();
+            const completion = new Completion(
+                new Map([[uri, parsed.flatCommands]]),
+                new Map([[uri, parsed.tokenStream]]),
+                {},
+                'ap',
+                new Logger('test', 'off'),
+                symbolIndex,
+            );
+
+            const result = await completion.onCompletion({
+                textDocument: { uri },
+                position: { line: 0, character: 'add_subdirectory(ap'.length },
+            });
+
+            const items = Array.isArray(result) ? result : (result?.items ?? []);
+            const labels = items.map(item => item.label.toString());
+
+            assert(labels.includes('app'));
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('configure_file should suggest filesystem paths for the input argument', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-configure-file-'));
+        const docPath = path.join(tempDir, 'CMakeLists.txt');
+        const configDir = path.join(tempDir, 'config');
+        const inputPath = path.join(configDir, 'input.in');
+
+        try {
+            fs.mkdirSync(configDir);
+            fs.writeFileSync(docPath, 'configure_file(config/in)', 'utf8');
+            fs.writeFileSync(inputPath, 'value=@VALUE@', 'utf8');
+
+            const parsed = parseCMakeText('configure_file(config/in)');
+            const uri = URI.file(docPath).toString();
+            const completion = new Completion(
+                new Map([[uri, parsed.flatCommands]]),
+                new Map([[uri, parsed.tokenStream]]),
+                {},
+                'config/in',
+                new Logger('test', 'off'),
+                symbolIndex,
+            );
+
+            const result = await completion.onCompletion({
+                textDocument: { uri },
+                position: { line: 0, character: 'configure_file(config/in'.length },
+            });
+
+            const items = Array.isArray(result) ? result : (result?.items ?? []);
+            const labels = items.map(item => item.label.toString());
+
+            assert(labels.includes('input.in'));
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('add_library should suggest filesystem paths for source arguments', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-add-library-'));
+        const docPath = path.join(tempDir, 'CMakeLists.txt');
+        const sourceDir = path.join(tempDir, 'src');
+        const sourcePath = path.join(sourceDir, 'lib.cpp');
+
+        try {
+            fs.mkdirSync(sourceDir);
+            fs.writeFileSync(docPath, 'add_library(sample STATIC src/li)', 'utf8');
+            fs.writeFileSync(sourcePath, 'int lib() { return 0; }', 'utf8');
+
+            const parsed = parseCMakeText('add_library(sample STATIC src/li)');
+            const uri = URI.file(docPath).toString();
+            const completion = new Completion(
+                new Map([[uri, parsed.flatCommands]]),
+                new Map([[uri, parsed.tokenStream]]),
+                {},
+                'src/li',
+                new Logger('test', 'off'),
+                symbolIndex,
+            );
+
+            const result = await completion.onCompletion({
+                textDocument: { uri },
+                position: { line: 0, character: 'add_library(sample STATIC src/li'.length },
+            });
+
+            const items = Array.isArray(result) ? result : (result?.items ?? []);
+            const labels = items.map(item => item.label.toString());
+
+            assert(labels.includes('lib.cpp'));
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
     test('target_include_directories should suggest project targets for the first argument', async () => {
         const parsed = parseCMakeText('target_include_directories(My)');
         const uri = URI.file(path.resolve(__dirname, 'target-include-dirs-completion.cmake')).toString();

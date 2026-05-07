@@ -97,4 +97,11 @@ suite('Argument Semantics Tests', () => {
         assert(kinds.has(ArgumentSemanticKind.FindPackage));
         assert(!kinds.has(ArgumentSemanticKind.FilePath));
     });
+
+    test('getArgumentSemanticKinds should expose file-path semantics for configure_file input/output', () => {
+        const command = parseCMakeText('configure_file(config/input.in config/output.txt)\n').flatCommands[0];
+
+        assert(getArgumentSemanticKinds(command, 0).has(ArgumentSemanticKind.FilePath));
+        assert(getArgumentSemanticKinds(command, 1).has(ArgumentSemanticKind.FilePath));
+    });
 });

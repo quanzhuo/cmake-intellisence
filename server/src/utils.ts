@@ -60,7 +60,10 @@ export function getIncludeFileUri(symbolIndex: SymbolIndex, baseDir: URI, includ
         return null;
     }
 
-    const incFileUri: URI = Utils.joinPath(baseDir, includeFileName);
+    const normalizedIncludeFileName = includeFileName.replace(/\\/g, '/');
+    const incFileUri = path.isAbsolute(includeFileName)
+        ? URI.file(path.normalize(includeFileName))
+        : Utils.joinPath(baseDir, normalizedIncludeFileName);
     if (existsSync(incFileUri.fsPath)) {
         if (statSync(incFileUri.fsPath).isDirectory()) {
             return null;

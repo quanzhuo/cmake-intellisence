@@ -1368,6 +1368,24 @@ export default class Completion {
         return getArgumentSemanticKinds(info.context, info.index);
     }
 
+    private async getSharedFilePathSuggestions(
+        info: CMakeCompletionInfo,
+        word: string,
+        argumentSemanticKinds: Set<ArgumentSemanticKind> | null,
+    ): Promise<CompletionItem[] | null> {
+        if (argumentSemanticKinds?.has(ArgumentSemanticKind.FilePath)) {
+            return this.getFileSuggestions(info, word);
+        }
+
+        // Preserve the previous best-effort behavior when completion is running
+        // without a parsed command context (lexer-token fallback).
+        if (!argumentSemanticKinds && info.context === undefined) {
+            return this.getFileSuggestions(info, word);
+        }
+
+        return null;
+    }
+
     private getPropertySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
         const properties = this.symbolIndex
             ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.Property))
@@ -1547,7 +1565,10 @@ export default class Completion {
                 kind: CompletionItemKind.Keyword,
             };
         });
-        return [...argsCompletions, ...(await this.getFileSuggestions(info, word) ?? [])];
+
+        const fileSuggestions = await this.getSharedFilePathSuggestions(info, word, argumentSemanticKinds);
+        return [...argsCompletions, ...(fileSuggestions ?? [])];
+
     }
 
     private getPolicySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
