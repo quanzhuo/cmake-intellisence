@@ -1,5 +1,16 @@
 # Change Log
 
+## v0.7.2
+
+Bug Fixes:
+
+* #11: improve link resolution for source directories in getLinksFromArguments
+* resolve Windows execution issues for .bat and .cmd files in execFilePromise
+* improve cache eviction logic for cmakeHelpCache based on error codes
+* enhance CMake environment initialization with built-in entries loading stats
+
+
+
 ## v0.7.1
 
 Bug Fixes:
