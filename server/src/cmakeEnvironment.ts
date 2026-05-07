@@ -1,10 +1,12 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { URI } from 'vscode-uri';
 import * as which from 'which';
 import { ProjectTargetInfo } from './completion';
 import { FlatCommand } from './flatCommands';
+import paths, { mkdir_p } from './paths';
 import { execFilePromise } from './processUtils';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
 import { getIncludeFileUri } from './utils';
@@ -16,13 +18,53 @@ export interface ExtensionSettings {
     cmdCaseDiagnostics: boolean;
 }
 
-export async function initializeCMakeEnvironment(extSettings: ExtensionSettings, symbolIndex: SymbolIndex): Promise<void> {
+const BUILTIN_ENTRIES_CACHE_VERSION = 1;
+const builtinEntriesMemo = new Map<string, Promise<[Set<string>, Set<string>, Set<string>, Set<string>, Set<string>]>>();
+
+type PersistedBuiltinEntries = {
+    cacheVersion: number;
+    cmakePath: string;
+    cmakeExecutableSize: number;
+    cmakeExecutableMtimeMs: number;
+    modules: string[];
+    policies: string[];
+    variables: string[];
+    properties: string[];
+    commands: string[];
+};
+
+type CMakeExecutableFingerprint = {
+    size: number;
+    mtimeMs: number;
+};
+
+type BuiltinEntries = [Set<string>, Set<string>, Set<string>, Set<string>, Set<string>];
+
+export type BuiltinEntriesLoadSource = 'memory' | 'disk' | 'cmake';
+
+export interface BuiltinEntriesLoadStats {
+    source: BuiltinEntriesLoadSource;
+    durationMs: number;
+}
+
+type BuiltinEntriesLoadResult = {
+    entries: BuiltinEntries;
+    stats: BuiltinEntriesLoadStats;
+};
+
+export async function initializeCMakeEnvironment(
+    extSettings: ExtensionSettings,
+    symbolIndex: SymbolIndex,
+    onBuiltinEntriesLoaded?: (stats: BuiltinEntriesLoadStats) => void,
+): Promise<void> {
     const cmakePath = resolveExecutablePath(extSettings.cmakePath, 'cmake');
-    const [version, builtinEntries, pkgConfigModules] = await Promise.all([
+    const [version, builtinEntriesResult, pkgConfigModules] = await Promise.all([
         getCMakeVersion(cmakePath),
         getBuiltinEntries(cmakePath),
         getPkgConfigModules(extSettings.pkgConfigPath),
     ]);
+    onBuiltinEntriesLoaded?.(builtinEntriesResult.stats);
+    const builtinEntries = builtinEntriesResult.entries;
     const [modules, policies, variables, properties, commands] = builtinEntries;
     const uri = 'cmake-builtin://system';
     const systemCache = new FileSymbolCache(uri);
@@ -81,7 +123,7 @@ function expandVariables(variables: Set<string>): Set<string> {
                     expandedVariables.add(variable.replace('<CONFIG>', buildType));
                 }
             } else {
-                // FIXME: <PROJECT-NAME> <PackageName> <FETAURE> <n> <NNNN> <an-attribute>
+                // FIXME: <PROJECT-NAME> <PackageName> <FEATURE> <n> <NNNN> <an-attribute>
                 // 这些情况暂不处理
                 expandedVariables.add(variable);
             }
@@ -202,7 +244,143 @@ async function getCMakeVersion(cmakePath: string): Promise<[string, number, numb
     ];
 }
 
-async function getBuiltinEntries(cmakePath: string): Promise<[Set<string>, Set<string>, Set<string>, Set<string>, Set<string>]> {
+async function getBuiltinEntries(cmakePath: string): Promise<BuiltinEntriesLoadResult> {
+    const fingerprint = await getCMakeExecutableFingerprint(cmakePath);
+    const memoKey = `${cmakePath}\0${fingerprint?.size ?? -1}\0${fingerprint?.mtimeMs ?? -1}`;
+    const memoized = builtinEntriesMemo.get(memoKey);
+    if (memoized) {
+        const startedAt = Date.now();
+        const entries = await memoized;
+        return {
+            entries,
+            stats: {
+                source: 'memory',
+                durationMs: Date.now() - startedAt,
+            },
+        };
+    }
+
+    const request = (async (): Promise<BuiltinEntriesLoadResult> => {
+        const startedAt = Date.now();
+        const persisted = await readBuiltinEntriesCache(cmakePath);
+        if (isPersistedBuiltinEntriesFresh(persisted, cmakePath, fingerprint)) {
+            return {
+                entries: deserializeBuiltinEntries(persisted),
+                stats: {
+                    source: 'disk',
+                    durationMs: Date.now() - startedAt,
+                },
+            };
+        }
+
+        const fresh = await fetchBuiltinEntriesFromCMake(cmakePath);
+        if (fingerprint) {
+            await writeBuiltinEntriesCache(cmakePath, fingerprint, fresh);
+        }
+        return {
+            entries: fresh,
+            stats: {
+                source: 'cmake',
+                durationMs: Date.now() - startedAt,
+            },
+        };
+    })();
+
+    const memoRequest = request.then(result => result.entries);
+    builtinEntriesMemo.set(memoKey, memoRequest);
+    try {
+        return await request;
+    } catch (error) {
+        builtinEntriesMemo.delete(memoKey);
+        throw error;
+    }
+}
+
+function getBuiltinEntriesCacheFilePath(cmakePath: string): string {
+    const hash = crypto.createHash('sha256').update(cmakePath).digest('hex').slice(0, 16);
+    return path.join(paths.dataDir, 'builtin-help-cache', `${hash}.json`);
+}
+
+async function getCMakeExecutableFingerprint(cmakePath: string): Promise<CMakeExecutableFingerprint | null> {
+    try {
+        const stats = await fs.promises.stat(cmakePath);
+        if (!stats.isFile()) {
+            return null;
+        }
+        return {
+            size: stats.size,
+            mtimeMs: stats.mtimeMs,
+        };
+    } catch {
+        return null;
+    }
+}
+
+function isPersistedBuiltinEntriesFresh(
+    persisted: PersistedBuiltinEntries | null,
+    cmakePath: string,
+    fingerprint: CMakeExecutableFingerprint | null,
+): persisted is PersistedBuiltinEntries {
+    return !!persisted
+        && persisted.cacheVersion === BUILTIN_ENTRIES_CACHE_VERSION
+        && persisted.cmakePath === cmakePath
+        && !!fingerprint
+        && persisted.cmakeExecutableSize === fingerprint.size
+        && persisted.cmakeExecutableMtimeMs === fingerprint.mtimeMs;
+}
+
+async function readBuiltinEntriesCache(cmakePath: string): Promise<PersistedBuiltinEntries | null> {
+    const filePath = getBuiltinEntriesCacheFilePath(cmakePath);
+    try {
+        const content = await fs.promises.readFile(filePath, 'utf8');
+        const parsed = JSON.parse(content) as PersistedBuiltinEntries;
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+function deserializeBuiltinEntries(
+    persisted: PersistedBuiltinEntries
+): BuiltinEntries {
+    return [
+        new Set(persisted.modules),
+        new Set(persisted.policies),
+        new Set(persisted.variables),
+        new Set(persisted.properties),
+        new Set(persisted.commands),
+    ];
+}
+
+async function writeBuiltinEntriesCache(
+    cmakePath: string,
+    fingerprint: CMakeExecutableFingerprint,
+    entries: BuiltinEntries,
+): Promise<void> {
+    const filePath = getBuiltinEntriesCacheFilePath(cmakePath);
+    const payload: PersistedBuiltinEntries = {
+        cacheVersion: BUILTIN_ENTRIES_CACHE_VERSION,
+        cmakePath,
+        cmakeExecutableSize: fingerprint.size,
+        cmakeExecutableMtimeMs: fingerprint.mtimeMs,
+        modules: [...entries[0]],
+        policies: [...entries[1]],
+        variables: [...entries[2]],
+        properties: [...entries[3]],
+        commands: [...entries[4]],
+    };
+
+    try {
+        await mkdir_p(path.dirname(filePath));
+        const tmpFile = `${filePath}.${process.pid}.tmp`;
+        await fs.promises.writeFile(tmpFile, JSON.stringify(payload), 'utf8');
+        await fs.promises.rename(tmpFile, filePath);
+    } catch {
+        // Cache write failures should never block environment initialization.
+    }
+}
+
+async function fetchBuiltinEntriesFromCMake(cmakePath: string): Promise<BuiltinEntries> {
     const [modules, policies, variables, properties, commands] = await Promise.all([
         execFilePromise(cmakePath, ['--help-module-list']),
         execFilePromise(cmakePath, ['--help-policy-list']),

@@ -8,7 +8,7 @@ import { CancellationToken, CodeActionKind, CodeActionParams, DidChangeConfigura
 import { URI, Utils } from 'vscode-uri';
 import { hydrateBuiltinModuleCacheEntry, loadBuiltinModuleCommandCatalog, warmBuiltinModuleCaches } from './builtinModuleIndex';
 import { isCancellationError, throwIfCancelled } from './cancellation';
-import { ExtensionSettings, ProjectTargetInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
+import { BuiltinEntriesLoadStats, ExtensionSettings, ProjectTargetInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
 import Completion, { CMakeCompletionType, CompletionItemType, ProjectTargetInfo, findCommandAtPosition, findRecoveredCommandInfoAtPosition, getCompletionHelpLabel, getCompletionInfoAtCursor, getCompletionItemType, getCompletionWorkspaceKey, inComments } from './completion';
 import { DefinitionResolver } from './definition';
 import SemanticDiagnosticsListener, { CommandCaseChecker, DIAG_CODE_CMD_CASE, SyntaxErrorListener } from './diagnostics';
@@ -1083,6 +1083,7 @@ export class CMakeLanguageServer {
         const workspaceState = this.getWorkspaceState(workspaceFolder);
         const generation = ++workspaceState.environmentGeneration;
         workspaceState.extSettings = settings ?? await this.getExtSettings(workspaceFolder.toString());
+        this.logger.setLevel(workspaceState.extSettings.loggingLevel);
         workspaceState.workspaceIndexing = undefined;
         workspaceState.projectTargetInfo = undefined;
         workspaceState.projectTargetInfoDirty = false;
@@ -1093,7 +1094,13 @@ export class CMakeLanguageServer {
         }
         workspaceState.symbolIndex.clearBuiltinModuleCommandCatalog();
         try {
-            await initializeCMakeEnvironment(workspaceState.extSettings, workspaceState.symbolIndex);
+            await initializeCMakeEnvironment(
+                workspaceState.extSettings,
+                workspaceState.symbolIndex,
+                (stats: BuiltinEntriesLoadStats) => {
+                    this.logger.debug(`Loaded cmake builtin help entries from ${stats.source} in ${stats.durationMs}ms`);
+                },
+            );
             if (workspaceState.symbolIndex.cmakeModulePath) {
                 const catalog = await loadBuiltinModuleCommandCatalog({
                     symbolIndex: workspaceState.symbolIndex,
@@ -1109,7 +1116,6 @@ export class CMakeLanguageServer {
             this.logger.error('Failed to initialize CMake environment', e instanceof Error ? e : new Error(String(e)));
             this.connection.window.showErrorMessage(e.message);
         }
-        this.logger.setLevel(workspaceState.extSettings.loggingLevel);
 
         void this.warmBuiltinModuleCachesInBackground(workspaceState, generation);
     }
