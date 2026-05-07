@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DefinitionParams, Location, LocationLink, Position } from "vscode-languageserver";
 import { URI, Utils } from 'vscode-uri';
+import { DefinitionSubject } from './argumentSemantics';
 import { DestinationType, SymbolResolverBase } from "./symbolResolverBase";
 import { FlatCommand } from './flatCommands';
 import { getIncludeFileUri } from './utils';
@@ -268,22 +269,26 @@ export class DefinitionResolver extends SymbolResolverBase {
             return null;
         }
 
-        const targetWord = this.getTargetWord(document, params.position);
-        if (!targetWord) {
-            return null;
-        }
-
         await this.determineContextAndRoot();
 
+        const resolvedTarget = this.getResolvedCursorTarget(document, params.position);
         const fileResults = await this.tryResolveFileDefinition(params.position);
         if (fileResults) {
             return fileResults;
         }
 
-        const destinationType = this.getDestinationType(this.command, targetWord, params.position);
+        if (!resolvedTarget) {
+            return null;
+        }
+
+        if (resolvedTarget.subject === DefinitionSubject.FilePath) {
+            return null;
+        }
+
+        const destinationType = this.getDestinationType(this.command, resolvedTarget.text, params.position);
         const isCommand = destinationType === DestinationType.Command;
         const isTarget = destinationType === DestinationType.Target;
-        const searchName = isCommand ? targetWord.toLowerCase() : targetWord;
+        const searchName = isCommand ? resolvedTarget.text.toLowerCase() : resolvedTarget.text;
 
         if (isCommand) {
             if (this.isBuiltinCommand(searchName)) {

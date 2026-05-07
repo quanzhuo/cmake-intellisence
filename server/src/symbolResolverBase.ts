@@ -65,10 +65,11 @@ export abstract class SymbolResolverBase {
 
     protected getResolvedCursorTarget(document: TextDocument, position: Position): ResolvedCursorTarget | null {
         const word = getWordAtPosition(document, position);
-        if (word.text.length === 0) {
+        const resolved = resolveCursorTarget(this.command, word.text, position);
+        if (resolved.text.length === 0) {
             return null;
         }
-        return resolveCursorTarget(this.command, word.text, position);
+        return resolved;
     }
 
     protected isQueryingCommand(command: FlatCommand, word: string, pos: Position): boolean {

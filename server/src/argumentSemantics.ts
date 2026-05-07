@@ -33,6 +33,37 @@ export interface ResolvedCursorTarget {
     argumentSpan: ArgumentSpan | null;
 }
 
+function extractVariableName(argumentText: string): string {
+    const exactVariableMatch = argumentText.match(/^\$\{([^}]+)\}$/);
+    return exactVariableMatch ? exactVariableMatch[1] : argumentText;
+}
+
+function resolveCursorText(command: FlatCommand, subject: DefinitionSubject, word: string, argumentSpan: ArgumentSpan | null): string {
+    if (subject === DefinitionSubject.Command) {
+        if (argumentSpan && (command.commandName.toLowerCase() === 'function' || command.commandName.toLowerCase() === 'macro') && argumentSpan.argumentIndex === 0) {
+            return argumentSpan.text;
+        }
+
+        return command.ID().getText();
+    }
+
+    if (argumentSpan) {
+        switch (subject) {
+            case DefinitionSubject.Variable:
+                return word || extractVariableName(argumentSpan.text);
+            case DefinitionSubject.Target:
+            case DefinitionSubject.FilePath:
+            case DefinitionSubject.IncludeModule:
+            case DefinitionSubject.FindPackage:
+                return argumentSpan.text;
+            default:
+                break;
+        }
+    }
+
+    return word;
+}
+
 const TARGET_LINK_LIBRARY_KEYWORDS = new Set([
     'PRIVATE',
     'PUBLIC',
@@ -191,20 +222,21 @@ export function getDefinitionSubject(command: FlatCommand, word: string, pos: Po
 export function resolveCursorTarget(command: FlatCommand, word: string, pos: Position): ResolvedCursorTarget {
     const subject = getDefinitionSubject(command, word, pos);
     const argumentSpan = getArgumentSpanAtPosition(command, pos);
+    const text = resolveCursorText(command, subject, word, argumentSpan);
 
     switch (subject) {
         case DefinitionSubject.Command:
-            return { text: word, subject, semanticKind: ArgumentSemanticKind.Command, argumentSpan };
+            return { text, subject, semanticKind: ArgumentSemanticKind.Command, argumentSpan };
         case DefinitionSubject.Target:
-            return { text: word, subject, semanticKind: ArgumentSemanticKind.Target, argumentSpan };
+            return { text, subject, semanticKind: ArgumentSemanticKind.Target, argumentSpan };
         case DefinitionSubject.FilePath:
-            return { text: word, subject, semanticKind: ArgumentSemanticKind.FilePath, argumentSpan };
+            return { text, subject, semanticKind: ArgumentSemanticKind.FilePath, argumentSpan };
         case DefinitionSubject.IncludeModule:
-            return { text: word, subject, semanticKind: ArgumentSemanticKind.IncludeModule, argumentSpan };
+            return { text, subject, semanticKind: ArgumentSemanticKind.IncludeModule, argumentSpan };
         case DefinitionSubject.FindPackage:
-            return { text: word, subject, semanticKind: ArgumentSemanticKind.FindPackage, argumentSpan };
+            return { text, subject, semanticKind: ArgumentSemanticKind.FindPackage, argumentSpan };
         case DefinitionSubject.Variable:
         default:
-            return { text: word, subject: DefinitionSubject.Variable, semanticKind: ArgumentSemanticKind.Variable, argumentSpan };
+            return { text, subject: DefinitionSubject.Variable, semanticKind: ArgumentSemanticKind.Variable, argumentSpan };
     }
 }

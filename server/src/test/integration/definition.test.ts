@@ -451,6 +451,16 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].range.start.line, 0);
     });
 
+    test('include file argument using CMAKE_CURRENT_LIST_DIR should resolve even when cursor is on the variable sigil', async function () {
+        const uri = await openFixture('builtin-paths.cmake');
+        const result = await getDefinition(uri, 0, 8);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('include/helpers.cmake'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
     test('add_subdirectory argument using CMAKE_CURRENT_LIST_DIR should resolve to child CMakeLists.txt', async function () {
         const uri = await openFixture('builtin-paths.cmake');
         const result = await getDefinition(uri, 1, 43);

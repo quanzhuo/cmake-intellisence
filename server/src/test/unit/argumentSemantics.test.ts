@@ -33,4 +33,24 @@ suite('Argument Semantics Tests', () => {
         assert.strictEqual(result.subject, DefinitionSubject.FindPackage);
         assert.strictEqual(result.argumentSpan?.text, 'Threads');
     });
+
+    test('resolveCursorTarget should derive variable text from a full ${VAR} span when word lookup is empty', () => {
+        const command = parseCMakeText('message(${ROOT_VAR})\n').flatCommands[0];
+        const arg = command.argument_list()[0];
+        const position = { line: arg.start.line - 1, character: arg.start.column };
+
+        const result = resolveCursorTarget(command, '', position);
+        assert.strictEqual(result.subject, DefinitionSubject.Variable);
+        assert.strictEqual(result.text, 'ROOT_VAR');
+    });
+
+    test('resolveCursorTarget should preserve full target names with namespace separators', () => {
+        const command = parseCMakeText('target_link_libraries(app PRIVATE Qt6::Core)\n').flatCommands[0];
+        const arg = command.argument_list()[2];
+        const position = { line: arg.start.line - 1, character: arg.start.column + 1 };
+
+        const result = resolveCursorTarget(command, 'Qt6', position);
+        assert.strictEqual(result.subject, DefinitionSubject.Target);
+        assert.strictEqual(result.text, 'Qt6::Core');
+    });
 });
