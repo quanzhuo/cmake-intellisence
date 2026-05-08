@@ -75,6 +75,16 @@ export class PathExpressionResolver {
         return argText;
     }
 
+    private isSimpleSetValue(value: string): boolean {
+        // Phase 2 intentionally supports only literal path fragments plus ${VAR}
+        // interpolation. List values, env/cache references, and generator
+        // expressions are left unresolved for now.
+        return !value.includes(';')
+            && !value.includes('$ENV{')
+            && !value.includes('$CACHE{')
+            && !value.includes('$<');
+    }
+
     private getSimpleSetValue(command: FlatCommand): string | null {
         if (command.commandName.toLowerCase() !== 'set') {
             return null;
@@ -86,7 +96,12 @@ export class PathExpressionResolver {
         }
 
         const value = args[1]?.getText();
-        return value ? this.normalizeSetValue(value) : null;
+        if (!value) {
+            return null;
+        }
+
+        const normalizedValue = this.normalizeSetValue(value);
+        return this.isSimpleSetValue(normalizedValue) ? normalizedValue : null;
     }
 
     private async resolveVariableValue(

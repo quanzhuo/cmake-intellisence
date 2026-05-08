@@ -151,4 +151,28 @@ suite('Path Expression Resolver Tests', () => {
             fs.rmSync(workspaceDir, { recursive: true, force: true });
         }
     });
+
+    test('expandPathVariablesDetailed should leave list-style set values unresolved', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-complex-set-'));
+        const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const commands = parseCMakeText([
+            'set(HELPER_FILE include/helpers.cmake;include/extra.cmake)',
+            'include(${HELPER_FILE})',
+        ].join('\n')).flatCommands;
+
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => commands,
+            entryFile: fileUri,
+        });
+
+        try {
+            const result = await resolver.expandPathVariablesDetailed('${HELPER_FILE}', fileUri, 1);
+            assert.strictEqual(result.expandedPath, null);
+            assert.deepStrictEqual(result.unresolvedVariables, ['HELPER_FILE']);
+            assert.strictEqual(result.reason, 'unresolved-variable');
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
 });
