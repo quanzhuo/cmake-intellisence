@@ -10,8 +10,37 @@ export interface PathExpressionResolverOptions {
     entryFile: URI;
 }
 
+export type PathResolutionReason =
+    | 'resolved'
+    | 'unresolved-variable'
+    | 'cycle-detected'
+    | 'recursion-limit'
+    | 'missing-file';
+
+export interface ExpandedPathResult {
+    expandedPath: string | null;
+    unresolvedVariables: string[];
+    reason: PathResolutionReason;
+}
+
+export interface FileExpressionResolutionResult {
+    expandedPath: string | null;
+    exactCandidates: URI[];
+    bestEffortCandidates: URI[];
+    unresolvedVariables: string[];
+    reason: PathResolutionReason;
+}
+
 export class PathExpressionResolver {
     constructor(private readonly options: PathExpressionResolverOptions) {
+    }
+
+    private getMissingVariableResult(variableName: string): ExpandedPathResult {
+        return {
+            expandedPath: null,
+            unresolvedVariables: [variableName],
+            reason: 'unresolved-variable',
+        };
     }
 
     private getKnownPathVariableValue(name: string, sourceUri: URI): string | null {
@@ -60,9 +89,24 @@ export class PathExpressionResolver {
         seen: Set<string>,
         depth: number,
     ): Promise<string | null> {
+        const result = await this.resolveVariableValueDetailed(variableName, sourceUri, maxLine, seen, depth);
+        return result.expandedPath;
+    }
+
+    private async resolveVariableValueDetailed(
+        variableName: string,
+        sourceUri: URI,
+        maxLine: number,
+        seen: Set<string>,
+        depth: number,
+    ): Promise<ExpandedPathResult> {
         const recursionKey = `${sourceUri.toString()}::${variableName}`;
         if (seen.has(recursionKey)) {
-            return null;
+            return {
+                expandedPath: null,
+                unresolvedVariables: [variableName],
+                reason: 'cycle-detected',
+            };
         }
 
         seen.add(recursionKey);
@@ -95,7 +139,7 @@ export class PathExpressionResolver {
                         continue;
                     }
 
-                    return this.expandPathVariables(
+                    return this.expandPathVariablesDetailed(
                         value,
                         URI.parse(candidateUri),
                         candidate.start.line - 1,
@@ -105,7 +149,7 @@ export class PathExpressionResolver {
                 }
             }
 
-            return null;
+            return this.getMissingVariableResult(variableName);
         } finally {
             seen.delete(recursionKey);
         }
@@ -118,40 +162,75 @@ export class PathExpressionResolver {
         seen: Set<string> = new Set(),
         depth = 0,
     ): Promise<string | null> {
+        const result = await this.expandPathVariablesDetailed(argText, sourceUri, maxLine, seen, depth);
+        return result.expandedPath;
+    }
+
+    public async expandPathVariablesDetailed(
+        argText: string,
+        sourceUri: URI,
+        maxLine: number,
+        seen: Set<string> = new Set(),
+        depth = 0,
+    ): Promise<ExpandedPathResult> {
         if (depth > 8) {
-            return null;
+            return {
+                expandedPath: null,
+                unresolvedVariables: [],
+                reason: 'recursion-limit',
+            };
         }
 
         const matches = Array.from(argText.matchAll(/\$\{([^}]+)\}/g));
         if (matches.length === 0) {
-            return path.normalize(argText);
+            return {
+                expandedPath: path.normalize(argText),
+                unresolvedVariables: [],
+                reason: 'resolved',
+            };
         }
 
         let expanded = argText;
         for (const match of matches) {
             const placeholder = match[0];
             const variableName = match[1];
-            const replacement = this.getKnownPathVariableValue(variableName, sourceUri)
-                ?? await this.resolveVariableValue(variableName, sourceUri, maxLine, seen, depth + 1);
+            const replacement = this.getKnownPathVariableValue(variableName, sourceUri);
+            const replacementResult = replacement
+                ? {
+                    expandedPath: replacement,
+                    unresolvedVariables: [],
+                    reason: 'resolved' as const,
+                }
+                : await this.resolveVariableValueDetailed(variableName, sourceUri, maxLine, seen, depth + 1);
 
-            if (!replacement) {
-                return null;
+            if (!replacementResult.expandedPath) {
+                return replacementResult.unresolvedVariables.length > 0
+                    ? replacementResult
+                    : this.getMissingVariableResult(variableName);
             }
 
-            expanded = expanded.replace(placeholder, replacement);
+            expanded = expanded.replace(placeholder, replacementResult.expandedPath);
         }
 
         if (expanded.includes('${')) {
-            return this.expandPathVariables(expanded, sourceUri, maxLine, seen, depth + 1);
+            return this.expandPathVariablesDetailed(expanded, sourceUri, maxLine, seen, depth + 1);
         }
 
-        return path.normalize(expanded);
+        return {
+            expandedPath: path.normalize(expanded),
+            unresolvedVariables: [],
+            reason: 'resolved',
+        };
+    }
+
+    private toCandidateUri(argText: string, sourceUri: URI): URI {
+        return path.isAbsolute(argText)
+            ? URI.file(path.normalize(argText))
+            : URI.file(path.resolve(path.dirname(sourceUri.fsPath), argText));
     }
 
     public resolveExpandedFile(argText: string, sourceUri: URI): URI | null {
-        const target = path.isAbsolute(argText)
-            ? URI.file(path.normalize(argText))
-            : URI.file(path.resolve(path.dirname(sourceUri.fsPath), argText));
+        const target = this.toCandidateUri(argText, sourceUri);
 
         if (!fs.existsSync(target.fsPath) || fs.statSync(target.fsPath).isDirectory()) {
             return null;
@@ -161,11 +240,39 @@ export class PathExpressionResolver {
     }
 
     public async resolveFileExpression(argText: string, sourceUri: URI, maxLine: number): Promise<URI | null> {
-        const expanded = await this.expandPathVariables(argText, sourceUri, maxLine);
-        if (!expanded) {
-            return null;
+        const result = await this.resolveFileExpressionDetailed(argText, sourceUri, maxLine);
+        return result.exactCandidates[0] ?? null;
+    }
+
+    public async resolveFileExpressionDetailed(argText: string, sourceUri: URI, maxLine: number): Promise<FileExpressionResolutionResult> {
+        const expandedResult = await this.expandPathVariablesDetailed(argText, sourceUri, maxLine);
+        if (!expandedResult.expandedPath) {
+            return {
+                expandedPath: null,
+                exactCandidates: [],
+                bestEffortCandidates: [],
+                unresolvedVariables: expandedResult.unresolvedVariables,
+                reason: expandedResult.reason,
+            };
         }
 
-        return this.resolveExpandedFile(expanded, sourceUri);
+        const resolvedUri = this.resolveExpandedFile(expandedResult.expandedPath, sourceUri);
+        if (resolvedUri) {
+            return {
+                expandedPath: expandedResult.expandedPath,
+                exactCandidates: [resolvedUri],
+                bestEffortCandidates: [],
+                unresolvedVariables: [],
+                reason: 'resolved',
+            };
+        }
+
+        return {
+            expandedPath: expandedResult.expandedPath,
+            exactCandidates: [],
+            bestEffortCandidates: [this.toCandidateUri(expandedResult.expandedPath, sourceUri)],
+            unresolvedVariables: [],
+            reason: 'missing-file',
+        };
     }
 }

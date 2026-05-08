@@ -84,4 +84,42 @@ suite('Path Expression Resolver Tests', () => {
             fs.rmSync(workspaceDir, { recursive: true, force: true });
         }
     });
+
+    test('expandPathVariablesDetailed should report unresolved variables', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-unresolved-'));
+        const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => [],
+            entryFile: fileUri,
+        });
+
+        try {
+            const result = await resolver.expandPathVariablesDetailed('${MISSING_VAR}/helper.cmake', fileUri, 0);
+            assert.strictEqual(result.expandedPath, null);
+            assert.deepStrictEqual(result.unresolvedVariables, ['MISSING_VAR']);
+            assert.strictEqual(result.reason, 'unresolved-variable');
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
+
+    test('resolveFileExpressionDetailed should expose best-effort candidates for missing files', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-best-effort-'));
+        const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => [],
+            entryFile: fileUri,
+        });
+
+        try {
+            const result = await resolver.resolveFileExpressionDetailed('include/missing.cmake', fileUri, 0);
+            assert.strictEqual(result.reason, 'missing-file');
+            assert.strictEqual(result.exactCandidates.length, 0);
+            assert.strictEqual(result.bestEffortCandidates[0]?.toString(), URI.file(path.join(workspaceDir, 'include', 'missing.cmake')).toString());
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
 });
