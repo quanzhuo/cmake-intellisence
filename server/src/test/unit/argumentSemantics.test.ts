@@ -44,6 +44,16 @@ suite('Argument Semantics Tests', () => {
         assert.strictEqual(result.text, 'ROOT_VAR');
     });
 
+    test('resolveCursorTarget should derive variable text from a mixed argument when word lookup is empty', () => {
+        const command = parseCMakeText('message(prefix_${ROOT_VAR}_suffix)\n').flatCommands[0];
+        const arg = command.argument_list()[0];
+        const position = { line: arg.start.line - 1, character: arg.start.column + 11 };
+
+        const result = resolveCursorTarget(command, '', position);
+        assert.strictEqual(result.subject, DefinitionSubject.Variable);
+        assert.strictEqual(result.text, 'ROOT_VAR');
+    });
+
     test('resolveCursorTarget should preserve full target names with namespace separators', () => {
         const command = parseCMakeText('target_link_libraries(app PRIVATE Qt6::Core)\n').flatCommands[0];
         const arg = command.argument_list()[2];

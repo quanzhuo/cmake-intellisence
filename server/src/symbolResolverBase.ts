@@ -7,7 +7,6 @@ import { throwIfCancelled } from "./cancellation";
 import { getArgumentSpanAtPosition, getDefinitionSubject, isCommandPosition, isTargetArgumentIndex as isTargetArgumentIndexFromSemantics, ResolvedCursorTarget, resolveCursorTarget } from "./argumentSemantics";
 import { FlatCommand } from "./flatCommands";
 import { Logger } from "./logging";
-import { getWordAtPosition } from "./server";
 import { SymbolIndex } from "./symbolIndex";
 import { populateIndexTopDown } from "./symbolIndexManager";
 
@@ -63,9 +62,8 @@ export abstract class SymbolResolverBase {
         return resolved?.text ?? null;
     }
 
-    protected getResolvedCursorTarget(document: TextDocument, position: Position): ResolvedCursorTarget | null {
-        const word = getWordAtPosition(document, position);
-        const resolved = resolveCursorTarget(this.command, word.text, position);
+    protected getResolvedCursorTarget(_document: TextDocument, position: Position): ResolvedCursorTarget | null {
+        const resolved = resolveCursorTarget(this.command, '', position);
         if (resolved.text.length === 0) {
             return null;
         }

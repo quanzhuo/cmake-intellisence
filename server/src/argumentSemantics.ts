@@ -33,6 +33,68 @@ export interface ResolvedCursorTarget {
     argumentSpan: ArgumentSpan | null;
 }
 
+function isIdentifierCharacter(char: string): boolean {
+    return /[a-zA-Z0-9_]/.test(char);
+}
+
+function getArgumentOffset(argumentSpan: ArgumentSpan, pos: Position): number {
+    return Math.max(0, Math.min(pos.character - argumentSpan.start.character, argumentSpan.text.length));
+}
+
+function extractVariableReferenceAtOffset(argumentText: string, offset: number): string | null {
+    const matches = argumentText.matchAll(/\$\{([^{}]+)\}/g);
+    for (const match of matches) {
+        const start = match.index ?? 0;
+        const end = start + match[0].length;
+        if (offset >= start && offset <= end) {
+            return match[1];
+        }
+    }
+
+    return null;
+}
+
+function extractIdentifierAtOffset(argumentText: string, offset: number): string {
+    if (argumentText.length === 0) {
+        return '';
+    }
+
+    let pivot = Math.min(offset, argumentText.length - 1);
+    if (!isIdentifierCharacter(argumentText[pivot] ?? '') && pivot > 0 && isIdentifierCharacter(argumentText[pivot - 1] ?? '')) {
+        pivot--;
+    }
+
+    if (!isIdentifierCharacter(argumentText[pivot] ?? '')) {
+        return '';
+    }
+
+    let start = pivot;
+    let end = pivot + 1;
+    while (start > 0 && isIdentifierCharacter(argumentText[start - 1])) {
+        start--;
+    }
+    while (end < argumentText.length && isIdentifierCharacter(argumentText[end])) {
+        end++;
+    }
+
+    return argumentText.slice(start, end);
+}
+
+function resolveCursorWord(command: FlatCommand, pos: Position, argumentSpan: ArgumentSpan | null): string {
+    const commandToken = command.ID().symbol;
+    if ((pos.line + 1 === commandToken.line) && (pos.character >= commandToken.column) && (pos.character <= commandToken.column + commandToken.text.length)) {
+        return commandToken.text;
+    }
+
+    if (!argumentSpan) {
+        return '';
+    }
+
+    const offset = getArgumentOffset(argumentSpan, pos);
+    const variableReference = extractVariableReferenceAtOffset(argumentSpan.text, offset);
+    return variableReference ?? extractIdentifierAtOffset(argumentSpan.text, offset);
+}
+
 function extractVariableName(argumentText: string): string {
     const exactVariableMatch = argumentText.match(/^\$\{([^}]+)\}$/);
     return exactVariableMatch ? exactVariableMatch[1] : argumentText;
@@ -105,7 +167,7 @@ export function getArgumentSpanAtPosition(command: FlatCommand, pos: Position): 
     return null;
 }
 
-export function isCommandPosition(command: FlatCommand, word: string, pos: Position): boolean {
+export function isCommandPosition(command: FlatCommand, _word: string, pos: Position): boolean {
     const commandToken = command.ID().symbol;
     if ((pos.line + 1 === commandToken.line) && (pos.character <= commandToken.column + commandToken.text.length)) {
         return true;
@@ -113,12 +175,9 @@ export function isCommandPosition(command: FlatCommand, word: string, pos: Posit
 
     const cmdName = commandToken.text.toLowerCase();
     if (cmdName === 'function' || cmdName === 'macro') {
-        const args = command.argument_list();
-        if (args.length > 0 && args[0].start?.text === word) {
-            const token = args[0].start;
-            if ((pos.line + 1 === token.line) && (pos.character >= token.column) && (pos.character <= token.column + token.text.length)) {
-                return true;
-            }
+        const argumentSpan = getArgumentSpanAtPosition(command, pos);
+        if (argumentSpan?.argumentIndex === 0) {
+            return true;
         }
     }
 
@@ -274,9 +333,10 @@ export function getDefinitionSubject(command: FlatCommand, word: string, pos: Po
 }
 
 export function resolveCursorTarget(command: FlatCommand, word: string, pos: Position): ResolvedCursorTarget {
-    const subject = getDefinitionSubject(command, word, pos);
     const argumentSpan = getArgumentSpanAtPosition(command, pos);
-    const text = resolveCursorText(command, subject, word, argumentSpan);
+    const cursorWord = word || resolveCursorWord(command, pos, argumentSpan);
+    const subject = getDefinitionSubject(command, cursorWord, pos);
+    const text = resolveCursorText(command, subject, cursorWord, argumentSpan);
 
     switch (subject) {
         case DefinitionSubject.Command:
