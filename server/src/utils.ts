@@ -80,6 +80,14 @@ export function getIncludeFileUri(symbolIndex: SymbolIndex, baseDir: URI, includ
         return incFileUri;
     }
 
+    return null;
+}
+
+export function getIncludeModuleUri(symbolIndex: SymbolIndex, includeFileName: string): URI | null {
+    if (includeFileName.includes('/') || includeFileName.includes('\\') || path.extname(includeFileName) !== '') {
+        return null;
+    }
+
     const resPath = path.join(symbolIndex.cmakeModulePath ?? '', `${includeFileName}.cmake`);
     if (existsSync(resPath)) {
         return URI.file(resPath);

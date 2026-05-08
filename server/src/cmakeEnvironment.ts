@@ -10,7 +10,7 @@ import { PathExpressionResolver } from './pathExpressionResolver';
 import paths, { mkdir_p } from './paths';
 import { execFilePromise } from './processUtils';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
-import { getIncludeFileUri } from './utils';
+import { getIncludeFileUri, getIncludeModuleUri } from './utils';
 
 export interface ExtensionSettings {
     loggingLevel: string;
@@ -546,7 +546,8 @@ export class ProjectTargetInfoListener {
         }
         const includeFile = args[0].getText();
         const includeUri = await this.getPathExpressionResolver().resolveFileExpression(includeFile, URI.parse(this.currentCMake), args[0].start.line - 1)
-            ?? getIncludeFileUri(this.symbolIndex, URI.file(this.baseDirectory), includeFile);
+            ?? getIncludeFileUri(this.symbolIndex, URI.file(this.baseDirectory), includeFile)
+            ?? getIncludeModuleUri(this.symbolIndex, includeFile);
         if (!includeUri) {
             return;
         }

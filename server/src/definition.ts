@@ -6,7 +6,7 @@ import { DefinitionSubject } from './argumentSemantics';
 import { PathExpressionResolver } from './pathExpressionResolver';
 import { DestinationType, SymbolResolverBase } from "./symbolResolverBase";
 import { FlatCommand } from './flatCommands';
-import { getIncludeFileUri } from './utils';
+import { getIncludeFileUri, getIncludeModuleUri } from './utils';
 
 export { DestinationType };
 
@@ -63,7 +63,8 @@ export class DefinitionResolver extends SymbolResolverBase {
                     return includeUri;
                 }
 
-                return getIncludeFileUri(this.symbolIndex, sourceBaseDir, includeArg);
+                return getIncludeFileUri(this.symbolIndex, sourceBaseDir, includeArg)
+                    ?? getIncludeModuleUri(this.symbolIndex, includeArg);
             case 'add_subdirectory': {
                 if (argIndex !== 0) {
                     return null;

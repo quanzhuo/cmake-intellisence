@@ -4,7 +4,7 @@ import { URI, Utils } from 'vscode-uri';
 import { FlatCommand } from './flatCommands';
 import { PathExpressionResolver } from './pathExpressionResolver';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
-import { getIncludeFileUri } from './utils';
+import { getIncludeFileUri, getIncludeModuleUri } from './utils';
 
 export interface ExtractSymbolsOptions {
     entryFile: string;
@@ -114,7 +114,7 @@ async function extractInclude(
             ? await pathExpressionResolver.resolveFileExpression(includeText, sourceUri, maxLine)
             : null;
         const fallbackUri = getIncludeFileUri(symbolIndex, baseDir, includeText);
-        const targetUri = incUri ?? fallbackUri;
+        const targetUri = incUri ?? fallbackUri ?? getIncludeModuleUri(symbolIndex, includeText);
         if (targetUri) {
             cache.addDependency(targetUri.toString(), 'include');
         }
