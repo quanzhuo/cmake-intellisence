@@ -51,6 +51,7 @@ export class PathDiagnosticsProvider {
                 return this.getConfigureFileDiagnostics(command);
             case 'add_library':
             case 'add_executable':
+            case 'target_sources':
                 return this.getSourceArgumentDiagnostics(command);
             default:
                 return [];

@@ -263,7 +263,74 @@ const TARGET_LINK_LIBRARY_KEYWORDS = new Set([
 
 const ADD_EXECUTABLE_KEYWORDS = new Set(['WIN32', 'MACOSX_BUNDLE', 'EXCLUDE_FROM_ALL', 'IMPORTED', 'ALIAS']);
 const ADD_LIBRARY_KEYWORDS = new Set(['STATIC', 'SHARED', 'MODULE', 'OBJECT', 'ALIAS', 'GLOBAL', 'INTERFACE', 'IMPORTED']);
-const TARGET_SOURCES_KEYWORDS = new Set(['INTERFACE', 'PUBLIC', 'PRIVATE', 'FILE_SET', 'TYPE', 'BASE_DIRS', 'FILES']);
+const TARGET_SOURCES_SCOPE_KEYWORDS = new Set(['INTERFACE', 'PUBLIC', 'PRIVATE']);
+
+function isTargetSourcesFileArgument(command: FlatCommand, argIndex: number): boolean {
+    if (argIndex <= 0) {
+        return false;
+    }
+
+    const args = command.argument_list();
+    let inFileSet = false;
+    let expectFileSetName = false;
+    let expectTypeValue = false;
+    let currentSection: 'direct' | 'base-dirs' | 'files' = 'direct';
+
+    for (let index = 1; index < args.length; index++) {
+        const argText = args[index]?.getText();
+        if (!argText) {
+            continue;
+        }
+
+        if (TARGET_SOURCES_SCOPE_KEYWORDS.has(argText)) {
+            inFileSet = false;
+            expectFileSetName = false;
+            expectTypeValue = false;
+            currentSection = 'direct';
+            continue;
+        }
+
+        if (argText === 'FILE_SET') {
+            inFileSet = true;
+            expectFileSetName = true;
+            expectTypeValue = false;
+            currentSection = 'direct';
+            continue;
+        }
+
+        if (expectFileSetName) {
+            expectFileSetName = false;
+            continue;
+        }
+
+        if (inFileSet && argText === 'TYPE') {
+            expectTypeValue = true;
+            continue;
+        }
+
+        if (expectTypeValue) {
+            expectTypeValue = false;
+            continue;
+        }
+
+        if (inFileSet && argText === 'BASE_DIRS') {
+            currentSection = 'base-dirs';
+            continue;
+        }
+
+        if (inFileSet && argText === 'FILES') {
+            currentSection = 'files';
+            continue;
+        }
+
+        const isFileArgument = !inFileSet || currentSection === 'files';
+        if (index === argIndex) {
+            return isFileArgument;
+        }
+    }
+
+    return false;
+}
 
 function getPropertyKeywordIndex(args: ReturnType<FlatCommand['argument_list']>): number {
     for (let index = 0; index < args.length; index++) {
@@ -415,10 +482,12 @@ export function getTargetLinkLibraryKeywords(): string[] {
     return Array.from(TARGET_LINK_LIBRARY_KEYWORDS);
 }
 
-function isSourceFileArgument(commandName: string, argIndex: number, argText: string): boolean {
+function isSourceFileArgument(command: FlatCommand, argIndex: number, argText: string): boolean {
     if (argIndex === 0) {
         return false;
     }
+
+    const commandName = command.ID().symbol.text.toLowerCase();
 
     switch (commandName) {
         case 'add_executable':
@@ -426,7 +495,7 @@ function isSourceFileArgument(commandName: string, argIndex: number, argText: st
         case 'add_library':
             return !ADD_LIBRARY_KEYWORDS.has(argText);
         case 'target_sources':
-            return !TARGET_SOURCES_KEYWORDS.has(argText);
+            return isTargetSourcesFileArgument(command, argIndex);
         default:
             return false;
     }
@@ -475,7 +544,7 @@ export function getArgumentSemanticKinds(command: FlatCommand, argIndex: number)
         case 'add_executable':
         case 'add_library':
         case 'target_sources':
-            if (isSourceFileArgument(commandName, argIndex, argText)) {
+            if (isSourceFileArgument(command, argIndex, argText)) {
                 kinds.add(ArgumentSemanticKind.FilePath);
             }
             break;
@@ -522,7 +591,7 @@ export function getDefinitionSubject(command: FlatCommand, word: string, pos: Po
         case 'add_executable':
         case 'add_library':
         case 'target_sources':
-            return isSourceFileArgument(commandName, argumentSpan.argumentIndex, argumentSpan.text)
+            return isSourceFileArgument(command, argumentSpan.argumentIndex, argumentSpan.text)
                 ? DefinitionSubject.FilePath
                 : DefinitionSubject.Variable;
         default:

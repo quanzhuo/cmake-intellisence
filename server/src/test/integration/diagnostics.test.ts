@@ -133,15 +133,12 @@ suite('Diagnostics Integration Tests', () => {
     test('should publish warnings for deterministically missing file paths', async function () {
         const diagnostics = (await openFixture('missing-paths.cmake')).diagnostics;
 
-        assert.strictEqual(diagnostics.length, 5, 'Expected one warning per missing deterministic path');
+        assert.strictEqual(diagnostics.length, 7, 'Expected one warning per missing deterministic path');
         assert(diagnostics.every(diagnostic => diagnostic.severity === DiagnosticSeverity.Warning));
 
-        const codesByLine = new Map(diagnostics.map(diagnostic => [diagnostic.range.start.line, String(diagnostic.code)]));
-        assert.strictEqual(codesByLine.get(0), DIAG_CODE_MISSING_FILE_PATH);
-        assert.strictEqual(codesByLine.get(1), DIAG_CODE_MISSING_SUBDIRECTORY);
-        assert.strictEqual(codesByLine.get(2), DIAG_CODE_MISSING_FILE_PATH);
-        assert.strictEqual(codesByLine.get(3), DIAG_CODE_MISSING_FILE_PATH);
-        assert.strictEqual(codesByLine.get(4), DIAG_CODE_MISSING_FILE_PATH);
+        const codes = diagnostics.map(diagnostic => String(diagnostic.code));
+        assert.strictEqual(codes.filter(code => code === DIAG_CODE_MISSING_FILE_PATH).length, 6);
+        assert.strictEqual(codes.filter(code => code === DIAG_CODE_MISSING_SUBDIRECTORY).length, 1);
 
         const messages = diagnostics.map(diagnostic => diagnostic.message);
         assert(messages.some(message => /include-local\.cmake/.test(message)));
@@ -149,6 +146,8 @@ suite('Diagnostics Integration Tests', () => {
         assert(messages.some(message => /config\.in/.test(message)));
         assert(messages.some(message => /lib\.cpp/.test(message)));
         assert(messages.some(message => /main\.cpp/.test(message)));
+        assert(messages.some(message => /extra\.cpp/.test(message)));
+        assert(messages.some(message => /generated\.h/.test(message)));
     });
 
     test('should skip ambiguous or unresolved path references', async function () {

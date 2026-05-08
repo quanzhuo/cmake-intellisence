@@ -104,6 +104,27 @@ suite('Argument Semantics Tests', () => {
         assert.strictEqual(headerResult?.text, 'include/lib.h');
     });
 
+    test('resolveArgumentTarget should classify direct target_sources entries as file paths', () => {
+        const command = parseCMakeText('target_sources(sample PRIVATE src/lib.cpp include/lib.h)\n').flatCommands[0];
+
+        const sourceResult = resolveArgumentTarget(command, 2);
+        const headerResult = resolveArgumentTarget(command, 3);
+        assert.strictEqual(sourceResult?.subject, DefinitionSubject.FilePath);
+        assert.strictEqual(sourceResult?.text, 'src/lib.cpp');
+        assert.strictEqual(headerResult?.subject, DefinitionSubject.FilePath);
+        assert.strictEqual(headerResult?.text, 'include/lib.h');
+    });
+
+    test('target_sources FILE_SET metadata should not be classified as file paths', () => {
+        const command = parseCMakeText('target_sources(sample PRIVATE FILE_SET HEADERS TYPE HEADERS BASE_DIRS include/api FILES include/api/lib.h)\n').flatCommands[0];
+
+        assert.strictEqual(resolveArgumentTarget(command, 3)?.subject, DefinitionSubject.Variable);
+        assert.strictEqual(resolveArgumentTarget(command, 5)?.subject, DefinitionSubject.Variable);
+        assert.strictEqual(resolveArgumentTarget(command, 7)?.subject, DefinitionSubject.Variable);
+        assert.strictEqual(resolveArgumentTarget(command, 9)?.subject, DefinitionSubject.FilePath);
+        assert.strictEqual(resolveArgumentTarget(command, 9)?.text, 'include/api/lib.h');
+    });
+
     test('getTargetLinkLibraryKeywords should expose the shared target_link_libraries keywords', () => {
         const keywords = getTargetLinkLibraryKeywords();
 
@@ -133,6 +154,16 @@ suite('Argument Semantics Tests', () => {
 
         assert(getArgumentSemanticKinds(command, 0).has(ArgumentSemanticKind.FilePath));
         assert(getArgumentSemanticKinds(command, 1).has(ArgumentSemanticKind.FilePath));
+    });
+
+    test('getArgumentSemanticKinds should expose file-path semantics only for target_sources direct sources and FILES payload', () => {
+        const command = parseCMakeText('target_sources(sample PRIVATE src/lib.cpp FILE_SET HEADERS TYPE HEADERS BASE_DIRS include/api FILES include/api/lib.h)\n').flatCommands[0];
+
+        assert(getArgumentSemanticKinds(command, 2).has(ArgumentSemanticKind.FilePath));
+        assert(!getArgumentSemanticKinds(command, 4).has(ArgumentSemanticKind.FilePath));
+        assert(!getArgumentSemanticKinds(command, 6).has(ArgumentSemanticKind.FilePath));
+        assert(!getArgumentSemanticKinds(command, 8).has(ArgumentSemanticKind.FilePath));
+        assert(getArgumentSemanticKinds(command, 10).has(ArgumentSemanticKind.FilePath));
     });
 
     test('getArgumentSemanticKinds should expose property semantics for set_target_properties values after PROPERTIES', () => {
