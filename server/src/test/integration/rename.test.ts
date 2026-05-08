@@ -249,5 +249,23 @@ suite("Rename Integration Tests", () => {
         assert.ok(changes.some(change => change.range.start.line === 11), "Should rename get_target_property target usage");
     });
 
+    test("rename a target referenced from generator expressions should ignore shadowing variables", async function () {
+        const uri = await openFixture("genex-targets.cmake");
+        const lines = fs.readFileSync(path.join(fixtureDir, "genex-targets.cmake"), "utf8").split(/\r?\n/);
+        const newName = "core_runtime";
+
+        const result = await renameSymbol(uri, 3, lines[3].indexOf("core") + 1, newName) as WorkspaceEdit;
+
+        assert.ok(result && result.changes, "Should return WorkspaceEdit with changes");
+        const changes = result.changes![uri];
+        assert.ok(changes && changes.length > 0, "Should modify genex-targets.cmake");
+        assert.ok(changes.every(change => change.newText === newName), "All text edits should use the new target name");
+        assert.ok(changes.some(change => change.range.start.line === 0), "Should rename the target declaration");
+        assert.ok(changes.some(change => change.range.start.line === 3), "Should rename the TARGET_FILE operand");
+        assert.ok(changes.some(change => change.range.start.line === 4), "Should rename the TARGET_PROPERTY target operand");
+        assert.ok(!changes.some(change => change.range.start.line === 2), "Should not rename the shadowing set() variable");
+        assert.ok(!changes.some(change => change.range.start.line === 5), "Should not rename the shadowing variable expansion");
+    });
+
 });
 

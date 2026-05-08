@@ -34,6 +34,26 @@ export interface ResolvedCursorTarget {
     argumentSpan: ArgumentSpan | null;
 }
 
+export interface TargetOccurrence {
+    text: string;
+    startOffset: number;
+    endOffset: number;
+}
+
+const GENERATOR_EXPRESSION_TARGET_ROOTS = new Set([
+    'TARGET_EXISTS',
+    'TARGET_NAME_IF_EXISTS',
+    'TARGET_FILE',
+    'TARGET_FILE_NAME',
+    'TARGET_FILE_DIR',
+    'TARGET_IMPORT_FILE',
+    'TARGET_IMPORT_FILE_NAME',
+    'TARGET_IMPORT_FILE_DIR',
+    'TARGET_LINKER_FILE',
+    'TARGET_LINKER_FILE_NAME',
+    'TARGET_LINKER_FILE_DIR',
+]);
+
 function isIdentifierCharacter(char: string): boolean {
     return /[a-zA-Z0-9_]/.test(char);
 }
@@ -53,6 +73,111 @@ function extractVariableReferenceAtOffset(argumentText: string, offset: number):
     }
 
     return null;
+}
+
+function isNamedGeneratorExpression(text: string): boolean {
+    return /^[A-Z][A-Z0-9_]*$/.test(text.trim());
+}
+
+function splitTopLevelGenexSegments(text: string, separator: ':' | ','): string[] {
+    const segments: string[] = [];
+    let current = '';
+    let depth = 0;
+
+    for (let index = 0; index < text.length; index++) {
+        const char = text[index];
+        if (char === '$' && text[index + 1] === '<') {
+            depth++;
+            current += '$<';
+            index++;
+            continue;
+        }
+
+        if (char === '>' && depth > 0) {
+            depth--;
+            current += char;
+            continue;
+        }
+
+        if (char === separator && depth === 0) {
+            segments.push(current);
+            current = '';
+            continue;
+        }
+
+        current += char;
+    }
+
+    segments.push(current);
+    return segments;
+}
+
+function findTrimmedSegmentRange(text: string, segment: string, searchOffset: number): TargetOccurrence | null {
+    const trimmed = segment.trim();
+    if (trimmed.length === 0) {
+        return null;
+    }
+
+    const startOffset = text.indexOf(trimmed, searchOffset);
+    if (startOffset === -1) {
+        return null;
+    }
+
+    return {
+        text: trimmed,
+        startOffset,
+        endOffset: startOffset + trimmed.length,
+    };
+}
+
+function getGeneratorExpressionTargetOccurrences(argumentText: string): TargetOccurrence[] {
+    const occurrences: TargetOccurrence[] = [];
+    const stack: number[] = [];
+
+    for (let index = 0; index < argumentText.length; index++) {
+        if (argumentText[index] === '$' && argumentText[index + 1] === '<') {
+            stack.push(index);
+            index++;
+            continue;
+        }
+
+        if (argumentText[index] !== '>' || stack.length === 0) {
+            continue;
+        }
+
+        const start = stack.pop()!;
+        const content = argumentText.slice(start + 2, index);
+        const colonSegments = splitTopLevelGenexSegments(content, ':');
+        if (colonSegments.length <= 1) {
+            continue;
+        }
+
+        const root = colonSegments[0].trim();
+        if (!isNamedGeneratorExpression(root)) {
+            continue;
+        }
+
+        const argumentPortion = colonSegments.slice(1).join(':');
+        const args = splitTopLevelGenexSegments(argumentPortion, ',');
+        const argumentBaseOffset = start + 2 + root.length + 1;
+
+        if (GENERATOR_EXPRESSION_TARGET_ROOTS.has(root) && args.length > 0) {
+            const occurrence = findTrimmedSegmentRange(argumentText, args[0], argumentBaseOffset);
+            if (occurrence) {
+                occurrences.push(occurrence);
+            }
+            continue;
+        }
+
+        if (root === 'TARGET_PROPERTY' && args.length > 1) {
+            const occurrence = findTrimmedSegmentRange(argumentText, args[0], argumentBaseOffset);
+            if (occurrence) {
+                occurrences.push(occurrence);
+            }
+        }
+    }
+
+    return occurrences;
 }
 
 function extractIdentifierAtOffset(argumentText: string, offset: number): string {
@@ -266,6 +391,26 @@ export function isTargetArgumentIndex(command: FlatCommand, argIndex: number): b
     }
 }
 
+export function getTargetOccurrencesInArgument(command: FlatCommand, argIndex: number): TargetOccurrence[] {
+    const argText = command.argument_list()[argIndex]?.getText();
+    if (!argText) {
+        return [];
+    }
+
+    if (isTargetArgumentIndex(command, argIndex)) {
+        return [{ text: argText, startOffset: 0, endOffset: argText.length }];
+    }
+
+    return getGeneratorExpressionTargetOccurrences(argText);
+}
+
+function getTargetOccurrenceAtPosition(command: FlatCommand, argumentSpan: ArgumentSpan, pos: Position): TargetOccurrence | null {
+    const offset = getArgumentOffset(argumentSpan, pos);
+    return getTargetOccurrencesInArgument(command, argumentSpan.argumentIndex)
+        .find(occurrence => offset >= occurrence.startOffset && offset <= occurrence.endOffset)
+        ?? null;
+}
+
 export function getTargetLinkLibraryKeywords(): string[] {
     return Array.from(TARGET_LINK_LIBRARY_KEYWORDS);
 }
@@ -351,6 +496,10 @@ export function getDefinitionSubject(command: FlatCommand, word: string, pos: Po
         return DefinitionSubject.Variable;
     }
 
+    if (getTargetOccurrenceAtPosition(command, argumentSpan, pos)) {
+        return DefinitionSubject.Target;
+    }
+
     if (isTargetArgumentIndex(command, argumentSpan.argumentIndex)) {
         return DefinitionSubject.Target;
     }
@@ -385,6 +534,18 @@ export function getDefinitionSubject(command: FlatCommand, word: string, pos: Po
 
 export function resolveCursorTarget(command: FlatCommand, word: string, pos: Position): ResolvedCursorTarget {
     const argumentSpan = getArgumentSpanAtPosition(command, pos);
+    if (argumentSpan) {
+        const targetOccurrence = getTargetOccurrenceAtPosition(command, argumentSpan, pos);
+        if (targetOccurrence) {
+            return {
+                text: targetOccurrence.text,
+                subject: DefinitionSubject.Target,
+                semanticKind: ArgumentSemanticKind.Target,
+                argumentSpan,
+            };
+        }
+    }
+
     const cursorWord = word || resolveCursorWord(command, pos, argumentSpan);
     const subject = getDefinitionSubject(command, cursorWord, pos);
     const text = resolveCursorText(command, subject, cursorWord, argumentSpan);

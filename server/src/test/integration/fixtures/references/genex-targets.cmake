@@ -1,0 +1,6 @@
+add_library(core INTERFACE)
+add_executable(app IMPORTED)
+set(core shadow_variable)
+target_compile_definitions(app PRIVATE $<TARGET_FILE:core>)
+target_compile_definitions(app PRIVATE $<TARGET_PROPERTY:core,INTERFACE_INCLUDE_DIRECTORIES>)
+message(STATUS "${core}")

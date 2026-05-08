@@ -308,5 +308,20 @@ suite("References Integration Tests", () => {
         assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 12), "Should include get_target_property target usage");
     });
 
+    test("find references of a target inside generator expressions without matching shadowing variables", async function () {
+        const uri = await openFixture("genex-targets.cmake");
+        const lines = fs.readFileSync(path.join(fixtureDir, "genex-targets.cmake"), "utf8").split(/\r?\n/);
+
+        const result = await getReferences(uri, 0, lines[0].indexOf("core") + 1);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.ok(locs.length > 0, "Should find target references from the declaration");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 0), "Should include target declaration");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 3), "Should include TARGET_FILE usage");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 4), "Should include TARGET_PROPERTY usage");
+        assert.ok(!locs.some(l => l.uri === uri && l.range.start.line === 2), "Should not include the shadowing set() variable");
+        assert.ok(!locs.some(l => l.uri === uri && l.range.start.line === 5), "Should not include the shadowing variable expansion");
+    });
+
 });
 

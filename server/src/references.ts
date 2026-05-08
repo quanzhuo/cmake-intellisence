@@ -1,4 +1,5 @@
 import { Location, ReferenceParams } from "vscode-languageserver";
+import { getTargetOccurrencesInArgument } from "./argumentSemantics";
 import { DestinationType, SymbolResolverBase } from "./symbolResolverBase";
 
 export { DestinationType };
@@ -90,25 +91,23 @@ export class ReferenceResolver extends SymbolResolverBase {
                         const token = arg.start;
                         if (!token) { continue; }
 
-                        if (!this.isTargetArgumentIndex(cmd, argIndex)) {
-                            continue;
-                        }
-
-                        if (!includeDeclaration && this.isTargetDeclaration(cmd, argIndex)) {
-                            continue;
-                        }
-
-                        if (token.text !== searchName) {
-                            continue;
-                        }
-
-                        results.push({
-                            uri,
-                            range: {
-                                start: { line: token.line - 1, character: token.column },
-                                end: { line: token.line - 1, character: token.column + token.text.length }
+                        for (const occurrence of getTargetOccurrencesInArgument(cmd, argIndex)) {
+                            if (!includeDeclaration && this.isTargetDeclaration(cmd, argIndex) && occurrence.startOffset === 0 && occurrence.endOffset === token.text.length) {
+                                continue;
                             }
-                        });
+
+                            if (occurrence.text !== searchName) {
+                                continue;
+                            }
+
+                            results.push({
+                                uri,
+                                range: {
+                                    start: { line: token.line - 1, character: token.column + occurrence.startOffset },
+                                    end: { line: token.line - 1, character: token.column + occurrence.endOffset }
+                                }
+                            });
+                        }
                     }
                 } else {
                     const args = cmd.argument_list();

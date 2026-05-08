@@ -459,6 +459,30 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].range.start.line, 2, 'Foo::Core should resolve to add_library(... IMPORTED)');
     });
 
+    test('TARGET_FILE generator-expression operand should resolve to the target definition', async function () {
+        const uri = await openFixture('genex-targets.cmake');
+        const lines = fs.readFileSync(path.join(fixtureDir, 'genex-targets.cmake'), 'utf8').split(/\r?\n/);
+        const result = await getDefinition(uri, 3, lines[3].indexOf('core') + 1);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find the target declaration from inside TARGET_FILE');
+        assert.strictEqual(locs[0].uri, uri);
+        assert.strictEqual(locs[0].range.start.line, 0, 'core should resolve to add_library() instead of the shadowing variable');
+    });
+
+    test('TARGET_PROPERTY generator-expression target operand should resolve to the target definition', async function () {
+        const uri = await openFixture('genex-targets.cmake');
+        const lines = fs.readFileSync(path.join(fixtureDir, 'genex-targets.cmake'), 'utf8').split(/\r?\n/);
+        const result = await getDefinition(uri, 4, lines[4].indexOf('core') + 1);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find the target declaration from inside TARGET_PROPERTY');
+        assert.strictEqual(locs[0].uri, uri);
+        assert.strictEqual(locs[0].range.start.line, 0, 'core should resolve to add_library() instead of the shadowing variable');
+    });
+
     test('configure_file input should resolve to the referenced file', async function () {
         const uri = await openFixture('files.cmake');
         const result = await getDefinition(uri, 0, 18);

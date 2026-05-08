@@ -64,6 +64,26 @@ suite('Argument Semantics Tests', () => {
         assert.strictEqual(result.text, 'Qt6::Core');
     });
 
+    test('resolveCursorTarget should classify TARGET_FILE generator-expression operands as targets', () => {
+        const command = parseCMakeText('target_compile_definitions(app PRIVATE $<TARGET_FILE:core>)\n').flatCommands[0];
+        const arg = command.argument_list()[2];
+        const position = { line: arg.start.line - 1, character: arg.start.column + arg.getText().indexOf('core') + 1 };
+
+        const result = resolveCursorTarget(command, '', position);
+        assert.strictEqual(result.subject, DefinitionSubject.Target);
+        assert.strictEqual(result.text, 'core');
+    });
+
+    test('resolveCursorTarget should classify TARGET_PROPERTY generator-expression target operands as targets', () => {
+        const command = parseCMakeText('target_compile_definitions(app PRIVATE $<TARGET_PROPERTY:core,INTERFACE_INCLUDE_DIRECTORIES>)\n').flatCommands[0];
+        const arg = command.argument_list()[2];
+        const position = { line: arg.start.line - 1, character: arg.start.column + arg.getText().indexOf('core') + 1 };
+
+        const result = resolveCursorTarget(command, '', position);
+        assert.strictEqual(result.subject, DefinitionSubject.Target);
+        assert.strictEqual(result.text, 'core');
+    });
+
     test('resolveArgumentTarget should classify include module arguments via shared semantics', () => {
         const command = parseCMakeText('include(CMakePrintHelpers)\n').flatCommands[0];
 
