@@ -575,6 +575,39 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].range.start.line, 0);
     });
 
+    test('include file argument using CMAKE_CURRENT_SOURCE_DIR should resolve to the included file', async function () {
+        const uri = await openFixture('builtin-paths.cmake');
+        const lines = fs.readFileSync(path.join(fixtureDir, 'builtin-paths.cmake'), 'utf8').split(/\r?\n/);
+        const result = await getDefinition(uri, 5, lines[5].indexOf('CMAKE_CURRENT_SOURCE_DIR') + 2);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('include/helpers.cmake'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
+    test('add_subdirectory argument using CMAKE_SOURCE_DIR should resolve to child CMakeLists.txt', async function () {
+        const uri = await openFixture('builtin-paths.cmake');
+        const lines = fs.readFileSync(path.join(fixtureDir, 'builtin-paths.cmake'), 'utf8').split(/\r?\n/);
+        const result = await getDefinition(uri, 6, lines[6].indexOf('CMAKE_SOURCE_DIR') + 2);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('src/CMakeLists.txt'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
+    test('configure_file input using PROJECT_SOURCE_DIR should resolve to the referenced file', async function () {
+        const uri = await openFixture('builtin-paths.cmake');
+        const lines = fs.readFileSync(path.join(fixtureDir, 'builtin-paths.cmake'), 'utf8').split(/\r?\n/);
+        const result = await getDefinition(uri, 7, lines[7].indexOf('PROJECT_SOURCE_DIR') + 2);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, fileUri('config/input.in'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
     test('include file argument using a set variable should resolve to the included file', async function () {
         const uri = await openFixture('variable-paths.cmake');
         const result = await getDefinition(uri, 2, 12);

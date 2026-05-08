@@ -223,6 +223,23 @@ suite('Document Link Integration Tests', () => {
         assert(linkTargets.has(fileUri('extra/extra.cpp')), 'target_sources(... ${VAR}) should link the expanded source file');
     });
 
+    test('should link builtin source-directory variables via shared path resolution', async function () {
+        const uri = await openFixture('builtin-source-links.cmake');
+
+        const links = await connection.sendRequest(DocumentLinkRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(links !== null && Array.isArray(links), 'Should return a link array');
+
+        const linkTargets = new Set(links.map(link => link.target));
+        assert(linkTargets.has(fileUri('local/include-local.cmake')), 'include(${CMAKE_CURRENT_SOURCE_DIR}/...) should link to the local file');
+        assert(linkTargets.has(fileUri('config/input.in')), 'configure_file(${CMAKE_SOURCE_DIR}/...) should link the input file');
+        assert(linkTargets.has(fileUri('config/output.txt')), 'configure_file(${PROJECT_SOURCE_DIR}/...) should link the output file when it exists');
+        assert(linkTargets.has(fileUri('app/CMakeLists.txt')), 'add_subdirectory(${PROJECT_SOURCE_DIR}/...) should link to the target CMakeLists.txt');
+        assert(linkTargets.has(fileUri('extra/extra.cpp')), 'target_sources(${CMAKE_SOURCE_DIR}/...) should link the source file');
+    });
+
     test('should link find_package to builtin Find-modules and config package entries', async function () {
         const buildDir = path.join(fixtureDir, 'build');
         const cacheFile = path.join(buildDir, 'CMakeCache.txt');

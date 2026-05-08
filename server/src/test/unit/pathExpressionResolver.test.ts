@@ -32,6 +32,40 @@ suite('Path Expression Resolver Tests', () => {
         }
     });
 
+    test('expandPathVariables should resolve current-source and source-root builtin directory variables', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-source-builtins-'));
+        const entryFile = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const currentFile = URI.file(path.join(workspaceDir, 'sub', 'CMakeLists.txt'));
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => [],
+            entryFile,
+        });
+
+        try {
+            fs.mkdirSync(path.dirname(currentFile.fsPath), { recursive: true });
+
+            const currentSourceExpanded = await resolver.expandPathVariables('${CMAKE_CURRENT_SOURCE_DIR}/include/helpers.cmake', currentFile, 0);
+            const sourceDirExpanded = await resolver.expandPathVariables('${CMAKE_SOURCE_DIR}/include/helpers.cmake', currentFile, 0);
+            const projectSourceExpanded = await resolver.expandPathVariables('${PROJECT_SOURCE_DIR}/include/helpers.cmake', currentFile, 0);
+
+            assert.strictEqual(
+                normalizeForComparison(currentSourceExpanded),
+                normalizeForComparison(path.join(path.dirname(currentFile.fsPath), 'include', 'helpers.cmake')),
+            );
+            assert.strictEqual(
+                normalizeForComparison(sourceDirExpanded),
+                normalizeForComparison(path.join(workspaceDir, 'include', 'helpers.cmake')),
+            );
+            assert.strictEqual(
+                normalizeForComparison(projectSourceExpanded),
+                normalizeForComparison(path.join(workspaceDir, 'include', 'helpers.cmake')),
+            );
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
+
     test('expandPathVariables should resolve chained simple set variables from the same file', async () => {
         const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-vars-'));
         const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
