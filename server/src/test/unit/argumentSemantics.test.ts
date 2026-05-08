@@ -114,4 +114,17 @@ suite('Argument Semantics Tests', () => {
         assert(getArgumentSemanticKinds(command, 0).has(ArgumentSemanticKind.FilePath));
         assert(getArgumentSemanticKinds(command, 1).has(ArgumentSemanticKind.FilePath));
     });
+
+    test('getArgumentSemanticKinds should expose property semantics for set_target_properties values after PROPERTIES', () => {
+        const command = parseCMakeText('set_target_properties(my_target PROPERTIES POSITION_INDEPENDENT_CODE ON)\n').flatCommands[0];
+
+        assert(getArgumentSemanticKinds(command, 2).has(ArgumentSemanticKind.Property));
+        assert(!getArgumentSemanticKinds(command, 3).has(ArgumentSemanticKind.Property));
+    });
+
+    test('getArgumentSemanticKinds should expose property semantics for get_target_property property slot', () => {
+        const command = parseCMakeText('get_target_property(out my_target TYPE)\n').flatCommands[0];
+
+        assert(getArgumentSemanticKinds(command, 2).has(ArgumentSemanticKind.Property));
+    });
 });

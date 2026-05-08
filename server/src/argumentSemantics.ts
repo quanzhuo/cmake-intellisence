@@ -6,6 +6,7 @@ export enum ArgumentSemanticKind {
     Variable = 'variable',
     Target = 'target',
     FilePath = 'file-path',
+    Property = 'property',
     IncludeModule = 'include-module',
     FindPackage = 'find-package',
 }
@@ -139,6 +140,52 @@ const ADD_EXECUTABLE_KEYWORDS = new Set(['WIN32', 'MACOSX_BUNDLE', 'EXCLUDE_FROM
 const ADD_LIBRARY_KEYWORDS = new Set(['STATIC', 'SHARED', 'MODULE', 'OBJECT', 'ALIAS', 'GLOBAL', 'INTERFACE', 'IMPORTED']);
 const TARGET_SOURCES_KEYWORDS = new Set(['INTERFACE', 'PUBLIC', 'PRIVATE', 'FILE_SET', 'TYPE', 'BASE_DIRS', 'FILES']);
 
+function getPropertyKeywordIndex(args: ReturnType<FlatCommand['argument_list']>): number {
+    for (let index = 0; index < args.length; index++) {
+        const text = args[index]?.getText();
+        if (text === 'PROPERTY' || text === 'PROPERTIES') {
+            return index;
+        }
+    }
+
+    return -1;
+}
+
+export function isPropertyArgumentIndex(command: FlatCommand, argIndex: number): boolean {
+    const args = command.argument_list();
+    const commandName = command.ID().symbol.text.toLowerCase();
+
+    switch (commandName) {
+        case 'get_property':
+        case 'set_property':
+        case 'define_property':
+        case 'set_directory_properties':
+        case 'set_target_properties':
+        case 'set_tests_properties':
+        case 'set_source_files_properties': {
+            const propertyKeywordIndex = getPropertyKeywordIndex(args);
+            if (propertyKeywordIndex === -1 || argIndex <= propertyKeywordIndex) {
+                return false;
+            }
+
+            const keyword = args[propertyKeywordIndex]?.getText();
+            const offset = argIndex - propertyKeywordIndex;
+            if (keyword === 'PROPERTY') {
+                return offset === 1;
+            }
+
+            return offset % 2 === 1;
+        }
+        case 'get_target_property':
+            return argIndex === 2;
+        case 'get_cmake_property':
+        case 'get_test_property':
+            return argIndex === 1;
+        default:
+            return false;
+    }
+}
+
 export function getArgumentSpanAtPosition(command: FlatCommand, pos: Position): ArgumentSpan | null {
     const args = command.argument_list();
     const targetLine = pos.line + 1;
@@ -250,6 +297,10 @@ export function getArgumentSemanticKinds(command: FlatCommand, argIndex: number)
 
     if (isTargetArgumentIndex(command, argIndex)) {
         kinds.add(ArgumentSemanticKind.Target);
+    }
+
+    if (isPropertyArgumentIndex(command, argIndex)) {
+        kinds.add(ArgumentSemanticKind.Property);
     }
 
     const commandName = command.ID().symbol.text.toLowerCase();

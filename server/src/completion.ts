@@ -1429,7 +1429,6 @@ export default class Completion {
 
     private async getArgumentSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
         const args = info.context?.argument_list().map(arg => arg.getText()) ?? info.arguments ?? [];
-        const propertyKeywordIndex = this.getPropertyKeywordIndex(args);
 
         if (this.completionParams && info.index !== undefined) {
             const currentArgument = info.context?.argument(info.index);
@@ -1456,6 +1455,10 @@ export default class Completion {
         }
 
         const argumentSemanticKinds = this.getArgumentSemanticKinds(info);
+        if (argumentSemanticKinds?.has(ArgumentSemanticKind.Property)) {
+            return this.getPropertySuggestions(info, word);
+        }
+
         if (argumentSemanticKinds?.has(ArgumentSemanticKind.FindPackage)) {
             return this.getModuleSuggestions(word, 'find_package');
         }
@@ -1481,33 +1484,14 @@ export default class Completion {
             }
             case 'get_property':
             case 'set_property':
-            case 'define_property': {
-                if (this.isPropertyNamePosition(args, info.index, propertyKeywordIndex)) {
-                    return this.getPropertySuggestions(info, word);
-                }
-                break;
-            }
-            case 'get_target_property': {
-                if (info.index === 2) {
-                    return this.getPropertySuggestions(info, word);
-                }
-                break;
-            }
+            case 'define_property':
+            case 'get_target_property':
             case 'get_cmake_property':
-            case 'get_test_property': {
-
-                if (info.index === 1) {
-                    return this.getPropertySuggestions(info, word);
-                }
-                break;
-            }
+            case 'get_test_property':
             case 'set_directory_properties':
             case 'set_target_properties':
             case 'set_tests_properties':
             case 'set_source_files_properties': {
-                if (this.isPropertyNamePosition(args, info.index, propertyKeywordIndex)) {
-                    return this.getPropertySuggestions(info, word);
-                }
                 break;
             }
             case 'pkg_check_modules': {
@@ -1855,31 +1839,6 @@ export default class Completion {
                     kind: CompletionItemKind.Keyword,
                 };
             });
-    }
-
-    private getPropertyKeywordIndex(args: string[]): number {
-        for (let index = 0; index < args.length; index++) {
-            if (args[index] === 'PROPERTY' || args[index] === 'PROPERTIES') {
-                return index;
-            }
-        }
-
-        return -1;
-    }
-
-    private isPropertyNamePosition(args: string[], currentIndex: number | undefined, propertyKeywordIndex: number): boolean {
-        if (currentIndex === undefined || propertyKeywordIndex === -1 || currentIndex <= propertyKeywordIndex) {
-            return false;
-        }
-
-        const keyword = args[propertyKeywordIndex];
-        const offset = currentIndex - propertyKeywordIndex;
-
-        if (keyword === 'PROPERTY') {
-            return offset === 1;
-        }
-
-        return offset % 2 === 1;
     }
 
     public async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
