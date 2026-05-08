@@ -6,7 +6,7 @@ import { URI } from 'vscode-uri';
 import * as which from 'which';
 import { ProjectTargetInfo } from './completion';
 import { FlatCommand } from './flatCommands';
-import { PathExpressionResolver } from './pathExpressionResolver';
+import { PathExpressionRequest, PathExpressionResolver } from './pathExpressionResolver';
 import paths, { mkdir_p } from './paths';
 import { execFilePromise } from './processUtils';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
@@ -478,6 +478,15 @@ export class ProjectTargetInfoListener {
         return this.pathExpressionResolver;
     }
 
+    private createPathExpressionRequest(commandName: string, argText: string, maxLine: number): PathExpressionRequest {
+        return {
+            commandName,
+            argText,
+            sourceUri: URI.parse(this.currentCMake),
+            maxLine,
+        };
+    }
+
     private addExecutable(ctx: FlatCommand): void {
         const args = ctx.argument_list();
         if (args.length > 0) {
@@ -523,7 +532,7 @@ export class ProjectTargetInfoListener {
             return;
         }
         const includeFile = args[0].getText();
-        const includeUri = await this.getPathExpressionResolver().resolveFileExpression(includeFile, URI.parse(this.currentCMake), args[0].start.line - 1)
+        const includeUri = await this.getPathExpressionResolver().resolveFileRequest(this.createPathExpressionRequest(ctx.commandName.toLowerCase(), includeFile, args[0].start.line - 1))
             ?? getIncludeFileUri(this.symbolIndex, URI.file(this.baseDirectory), includeFile)
             ?? getIncludeModuleUri(this.symbolIndex, includeFile);
         if (!includeUri) {

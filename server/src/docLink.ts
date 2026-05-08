@@ -5,7 +5,7 @@ import { URI } from 'vscode-uri';
 import { DefinitionSubject, resolveArgumentTarget } from './argumentSemantics';
 import { FlatCommand } from './flatCommands';
 import { ArgumentContext } from './generated/CMakeParser';
-import { PathExpressionResolver } from './pathExpressionResolver';
+import { PathExpressionRequest, PathExpressionResolver } from './pathExpressionResolver';
 import { SymbolIndex } from './symbolIndex';
 import { getFindPackageUri } from './utils';
 
@@ -111,13 +111,22 @@ export class DocumentLinkInfo {
         return request;
     }
 
-    private async resolveFileArgument(argText: string, maxLine: number): Promise<URI | null> {
-        return this.getPathExpressionResolver().resolveFileExpression(argText, this.getCurrentDocumentUri(), maxLine);
+    private createPathExpressionRequest(commandName: string, argText: string, maxLine: number): PathExpressionRequest {
+        return {
+            commandName,
+            argText,
+            sourceUri: this.getCurrentDocumentUri(),
+            maxLine,
+        };
     }
 
-    private async resolveSubdirectoryTarget(argText: string, maxLine: number): Promise<URI | null> {
+    private async resolveFileArgument(commandName: string, argText: string, maxLine: number): Promise<URI | null> {
+        return this.getPathExpressionResolver().resolveFileRequest(this.createPathExpressionRequest(commandName, argText, maxLine));
+    }
+
+    private async resolveSubdirectoryTarget(commandName: string, argText: string, maxLine: number): Promise<URI | null> {
         const currentUri = this.getCurrentDocumentUri();
-        const expanded = await this.getPathExpressionResolver().expandPathVariables(argText, currentUri, maxLine);
+        const expanded = await this.getPathExpressionResolver().expandPathExpression(this.createPathExpressionRequest(commandName, argText, maxLine));
         if (!expanded) {
             return null;
         }
@@ -153,7 +162,7 @@ export class DocumentLinkInfo {
                 continue;
             }
 
-            const targetUri = await this.resolveFileArgument(resolved.text, argCtx.start.line - 1);
+            const targetUri = await this.resolveFileArgument(cmd.commandName.toLowerCase(), resolved.text, argCtx.start.line - 1);
             if (!targetUri) {
                 continue;
             }
@@ -193,7 +202,7 @@ export class DocumentLinkInfo {
             return [];
         }
 
-        const targetUri = await this.resolveSubdirectoryTarget(resolved.text, firstArg.start.line - 1);
+        const targetUri = await this.resolveSubdirectoryTarget(cmd.commandName.toLowerCase(), resolved.text, firstArg.start.line - 1);
         if (!targetUri) {
             return [];
         }

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { URI, Utils } from 'vscode-uri';
 import { FlatCommand } from './flatCommands';
-import { PathExpressionResolver } from './pathExpressionResolver';
+import { PathExpressionRequest, PathExpressionResolver } from './pathExpressionResolver';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
 import { getIncludeFileUri, getIncludeModuleUri } from './utils';
 
@@ -93,6 +93,15 @@ function extractTarget(cmd: FlatCommand, cache: FileSymbolCache, uri: string) {
     }
 }
 
+function createPathExpressionRequest(cmd: FlatCommand, argText: string, sourceUri: URI, maxLine: number): PathExpressionRequest {
+    return {
+        commandName: cmd.commandName.toLowerCase(),
+        argText,
+        sourceUri,
+        maxLine,
+    };
+}
+
 async function extractInclude(
     cmd: FlatCommand,
     cache: FileSymbolCache,
@@ -111,7 +120,7 @@ async function extractInclude(
         }
 
         const incUri = pathExpressionResolver
-            ? await pathExpressionResolver.resolveFileExpression(includeText, sourceUri, maxLine)
+            ? await pathExpressionResolver.resolveFileRequest(createPathExpressionRequest(cmd, includeText, sourceUri, maxLine))
             : null;
         const fallbackUri = getIncludeFileUri(symbolIndex, baseDir, includeText);
         const targetUri = incUri ?? fallbackUri ?? getIncludeModuleUri(symbolIndex, includeText);
@@ -138,7 +147,7 @@ async function extractAddSubdirectory(
         }
 
         const expandedDir = pathExpressionResolver
-            ? await pathExpressionResolver.expandPathVariables(dirText, sourceUri, maxLine)
+            ? await pathExpressionResolver.expandPathExpression(createPathExpressionRequest(cmd, dirText, sourceUri, maxLine))
             : dirText;
         if (!expandedDir) {
             return;
