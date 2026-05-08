@@ -123,6 +123,27 @@ suite('Path Expression Resolver Tests', () => {
         }
     });
 
+    test('resolveFileExpressionDetailed should expose bounded best-effort candidates for unresolved variables', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-unresolved-best-effort-'));
+        const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => [],
+            entryFile: fileUri,
+        });
+
+        try {
+            const result = await resolver.resolveFileExpressionDetailed('include/${MISSING_VAR}/helper.cmake', fileUri, 0);
+            assert.strictEqual(result.reason, 'unresolved-variable');
+            assert.deepStrictEqual(result.unresolvedVariables, ['MISSING_VAR']);
+            assert.strictEqual(result.exactCandidates.length, 0);
+            assert.strictEqual(result.bestEffortCandidates.length, 1);
+            assert.strictEqual(result.bestEffortCandidates[0]?.toString(), URI.file(path.join(workspaceDir, 'include', 'helper.cmake')).toString());
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
+
     test('resolveFileRequestDetailed should accept explicit request context objects', async () => {
         const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-request-'));
         const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));

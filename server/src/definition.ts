@@ -143,6 +143,103 @@ export class DefinitionResolver extends SymbolResolverBase {
         return uri ? [this.toFileLocation(uri)] : null;
     }
 
+    private getReachableCandidateFiles(): string[] {
+        const candidateFiles = this.symbolIndex.getReachableFiles(this.entryFile.toString());
+        if (!candidateFiles.includes(this.curFile.toString())) {
+            candidateFiles.push(this.curFile.toString());
+        }
+        return candidateFiles;
+    }
+
+    private resolveCommandDefinitions(searchName: string): Location[] {
+        if (this.isBuiltinCommand(searchName)) {
+            return [];
+        }
+
+        const results: Location[] = [];
+        for (const uri of this.getReachableCandidateFiles()) {
+            const cache = this.symbolIndex.getCache(uri);
+            if (!cache) {
+                continue;
+            }
+
+            const symbols = cache.commands.get(searchName);
+            if (symbols) {
+                results.push(...symbols.map(symbol => symbol.getLocation()));
+            }
+        }
+
+        return results;
+    }
+
+    private resolveTargetDefinitions(searchName: string): Location[] {
+        const results: Location[] = [];
+        for (const uri of this.getReachableCandidateFiles()) {
+            const cache = this.symbolIndex.getCache(uri);
+            if (!cache) {
+                continue;
+            }
+
+            const symbols = cache.targets.get(searchName);
+            if (symbols) {
+                results.push(...symbols.map(symbol => symbol.getLocation()));
+            }
+        }
+
+        return results;
+    }
+
+    private resolveVariableDefinitions(searchName: string, currentLine: number): Location[] {
+        const results: Location[] = [];
+        const visibleFiles = this.symbolIndex.getVisibleFilesForVariable(this.entryFile.toString(), this.curFile.toString());
+        if (!visibleFiles.includes(this.curFile.toString())) {
+            visibleFiles.push(this.curFile.toString());
+        }
+
+        for (const uri of visibleFiles) {
+            const cache = this.symbolIndex.getCache(uri);
+            if (!cache) {
+                continue;
+            }
+
+            const symbols = cache.variables.get(searchName);
+            if (!symbols) {
+                continue;
+            }
+
+            const validSymbols = uri === this.curFile.toString()
+                ? symbols.filter(symbol => symbol.line <= currentLine)
+                : symbols;
+            this.logger.info(`Found valid symbols for ${searchName} in ${uri}: ${validSymbols.length}`);
+            results.push(...validSymbols.map(symbol => symbol.getLocation()));
+        }
+
+        results.reverse();
+        return results;
+    }
+
+    private async resolveBySubject(subject: DefinitionSubject, searchName: string, position: Position): Promise<Location[] | null> {
+        switch (subject) {
+            case DefinitionSubject.Command: {
+                const results = this.resolveCommandDefinitions(searchName.toLowerCase());
+                return results.length > 0 ? results : null;
+            }
+            case DefinitionSubject.Target: {
+                const results = this.resolveTargetDefinitions(searchName);
+                return results.length > 0 ? results : null;
+            }
+            case DefinitionSubject.FilePath:
+            case DefinitionSubject.IncludeModule:
+            case DefinitionSubject.FindPackage:
+                return this.tryResolveFileDefinition(position);
+            case DefinitionSubject.Variable:
+            default: {
+                const results = this.resolveVariableDefinitions(searchName, position.line);
+                return results.length > 0 ? results : null;
+            }
+        }
+    }
+
     public async resolve(params: DefinitionParams): Promise<Location | Location[] | LocationLink[] | null> {
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
@@ -152,95 +249,13 @@ export class DefinitionResolver extends SymbolResolverBase {
         await this.determineContextAndRoot();
 
         const resolvedTarget = this.getResolvedCursorTarget(document, params.position);
-        const fileResults = await this.tryResolveFileDefinition(params.position);
-        if (fileResults) {
-            return fileResults;
-        }
-
         if (!resolvedTarget) {
             return null;
         }
 
-        if (resolvedTarget.subject === DefinitionSubject.FilePath) {
-            return null;
-        }
-
-        const destinationType = this.getDestinationType(this.command, resolvedTarget.text, params.position);
-        const isCommand = destinationType === DestinationType.Command;
-        const isTarget = destinationType === DestinationType.Target;
-        const searchName = isCommand ? resolvedTarget.text.toLowerCase() : resolvedTarget.text;
-
-        if (isCommand) {
-            if (this.isBuiltinCommand(searchName)) {
-                return null;
-            }
-        }
-
-        const results: Location[] = [];
-
-        if (isCommand) {
-            const candidateFiles = this.symbolIndex.getReachableFiles(this.entryFile.toString());
-            if (!candidateFiles.includes(this.curFile.toString())) {
-                candidateFiles.push(this.curFile.toString());
-            }
-
-            // CMake functions & macros are broadly globally available once executed within the same entry tree.
-            for (const uri of candidateFiles) {
-                const cache = this.symbolIndex.getCache(uri);
-                if (!cache) {
-                    continue;
-                }
-                const symbols = cache.commands.get(searchName);
-                if (symbols) {
-                    results.push(...symbols.map(s => s.getLocation()));
-                }
-            }
-        } else if (isTarget) {
-            const candidateFiles = this.symbolIndex.getReachableFiles(this.entryFile.toString());
-            if (!candidateFiles.includes(this.curFile.toString())) {
-                candidateFiles.push(this.curFile.toString());
-            }
-
-            for (const uri of candidateFiles) {
-                const cache = this.symbolIndex.getCache(uri);
-                if (!cache) {
-                    continue;
-                }
-
-                const symbols = cache.targets.get(searchName);
-                if (symbols) {
-                    results.push(...symbols.map(s => s.getLocation()));
-                }
-            }
-        } else {
-            // Variables use dynamic scoping paths
-            const visibleFiles = this.symbolIndex.getVisibleFilesForVariable(this.entryFile.toString(), this.curFile.toString());
-            // If current file wasn't reachable from root, at least check current file itself
-            if (!visibleFiles.includes(this.curFile.toString())) {
-                visibleFiles.push(this.curFile.toString());
-            }
-
-            for (const uri of visibleFiles) {
-                const cache = this.symbolIndex.getCache(uri);
-                if (cache) {
-                    const symbols = cache.variables.get(searchName);
-                    if (symbols) {
-                        // Do not jump to variable assignments that appear after current line in same file!
-                        const validSymbols = uri === this.curFile.toString()
-                            ? symbols.filter(s => s.line <= params.position.line)
-                            : symbols;
-                        this.logger.info(`Found valid symbols for ${searchName} in ${uri}: ${validSymbols.length}`);
-                        results.push(...validSymbols.map(s => s.getLocation()));
-                    }
-                }
-            }
-
-            // To be accurate and helpful, reverse the array so the "closest" lexical definitions show up first
-            results.reverse();
-        }
-
-        this.logger.info(`Returning ${results.length} results for ${searchName}`);
-        return results.length > 0 ? results : null;
+        const results = await this.resolveBySubject(resolvedTarget.subject, resolvedTarget.text, params.position);
+        this.logger.info(`Returning ${results?.length ?? 0} results for ${resolvedTarget.text}`);
+        return results;
     }
 }
 

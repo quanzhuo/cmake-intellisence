@@ -4,6 +4,8 @@ import { URI } from 'vscode-uri';
 import { FlatCommand } from './flatCommands';
 import { SymbolIndex } from './symbolIndex';
 
+const MAX_BEST_EFFORT_CANDIDATES = 1;
+
 export interface PathExpressionResolverOptions {
     symbolIndex: SymbolIndex;
     getFlatCommands: (uri: string) => Promise<FlatCommand[]>;
@@ -40,6 +42,11 @@ export interface FileExpressionResolutionResult {
 
 export class PathExpressionResolver {
     constructor(private readonly options: PathExpressionResolverOptions) {
+    }
+
+    private startsWithAbsolutePathAnchor(argText: string): boolean {
+        return path.isAbsolute(argText)
+            || /^\$\{(CMAKE_CURRENT_LIST_DIR|CMAKE_CURRENT_SOURCE_DIR|CMAKE_SOURCE_DIR|PROJECT_SOURCE_DIR)\}/.test(argText);
     }
 
     private getMissingVariableResult(variableName: string): ExpandedPathResult {
@@ -253,6 +260,59 @@ export class PathExpressionResolver {
         return this.expandPathVariablesDetailed(request.argText, request.sourceUri, request.maxLine);
     }
 
+    private sanitizeBestEffortPath(expanded: string, originalArgText: string): string | null {
+        let normalized = path.normalize(expanded);
+        if (!this.startsWithAbsolutePathAnchor(originalArgText)) {
+            normalized = normalized.replace(/^[\\/]+/, '');
+        }
+
+        if (normalized.length === 0 || normalized === '.') {
+            return null;
+        }
+
+        return normalized;
+    }
+
+    private async expandPathVariablesBestEffort(
+        argText: string,
+        sourceUri: URI,
+        maxLine: number,
+        seen: Set<string> = new Set(),
+        depth = 0,
+        originalArgText: string = argText,
+    ): Promise<string | null> {
+        if (depth > 8) {
+            return null;
+        }
+
+        const matches = Array.from(argText.matchAll(/\$\{([^}]+)\}/g));
+        if (matches.length === 0) {
+            return this.sanitizeBestEffortPath(argText, originalArgText);
+        }
+
+        let expanded = argText;
+        for (const match of matches) {
+            const placeholder = match[0];
+            const variableName = match[1];
+            const replacement = this.getKnownPathVariableValue(variableName, sourceUri);
+            const replacementResult = replacement
+                ? {
+                    expandedPath: replacement,
+                    unresolvedVariables: [],
+                    reason: 'resolved' as const,
+                }
+                : await this.resolveVariableValueDetailed(variableName, sourceUri, maxLine, seen, depth + 1);
+
+            expanded = expanded.replace(placeholder, replacementResult.expandedPath ?? '');
+        }
+
+        if (expanded.includes('${')) {
+            return this.expandPathVariablesBestEffort(expanded, sourceUri, maxLine, seen, depth + 1, originalArgText);
+        }
+
+        return this.sanitizeBestEffortPath(expanded, originalArgText);
+    }
+
     private toCandidateUri(argText: string, sourceUri: URI): URI {
         return path.isAbsolute(argText)
             ? URI.file(path.normalize(argText))
@@ -267,6 +327,27 @@ export class PathExpressionResolver {
         }
 
         return target;
+    }
+
+    private async getBestEffortCandidates(
+        argText: string,
+        sourceUri: URI,
+        maxLine: number,
+        preferredExpandedPath?: string | null,
+    ): Promise<URI[]> {
+        const candidateTexts: string[] = [];
+        if (preferredExpandedPath) {
+            candidateTexts.push(preferredExpandedPath);
+        }
+
+        const bestEffortPath = await this.expandPathVariablesBestEffort(argText, sourceUri, maxLine);
+        if (bestEffortPath) {
+            candidateTexts.push(bestEffortPath);
+        }
+
+        return Array.from(new Set(candidateTexts))
+            .slice(0, MAX_BEST_EFFORT_CANDIDATES)
+            .map(candidate => this.toCandidateUri(candidate, sourceUri));
     }
 
     public async resolveFileExpression(argText: string, sourceUri: URI, maxLine: number): Promise<URI | null> {
@@ -284,7 +365,7 @@ export class PathExpressionResolver {
             return {
                 expandedPath: null,
                 exactCandidates: [],
-                bestEffortCandidates: [],
+                bestEffortCandidates: await this.getBestEffortCandidates(argText, sourceUri, maxLine),
                 unresolvedVariables: expandedResult.unresolvedVariables,
                 reason: expandedResult.reason,
             };
@@ -304,7 +385,7 @@ export class PathExpressionResolver {
         return {
             expandedPath: expandedResult.expandedPath,
             exactCandidates: [],
-            bestEffortCandidates: [this.toCandidateUri(expandedResult.expandedPath, sourceUri)],
+            bestEffortCandidates: await this.getBestEffortCandidates(argText, sourceUri, maxLine, expandedResult.expandedPath),
             unresolvedVariables: [],
             reason: 'missing-file',
         };
