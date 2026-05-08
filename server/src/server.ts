@@ -761,7 +761,7 @@ export class CMakeLanguageServer {
             parser.addErrorListener(syntaxErrorListener);
         });
         const { fileContext, flatCommands } = parsedFile;
-        this.storeParsedFileSnapshot(event.document.uri, parsedFile);
+        await this.storeParsedFileSnapshot(event.document.uri, parsedFile);
 
         // check semantic errors
         const semanticListener = new SemanticDiagnosticsListener();
@@ -1017,10 +1017,10 @@ export class CMakeLanguageServer {
     private async indexWorkspaceFile(uri: string, generation?: number): Promise<void> {
         const text = await getFileContent(this.documents, URI.parse(uri));
         const parsedFile = this.parseCMakeFile({ uri, getText: () => text }, 'workspace index');
-        this.storeParsedFileSnapshot(uri, parsedFile, generation);
+        await this.storeParsedFileSnapshot(uri, parsedFile, generation);
     }
 
-    private storeParsedFileSnapshot(uri: string, parsedFile: ParsedCMakeFile, generation?: number) {
+    private async storeParsedFileSnapshot(uri: string, parsedFile: ParsedCMakeFile, generation?: number) {
         const workspaceState = this.getWorkspaceStateForUri(uri);
         if (generation !== undefined && workspaceState.environmentGeneration !== generation) {
             return;
@@ -1030,7 +1030,16 @@ export class CMakeLanguageServer {
         this.flatCommandsMap.set(uri, parsedFile.flatCommands);
 
         const baseDir = URI.file(path.dirname(URI.parse(uri).fsPath));
-        const fileSymbolCache = extractSymbols(uri, parsedFile.flatCommands, baseDir, workspaceState.symbolIndex);
+        const fileSymbolCache = await extractSymbols(uri, parsedFile.flatCommands, baseDir, workspaceState.symbolIndex, {
+            entryFile: this.getEntryFilePath(uri),
+            getFlatCommands: async (targetUri) => {
+                if (targetUri === uri) {
+                    return parsedFile.flatCommands;
+                }
+
+                return this.getFlatCommandsAsync(targetUri);
+            },
+        });
         workspaceState.symbolIndex.setCache(uri, fileSymbolCache);
 
         const commentsChannel = CMakeLexer.channelNames.indexOf("COMMENTS");
@@ -1060,7 +1069,7 @@ export class CMakeLanguageServer {
             { uri, getText: () => text },
             'on-demand cache miss'
         );
-        this.storeParsedFileSnapshot(uri, parsedFile);
+        await this.storeParsedFileSnapshot(uri, parsedFile);
         return parsedFile;
     }
 

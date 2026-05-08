@@ -306,7 +306,24 @@ export async function warmBuiltinModuleCaches(options: BuiltinModuleWarmupOption
         } else {
             const text = await fs.promises.readFile(filePath, 'utf8');
             const parsed = parseCMakeText(text);
-            const cache = extractSymbols(uri, parsed.flatCommands, URI.file(path.dirname(filePath)), options.symbolIndex);
+            const cache = await extractSymbols(
+                uri,
+                parsed.flatCommands,
+                URI.file(path.dirname(filePath)),
+                options.symbolIndex,
+                {
+                    entryFile: uri,
+                    getFlatCommands: async (targetUri) => {
+                        if (targetUri === uri) {
+                            return parsed.flatCommands;
+                        }
+
+                        const targetPath = URI.parse(targetUri).fsPath;
+                        const targetText = await fs.promises.readFile(targetPath, 'utf8');
+                        return parseCMakeText(targetText).flatCommands;
+                    },
+                },
+            );
             stagedCaches.push({ uri, cache });
             const serializedCache = serializeFileSymbolCache(cache);
             nextEntries[uri] = {

@@ -1,16 +1,31 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import { URI, Utils } from 'vscode-uri';
 import { FlatCommand } from './flatCommands';
+import { PathExpressionResolver } from './pathExpressionResolver';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
 import { getIncludeFileUri } from './utils';
 
-export function extractSymbols(
+export interface ExtractSymbolsOptions {
+    entryFile: string;
+    getFlatCommands: (uri: string) => Promise<FlatCommand[]>;
+}
+
+export async function extractSymbols(
     uri: string,
     commands: FlatCommand[],
     baseDir: URI,
-    symbolIndex: SymbolIndex
-): FileSymbolCache {
+    symbolIndex: SymbolIndex,
+    options?: ExtractSymbolsOptions,
+): Promise<FileSymbolCache> {
     const cache = new FileSymbolCache(uri);
+    const pathExpressionResolver = options
+        ? new PathExpressionResolver({
+            symbolIndex,
+            getFlatCommands: options.getFlatCommands,
+            entryFile: URI.parse(options.entryFile),
+        })
+        : undefined;
 
     for (const cmd of commands) {
         const cmdName = cmd.commandName.toLowerCase();
@@ -34,10 +49,10 @@ export function extractSymbols(
                 extractTarget(cmd, cache, uri);
                 break;
             case 'include':
-                extractInclude(cmd, cache, baseDir, symbolIndex);
+                await extractInclude(cmd, cache, baseDir, symbolIndex, URI.parse(uri), pathExpressionResolver);
                 break;
             case 'add_subdirectory':
-                extractAddSubdirectory(cmd, cache, baseDir);
+                await extractAddSubdirectory(cmd, cache, baseDir, URI.parse(uri), pathExpressionResolver);
                 break;
         }
     }
@@ -78,29 +93,62 @@ function extractTarget(cmd: FlatCommand, cache: FileSymbolCache, uri: string) {
     }
 }
 
-function extractInclude(cmd: FlatCommand, cache: FileSymbolCache, baseDir: URI, symbolIndex: SymbolIndex) {
+async function extractInclude(
+    cmd: FlatCommand,
+    cache: FileSymbolCache,
+    baseDir: URI,
+    symbolIndex: SymbolIndex,
+    sourceUri: URI,
+    pathExpressionResolver?: PathExpressionResolver,
+) {
     const args = cmd.argument_list();
     if (args.length > 0) {
-        const nameToken = args[0].start;
-        if (nameToken) {
-            const incUri = getIncludeFileUri(symbolIndex, baseDir, nameToken.text);
-            if (incUri) {
-                cache.addDependency(incUri.toString(), 'include');
-            }
+        const includeArg = args[0];
+        const includeText = includeArg?.getText();
+        const maxLine = includeArg?.start.line ? includeArg.start.line - 1 : 0;
+        if (!includeText) {
+            return;
+        }
+
+        const incUri = pathExpressionResolver
+            ? await pathExpressionResolver.resolveFileExpression(includeText, sourceUri, maxLine)
+            : null;
+        const fallbackUri = getIncludeFileUri(symbolIndex, baseDir, includeText);
+        const targetUri = incUri ?? fallbackUri;
+        if (targetUri) {
+            cache.addDependency(targetUri.toString(), 'include');
         }
     }
 }
 
-function extractAddSubdirectory(cmd: FlatCommand, cache: FileSymbolCache, baseDir: URI) {
+async function extractAddSubdirectory(
+    cmd: FlatCommand,
+    cache: FileSymbolCache,
+    baseDir: URI,
+    sourceUri: URI,
+    pathExpressionResolver?: PathExpressionResolver,
+) {
     const args = cmd.argument_list();
     if (args.length > 0) {
-        const dirToken = args[0].start;
-        if (dirToken) {
-            const subDir = dirToken.text;
-            const subCMakeListsUri = Utils.joinPath(baseDir, subDir, 'CMakeLists.txt');
-            if (fs.existsSync(subCMakeListsUri.fsPath)) {
-                cache.addDependency(subCMakeListsUri.toString(), 'subdirectory');
-            }
+        const dirArg = args[0];
+        const dirText = dirArg?.getText();
+        const maxLine = dirArg?.start.line ? dirArg.start.line - 1 : 0;
+        if (!dirText) {
+            return;
+        }
+
+        const expandedDir = pathExpressionResolver
+            ? await pathExpressionResolver.expandPathVariables(dirText, sourceUri, maxLine)
+            : dirText;
+        if (!expandedDir) {
+            return;
+        }
+
+        const subCMakeListsUri = path.isAbsolute(expandedDir)
+            ? URI.file(path.join(path.normalize(expandedDir), 'CMakeLists.txt'))
+            : Utils.joinPath(baseDir, expandedDir.replace(/\\/g, '/'), 'CMakeLists.txt');
+        if (fs.existsSync(subCMakeListsUri.fsPath)) {
+            cache.addDependency(subCMakeListsUri.toString(), 'subdirectory');
         }
     }
 }
