@@ -402,9 +402,11 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].range.start.line, 0, 'core target should resolve to add_library()');
     });
 
-    test('target operand in get_target_property should resolve to target definition', async function () {
+    test('target operand in get_target_property(... LOCATION) should resolve to target definition', async function () {
         const uri = await openFixture('targets.cmake');
-        const result = await getDefinition(uri, 6, 31);
+        const lines = fs.readFileSync(path.join(fixtureDir, 'targets.cmake'), 'utf8').split(/\r?\n/);
+        const targetOffset = lines[6].indexOf(' core ');
+        const result = await getDefinition(uri, 6, targetOffset + 2);
 
         assert(result !== null, 'Definition should not be null');
         const locs = (Array.isArray(result) ? result : [result]) as Location[];

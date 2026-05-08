@@ -229,7 +229,7 @@ suite("Rename Integration Tests", () => {
         assert.ok(changes.some(change => change.range.start.line === 0), "Should rename target declaration");
         assert.ok(changes.some(change => change.range.start.line === 2), "Should rename target_link_libraries usage");
         assert.ok(changes.some(change => change.range.start.line === 3), "Should rename if(TARGET ...) usage");
-        assert.ok(changes.some(change => change.range.start.line === 6), "Should rename get_target_property target usage");
+        assert.ok(changes.some(change => change.range.start.line === 6), "Should rename get_target_property(... LOCATION) target usage");
     });
 
     test("rename an alias target across target-aware argument positions", async function () {

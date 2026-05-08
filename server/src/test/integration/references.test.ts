@@ -266,7 +266,7 @@ suite("References Integration Tests", () => {
         assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 0), "Should include add_library declaration");
         assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 2), "Should include target_link_libraries dependency usage");
         assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 3), "Should include if(TARGET ...) usage");
-        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 6), "Should include get_target_property target usage");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 6), "Should include get_target_property(... LOCATION) target usage");
     });
 
     test("target references should exclude declarations when includeDeclaration is false", async function () {

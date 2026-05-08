@@ -142,8 +142,8 @@ suite('Argument Semantics Tests', () => {
         assert(!getArgumentSemanticKinds(command, 3).has(ArgumentSemanticKind.Property));
     });
 
-    test('getArgumentSemanticKinds should expose property semantics for get_target_property property slot', () => {
-        const command = parseCMakeText('get_target_property(out my_target TYPE)\n').flatCommands[0];
+    test('getArgumentSemanticKinds should expose property semantics for get_target_property LOCATION property slot', () => {
+        const command = parseCMakeText('get_target_property(out my_target LOCATION)\n').flatCommands[0];
 
         assert(getArgumentSemanticKinds(command, 2).has(ArgumentSemanticKind.Property));
     });
