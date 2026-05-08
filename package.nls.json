@@ -5,6 +5,10 @@
     "workspaceIgnoreDirectories": "Directory names to skip while indexing workspace CMake files",
     "diagnostics.breakContinue": "The command '{0}' can only be used within loops",
     "diagnostics.cmdCase": "It is recommended to use lowercase CMake commands",
+    "diagnostics.missingFilePath": "Referenced path '{0}' does not exist",
+    "diagnostics.missingConfigureInput": "configure_file input '{0}' does not exist",
+    "diagnostics.missingSourceFile": "Source file '{0}' does not exist",
+    "diagnostics.missingSubdirectory": "add_subdirectory source dir '{0}' does not contain a CMakeLists.txt file",
     "codeAction.cmdCase": "Change command '{0}' to lowercase",
     "pkgConfigPath": "Set the path to the pkg-config command, used to provide module completion in the pkg_check_modules command"
 }

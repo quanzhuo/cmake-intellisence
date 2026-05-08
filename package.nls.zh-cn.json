@@ -5,6 +5,10 @@
     "workspaceIgnoreDirectories": "设置在索引工作区 CMake 文件时需要跳过的目录名列表",
     "diagnostics.breakContinue": "命令 '{0}' 只能在循环中使用",
     "diagnostics.cmdCase": "建议使用小写形式的 CMake 命令",
+    "diagnostics.missingFilePath": "引用的路径 '{0}' 不存在",
+    "diagnostics.missingConfigureInput": "configure_file 的输入文件 '{0}' 不存在",
+    "diagnostics.missingSourceFile": "源文件 '{0}' 不存在",
+    "diagnostics.missingSubdirectory": "add_subdirectory 的源目录 '{0}' 中不存在 CMakeLists.txt 文件",
     "codeAction.cmdCase": "将命令 '{0}' 改为小写形式",
     "pkgConfigPath": "设置 pkg-config 命令的路径, 用于在命令 pkg_check_modules 提供模块补全"
 }

@@ -1,0 +1,5 @@
+include(missing/include-local.cmake)
+add_subdirectory(missing/subdir)
+configure_file(missing/config.in generated/config.out)
+add_library(test_lib STATIC missing/lib.cpp)
+add_executable(test_app missing/main.cpp)

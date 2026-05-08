@@ -21,6 +21,7 @@ import { FileContext } from './generated/CMakeParser';
 import localize, { localizeInitializer } from './localize';
 import { Logger, createLogger } from './logging';
 import { ExecFileFailure, execFilePromise } from './processUtils';
+import { PathDiagnosticsProvider } from './pathDiagnostics';
 import { ReferenceResolver } from './references';
 import { RenameResolver } from './rename';
 import { rstToMarkdown } from './rstToMarkdown';
@@ -767,12 +768,21 @@ export class CMakeLanguageServer {
         const semanticListener = new SemanticDiagnosticsListener();
         ParseTreeWalker.DEFAULT.walk(semanticListener, fileContext);
 
+        const pathDiagnosticsProvider = new PathDiagnosticsProvider({
+            symbolIndex: workspaceState.symbolIndex,
+            entryFile: URI.parse(this.getEntryFilePath(event.document.uri)),
+            sourceUri: URI.parse(event.document.uri),
+            getFlatCommands: this.getFlatCommandsAsync.bind(this),
+        });
+        const pathDiagnostics = await pathDiagnosticsProvider.getDiagnostics(flatCommands);
+
         // all diagnostics
         const diagnostics = {
             uri: event.document.uri,
             diagnostics: [
                 ...syntaxErrorListener.getSyntaxErrors(),
-                ...semanticListener.getSemanticDiagnostics()
+                ...semanticListener.getSemanticDiagnostics(),
+                ...pathDiagnostics,
             ]
         };
 
