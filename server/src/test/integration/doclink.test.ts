@@ -222,4 +222,29 @@ suite('Document Link Integration Tests', () => {
         assert(linkTargets.has(fileUri('app/CMakeLists.txt')), 'add_subdirectory(${VAR}) should link to the expanded subdirectory CMakeLists.txt');
         assert(linkTargets.has(fileUri('extra/extra.cpp')), 'target_sources(... ${VAR}) should link the expanded source file');
     });
+
+    test('should link find_package to builtin Find-modules and config package entries', async function () {
+        const buildDir = path.join(fixtureDir, 'build');
+        const cacheFile = path.join(buildDir, 'CMakeCache.txt');
+        const examplePackageDir = path.join(fixtureDir, 'packages', 'Example');
+
+        fs.mkdirSync(buildDir, { recursive: true });
+        fs.writeFileSync(cacheFile, `Example_DIR:PATH=${examplePackageDir}\n`, 'utf8');
+
+        try {
+            const uri = await openFixture('find-packages.cmake');
+
+            const links = await connection.sendRequest(DocumentLinkRequest.type, {
+                textDocument: { uri }
+            });
+
+            assert(links !== null && Array.isArray(links), 'Should return a link array');
+
+            const linkTargets = new Set(links.map(link => link.target));
+            assert(Array.from(linkTargets).some(target => target?.endsWith('/FindThreads.cmake')), 'find_package() should still link builtin Find-modules');
+            assert(linkTargets.has(fileUri('packages/Example/ExampleConfig.cmake')), 'find_package() should link config package entries from CMakeCache');
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
 });

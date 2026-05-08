@@ -7,6 +7,7 @@ import { FlatCommand } from './flatCommands';
 import { ArgumentContext } from './generated/CMakeParser';
 import { PathExpressionResolver } from './pathExpressionResolver';
 import { SymbolIndex } from './symbolIndex';
+import { getFindPackageUri } from './utils';
 
 export class DocumentLinkInfo {
     private _links: DocumentLink[] = [];
@@ -21,6 +22,7 @@ export class DocumentLinkInfo {
         public uri: string,
         public symbolIndex: SymbolIndex,
         public entryFile: string,
+        public workspaceFolder: string,
         public getFlatCommands: (uri: string) => Promise<FlatCommand[]>,
     ) { }
 
@@ -29,9 +31,10 @@ export class DocumentLinkInfo {
         uri: string,
         symbolIndex: SymbolIndex,
         entryFile: string,
+        workspaceFolder: string,
         getFlatCommands: (uri: string) => Promise<FlatCommand[]>,
     ): Promise<DocumentLinkInfo> {
-        const info = new DocumentLinkInfo(commands, uri, symbolIndex, entryFile, getFlatCommands);
+        const info = new DocumentLinkInfo(commands, uri, symbolIndex, entryFile, workspaceFolder, getFlatCommands);
         await info.findLinks();
         return info;
     }
@@ -219,19 +222,20 @@ export class DocumentLinkInfo {
             : [];
     }
 
-    private findPackage(cmd: FlatCommand): Promise<DocumentLink[]> {
+    private async findPackage(cmd: FlatCommand): Promise<DocumentLink[]> {
         const args = cmd.argument_list();
         if (args.length < 1) {
-            return Promise.resolve([]);
+            return [];
         }
 
         const firstArg: ArgumentContext = args[0];
         const resolved = resolveArgumentTarget(cmd, 0);
         if (!resolved || resolved.subject !== DefinitionSubject.FindPackage) {
-            return Promise.resolve([]);
+            return [];
         }
 
-        return this.builtinModule(firstArg, `Find${resolved.text}.cmake`);
+        const targetUri = await getFindPackageUri(this.symbolIndex, this.workspaceFolder, resolved.text);
+        return targetUri ? [this.createLink(firstArg, targetUri)] : [];
     }
 
     private configureFile(cmd: FlatCommand): Promise<DocumentLink[]> {

@@ -797,6 +797,7 @@ export class CMakeLanguageServer {
             params.textDocument.uri,
             workspaceState.symbolIndex,
             this.getEntryFilePath(params.textDocument.uri),
+            this.getWorkspaceFolderForUri(params.textDocument.uri).fsPath,
             this.getFlatCommandsAsync.bind(this),
         );
         throwIfCancelled(token);
