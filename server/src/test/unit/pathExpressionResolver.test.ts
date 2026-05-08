@@ -196,4 +196,102 @@ suite('Path Expression Resolver Tests', () => {
             fs.rmSync(workspaceDir, { recursive: true, force: true });
         }
     });
+
+    test('resolveFileRequestDetailed should cache repeated request evaluations within one resolver instance', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-request-cache-'));
+        const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const includeDir = path.join(workspaceDir, 'include');
+        const includeFile = path.join(includeDir, 'helpers.cmake');
+        const commands = parseCMakeText([
+            'set(HELPER_DIR ${CMAKE_CURRENT_LIST_DIR}/include)',
+            'set(HELPER_FILE ${HELPER_DIR}/helpers.cmake)',
+            'include(${HELPER_FILE})',
+        ].join('\n')).flatCommands;
+        let loadCount = 0;
+
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => {
+                loadCount++;
+                return commands;
+            },
+            entryFile: fileUri,
+        });
+
+        try {
+            fs.mkdirSync(includeDir, { recursive: true });
+            fs.writeFileSync(includeFile, '# helper', 'utf8');
+
+            const request = {
+                commandName: 'include',
+                argText: '${HELPER_FILE}',
+                sourceUri: fileUri,
+                maxLine: 2,
+            };
+
+            const first = await resolver.resolveFileRequestDetailed(request);
+            const loadCountAfterFirst = loadCount;
+            const second = await resolver.resolveFileRequestDetailed(request);
+
+            assert(loadCountAfterFirst > 0, 'The first resolution should load flat commands');
+            assert.strictEqual(loadCount, loadCountAfterFirst, 'The second resolution should hit the request cache');
+            assert.deepStrictEqual(
+                second.exactCandidates.map(candidate => candidate.toString()),
+                first.exactCandidates.map(candidate => candidate.toString()),
+            );
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
+
+    test('resolveExpandedFile should cache repeated filesystem probes within one resolver instance', () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-stat-cache-'));
+        const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const includeDir = path.join(workspaceDir, 'include');
+        const includeFile = path.join(includeDir, 'helpers.cmake');
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => [],
+            entryFile: fileUri,
+        });
+
+        const mutableFs = fs as unknown as {
+            existsSync: (...args: unknown[]) => boolean;
+            statSync: (...args: unknown[]) => fs.Stats;
+        };
+        const originalExistsSync = mutableFs.existsSync;
+        const originalStatSync = mutableFs.statSync;
+        let existsSyncCalls = 0;
+        let statSyncCalls = 0;
+
+        try {
+            fs.mkdirSync(includeDir, { recursive: true });
+            fs.writeFileSync(includeFile, '# helper', 'utf8');
+
+            mutableFs.existsSync = ((...args: unknown[]) => {
+                existsSyncCalls++;
+                return originalExistsSync(...args);
+            });
+            mutableFs.statSync = ((...args: unknown[]) => {
+                statSyncCalls++;
+                return originalStatSync(...args);
+            });
+
+            const first = resolver.resolveExpandedFile('include/helpers.cmake', fileUri);
+            const existsSyncCallsAfterFirst = existsSyncCalls;
+            const statSyncCallsAfterFirst = statSyncCalls;
+            const second = resolver.resolveExpandedFile('include/helpers.cmake', fileUri);
+
+            assert(first, 'The first lookup should resolve the on-disk file');
+            assert.strictEqual(second?.toString(), first?.toString());
+            assert(existsSyncCallsAfterFirst > 0, 'The first lookup should probe the filesystem');
+            assert(statSyncCallsAfterFirst > 0, 'The first lookup should stat the resolved file');
+            assert.strictEqual(existsSyncCalls, existsSyncCallsAfterFirst, 'The second lookup should hit the resolved-file cache');
+            assert.strictEqual(statSyncCalls, statSyncCallsAfterFirst, 'The second lookup should hit the resolved-file cache');
+        } finally {
+            mutableFs.existsSync = originalExistsSync;
+            mutableFs.statSync = originalStatSync;
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
 });

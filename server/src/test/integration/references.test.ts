@@ -280,5 +280,33 @@ suite("References Integration Tests", () => {
         assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 2), "Target usages should remain");
     });
 
+    test("find references of an alias target across target-aware argument positions", async function () {
+        const uri = await openFixture("advanced-targets.cmake");
+        const lines = fs.readFileSync(path.join(fixtureDir, "advanced-targets.cmake"), "utf8").split(/\r?\n/);
+
+        const result = await getReferences(uri, 1, lines[1].indexOf("core_alias") + 1);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.ok(locs.length > 0, "Should find alias target references");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 1), "Should include alias declaration");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 4), "Should include target_link_libraries dependency usage");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 5), "Should include if(TARGET ...) usage");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 11), "Should include get_target_property target usage");
+    });
+
+    test("find references of a namespaced imported target across target-aware argument positions", async function () {
+        const uri = await openFixture("advanced-targets.cmake");
+        const lines = fs.readFileSync(path.join(fixtureDir, "advanced-targets.cmake"), "utf8").split(/\r?\n/);
+
+        const result = await getReferences(uri, 2, lines[2].indexOf("Foo::Core") + 1);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.ok(locs.length > 0, "Should find imported target references");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 2), "Should include imported target declaration");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 4), "Should include target_link_libraries dependency usage");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 8), "Should include if(TARGET ...) usage");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 12), "Should include get_target_property target usage");
+    });
+
 });
 

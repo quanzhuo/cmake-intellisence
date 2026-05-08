@@ -232,5 +232,22 @@ suite("Rename Integration Tests", () => {
         assert.ok(changes.some(change => change.range.start.line === 6), "Should rename get_target_property target usage");
     });
 
+    test("rename an alias target across target-aware argument positions", async function () {
+        const uri = await openFixture("advanced-targets.cmake");
+        const lines = fs.readFileSync(path.join(fixtureDir, "advanced-targets.cmake"), "utf8").split(/\r?\n/);
+        const newName = "core_public";
+
+        const result = await renameSymbol(uri, 1, lines[1].indexOf("core_alias") + 1, newName) as WorkspaceEdit;
+
+        assert.ok(result && result.changes, "Should return WorkspaceEdit with changes");
+        const changes = result.changes![uri];
+        assert.ok(changes && changes.length > 0, "Should modify advanced-targets.cmake");
+        assert.ok(changes.every(change => change.newText === newName), "All text edits should use the new alias target name");
+        assert.ok(changes.some(change => change.range.start.line === 1), "Should rename alias declaration");
+        assert.ok(changes.some(change => change.range.start.line === 4), "Should rename target_link_libraries usage");
+        assert.ok(changes.some(change => change.range.start.line === 5), "Should rename if(TARGET ...) usage");
+        assert.ok(changes.some(change => change.range.start.line === 11), "Should rename get_target_property target usage");
+    });
+
 });
 

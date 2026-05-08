@@ -41,7 +41,55 @@ export interface FileExpressionResolutionResult {
 }
 
 export class PathExpressionResolver {
+    private readonly expandedRequestCache = new Map<string, Promise<ExpandedPathResult>>();
+    private readonly fileRequestCache = new Map<string, Promise<FileExpressionResolutionResult>>();
+    private readonly resolvedFileCache = new Map<string, URI | null>();
+    private readonly visibleFilesSignatureCache = new Map<string, string>();
+
     constructor(private readonly options: PathExpressionResolverOptions) {
+    }
+
+    private getVisibleFilesSignature(sourceUri: URI): string {
+        const cacheKey = sourceUri.toString();
+        const existing = this.visibleFilesSignatureCache.get(cacheKey);
+        if (existing) {
+            return existing;
+        }
+
+        const visibleFiles = this.options.symbolIndex.getVisibleFilesForVariable(this.options.entryFile.toString(), cacheKey);
+        if (!visibleFiles.includes(cacheKey)) {
+            visibleFiles.push(cacheKey);
+        }
+
+        const signature = visibleFiles.join('\0');
+        this.visibleFilesSignatureCache.set(cacheKey, signature);
+        return signature;
+    }
+
+    private createRequestCacheKey(kind: 'expand' | 'file', request: PathExpressionRequest): string {
+        return [
+            kind,
+            this.options.entryFile.toString(),
+            request.sourceUri.toString(),
+            request.maxLine.toString(),
+            request.argText,
+            this.getVisibleFilesSignature(request.sourceUri),
+        ].join('\0');
+    }
+
+    private getCachedRequestResult<TResult>(
+        cache: Map<string, Promise<TResult>>,
+        key: string,
+        factory: () => Promise<TResult>,
+    ): Promise<TResult> {
+        const existing = cache.get(key);
+        if (existing) {
+            return existing;
+        }
+
+        const request = factory();
+        cache.set(key, request);
+        return request;
     }
 
     private startsWithAbsolutePathAnchor(argText: string): boolean {
@@ -191,12 +239,17 @@ export class PathExpressionResolver {
         seen: Set<string> = new Set(),
         depth = 0,
     ): Promise<string | null> {
+        if (seen.size === 0 && depth === 0) {
+            return this.expandPathExpression({ argText, sourceUri, maxLine });
+        }
+
         const result = await this.expandPathVariablesDetailed(argText, sourceUri, maxLine, seen, depth);
         return result.expandedPath;
     }
 
     public async expandPathExpression(request: PathExpressionRequest): Promise<string | null> {
-        return this.expandPathVariables(request.argText, request.sourceUri, request.maxLine);
+        const result = await this.expandPathExpressionDetailed(request);
+        return result.expandedPath;
     }
 
     public async expandPathVariablesDetailed(
@@ -257,7 +310,11 @@ export class PathExpressionResolver {
     }
 
     public async expandPathExpressionDetailed(request: PathExpressionRequest): Promise<ExpandedPathResult> {
-        return this.expandPathVariablesDetailed(request.argText, request.sourceUri, request.maxLine);
+        return this.getCachedRequestResult(
+            this.expandedRequestCache,
+            this.createRequestCacheKey('expand', request),
+            () => this.expandPathVariablesDetailed(request.argText, request.sourceUri, request.maxLine),
+        );
     }
 
     private sanitizeBestEffortPath(expanded: string, originalArgText: string): string | null {
@@ -320,12 +377,19 @@ export class PathExpressionResolver {
     }
 
     public resolveExpandedFile(argText: string, sourceUri: URI): URI | null {
+        const cacheKey = `${sourceUri.toString()}\0${argText}`;
+        if (this.resolvedFileCache.has(cacheKey)) {
+            return this.resolvedFileCache.get(cacheKey) ?? null;
+        }
+
         const target = this.toCandidateUri(argText, sourceUri);
 
         if (!fs.existsSync(target.fsPath) || fs.statSync(target.fsPath).isDirectory()) {
+            this.resolvedFileCache.set(cacheKey, null);
             return null;
         }
 
+        this.resolvedFileCache.set(cacheKey, target);
         return target;
     }
 
@@ -351,15 +415,15 @@ export class PathExpressionResolver {
     }
 
     public async resolveFileExpression(argText: string, sourceUri: URI, maxLine: number): Promise<URI | null> {
-        const result = await this.resolveFileExpressionDetailed(argText, sourceUri, maxLine);
-        return result.exactCandidates[0] ?? null;
+        return this.resolveFileRequest({ argText, sourceUri, maxLine });
     }
 
     public async resolveFileRequest(request: PathExpressionRequest): Promise<URI | null> {
-        return this.resolveFileExpression(request.argText, request.sourceUri, request.maxLine);
+        const result = await this.resolveFileRequestDetailed(request);
+        return result.exactCandidates[0] ?? null;
     }
 
-    public async resolveFileExpressionDetailed(argText: string, sourceUri: URI, maxLine: number): Promise<FileExpressionResolutionResult> {
+    private async resolveFileExpressionDetailedUncached(argText: string, sourceUri: URI, maxLine: number): Promise<FileExpressionResolutionResult> {
         const expandedResult = await this.expandPathVariablesDetailed(argText, sourceUri, maxLine);
         if (!expandedResult.expandedPath) {
             return {
@@ -391,7 +455,15 @@ export class PathExpressionResolver {
         };
     }
 
+    public async resolveFileExpressionDetailed(argText: string, sourceUri: URI, maxLine: number): Promise<FileExpressionResolutionResult> {
+        return this.resolveFileRequestDetailed({ argText, sourceUri, maxLine });
+    }
+
     public async resolveFileRequestDetailed(request: PathExpressionRequest): Promise<FileExpressionResolutionResult> {
-        return this.resolveFileExpressionDetailed(request.argText, request.sourceUri, request.maxLine);
+        return this.getCachedRequestResult(
+            this.fileRequestCache,
+            this.createRequestCacheKey('file', request),
+            () => this.resolveFileExpressionDetailedUncached(request.argText, request.sourceUri, request.maxLine),
+        );
     }
 }

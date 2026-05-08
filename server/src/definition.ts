@@ -11,12 +11,18 @@ import { getFindPackageUri, getIncludeFileUri, getIncludeModuleUri } from './uti
 export { DestinationType };
 
 export class DefinitionResolver extends SymbolResolverBase {
+    private pathExpressionResolver?: PathExpressionResolver;
+
     private getPathExpressionResolver(): PathExpressionResolver {
-        return new PathExpressionResolver({
-            symbolIndex: this.symbolIndex,
-            getFlatCommands: this.getFlatCommands,
-            entryFile: this.entryFile,
-        });
+        if (!this.pathExpressionResolver) {
+            this.pathExpressionResolver = new PathExpressionResolver({
+                symbolIndex: this.symbolIndex,
+                getFlatCommands: this.getFlatCommands,
+                entryFile: this.entryFile,
+            });
+        }
+
+        return this.pathExpressionResolver;
     }
 
     private toFileLocation(uri: URI): Location {

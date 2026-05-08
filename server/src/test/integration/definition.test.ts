@@ -435,6 +435,30 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].range.start.line, 1, 'app target should resolve to add_executable()');
     });
 
+    test('alias target dependency should resolve to the alias definition', async function () {
+        const uri = await openFixture('advanced-targets.cmake');
+        const lines = fs.readFileSync(path.join(fixtureDir, 'advanced-targets.cmake'), 'utf8').split(/\r?\n/);
+        const result = await getDefinition(uri, 4, lines[4].indexOf('core_alias') + 1);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find the alias target definition');
+        assert.strictEqual(locs[0].uri, uri);
+        assert.strictEqual(locs[0].range.start.line, 1, 'core_alias should resolve to add_library(... ALIAS ...)');
+    });
+
+    test('namespaced imported target dependency should resolve to its definition', async function () {
+        const uri = await openFixture('advanced-targets.cmake');
+        const lines = fs.readFileSync(path.join(fixtureDir, 'advanced-targets.cmake'), 'utf8').split(/\r?\n/);
+        const result = await getDefinition(uri, 4, lines[4].indexOf('Foo::Core') + 1);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find the imported target definition');
+        assert.strictEqual(locs[0].uri, uri);
+        assert.strictEqual(locs[0].range.start.line, 2, 'Foo::Core should resolve to add_library(... IMPORTED)');
+    });
+
     test('configure_file input should resolve to the referenced file', async function () {
         const uri = await openFixture('files.cmake');
         const result = await getDefinition(uri, 0, 18);
