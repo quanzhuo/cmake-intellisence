@@ -54,6 +54,27 @@ type BuiltinEntriesLoadResult = {
     stats: BuiltinEntriesLoadStats;
 };
 
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function removeDirectoryBestEffort(dir: string): Promise<void> {
+    const retryableCodes = new Set(['EBUSY', 'ENOTEMPTY', 'EPERM']);
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+            fs.rmSync(dir, { recursive: true, force: true });
+            return;
+        } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if (!code || !retryableCodes.has(code) || attempt === 4) {
+                return;
+            }
+            await sleep(50 * (attempt + 1));
+        }
+    }
+}
+
 export async function initializeCMakeEnvironment(
     extSettings: ExtensionSettings,
     symbolIndex: SymbolIndex,
@@ -227,7 +248,7 @@ async function getCMakeRoot(cmakePath: string, major: number, minor: number): Pr
         // Could not determine CMAKE_ROOT; return null so the caller can proceed without it.
         return null;
     } finally {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        await removeDirectoryBestEffort(tmpDir);
     }
 }
 

@@ -10,6 +10,13 @@ export interface PathExpressionResolverOptions {
     entryFile: URI;
 }
 
+export interface PathExpressionRequest {
+    commandName?: string;
+    argText: string;
+    sourceUri: URI;
+    maxLine: number;
+}
+
 export type PathResolutionReason =
     | 'resolved'
     | 'unresolved-variable'
@@ -166,6 +173,10 @@ export class PathExpressionResolver {
         return result.expandedPath;
     }
 
+    public async expandPathExpression(request: PathExpressionRequest): Promise<string | null> {
+        return this.expandPathVariables(request.argText, request.sourceUri, request.maxLine);
+    }
+
     public async expandPathVariablesDetailed(
         argText: string,
         sourceUri: URI,
@@ -223,6 +234,10 @@ export class PathExpressionResolver {
         };
     }
 
+    public async expandPathExpressionDetailed(request: PathExpressionRequest): Promise<ExpandedPathResult> {
+        return this.expandPathVariablesDetailed(request.argText, request.sourceUri, request.maxLine);
+    }
+
     private toCandidateUri(argText: string, sourceUri: URI): URI {
         return path.isAbsolute(argText)
             ? URI.file(path.normalize(argText))
@@ -242,6 +257,10 @@ export class PathExpressionResolver {
     public async resolveFileExpression(argText: string, sourceUri: URI, maxLine: number): Promise<URI | null> {
         const result = await this.resolveFileExpressionDetailed(argText, sourceUri, maxLine);
         return result.exactCandidates[0] ?? null;
+    }
+
+    public async resolveFileRequest(request: PathExpressionRequest): Promise<URI | null> {
+        return this.resolveFileExpression(request.argText, request.sourceUri, request.maxLine);
     }
 
     public async resolveFileExpressionDetailed(argText: string, sourceUri: URI, maxLine: number): Promise<FileExpressionResolutionResult> {
@@ -274,5 +293,9 @@ export class PathExpressionResolver {
             unresolvedVariables: [],
             reason: 'missing-file',
         };
+    }
+
+    public async resolveFileRequestDetailed(request: PathExpressionRequest): Promise<FileExpressionResolutionResult> {
+        return this.resolveFileExpressionDetailed(request.argText, request.sourceUri, request.maxLine);
     }
 }

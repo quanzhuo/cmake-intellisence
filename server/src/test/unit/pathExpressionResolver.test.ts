@@ -122,4 +122,33 @@ suite('Path Expression Resolver Tests', () => {
             fs.rmSync(workspaceDir, { recursive: true, force: true });
         }
     });
+
+    test('resolveFileRequestDetailed should accept explicit request context objects', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-request-'));
+        const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const includeDir = path.join(workspaceDir, 'include');
+        const includeFile = path.join(includeDir, 'helpers.cmake');
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => [],
+            entryFile: fileUri,
+        });
+
+        try {
+            fs.mkdirSync(includeDir, { recursive: true });
+            fs.writeFileSync(includeFile, '# helper', 'utf8');
+
+            const result = await resolver.resolveFileRequestDetailed({
+                commandName: 'include',
+                argText: 'include/helpers.cmake',
+                sourceUri: fileUri,
+                maxLine: 0,
+            });
+
+            assert.strictEqual(result.reason, 'resolved');
+            assert.strictEqual(result.exactCandidates[0]?.toString(), URI.file(includeFile).toString());
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
 });

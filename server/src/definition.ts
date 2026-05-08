@@ -3,7 +3,7 @@ import * as path from 'path';
 import { DefinitionParams, Location, LocationLink, Position } from "vscode-languageserver";
 import { URI } from 'vscode-uri';
 import { DefinitionSubject } from './argumentSemantics';
-import { PathExpressionResolver } from './pathExpressionResolver';
+import { PathExpressionRequest, PathExpressionResolver } from './pathExpressionResolver';
 import { DestinationType, SymbolResolverBase } from "./symbolResolverBase";
 import { FlatCommand } from './flatCommands';
 import { getFindPackageUri, getIncludeFileUri, getIncludeModuleUri } from './utils';
@@ -30,7 +30,20 @@ export class DefinitionResolver extends SymbolResolverBase {
     }
 
     private async resolveRelativeFile(argText: string, sourceUri: URI, maxLine: number): Promise<URI | null> {
-        return this.getPathExpressionResolver().resolveFileExpression(argText, sourceUri, maxLine);
+        return this.getPathExpressionResolver().resolveFileRequest({
+            argText,
+            sourceUri,
+            maxLine,
+        });
+    }
+
+    private createPathExpressionRequest(commandName: string, argText: string, sourceUri: URI, maxLine: number): PathExpressionRequest {
+        return {
+            commandName,
+            argText,
+            sourceUri,
+            maxLine,
+        };
     }
 
     private async resolveLiteralFileUri(command: FlatCommand, argIndex: number, position: Position): Promise<URI | null> {
@@ -43,6 +56,7 @@ export class DefinitionResolver extends SymbolResolverBase {
         const commandName = command.ID().symbol.text.toLowerCase();
         const sourceUri = this.curFile;
         const sourceBaseDir = URI.file(path.dirname(sourceUri.fsPath));
+        const request = this.createPathExpressionRequest(commandName, argText, sourceUri, position.line);
 
         switch (commandName) {
             case 'include':
@@ -50,7 +64,7 @@ export class DefinitionResolver extends SymbolResolverBase {
                     return null;
                 }
                 const pathResolver = this.getPathExpressionResolver();
-                const includeArg = await pathResolver.expandPathVariables(argText, sourceUri, position.line);
+                const includeArg = await pathResolver.expandPathExpression(request);
                 if (!includeArg) {
                     return null;
                 }
@@ -69,7 +83,7 @@ export class DefinitionResolver extends SymbolResolverBase {
                 if (argIndex !== 0) {
                     return null;
                 }
-                const subdirArg = await this.getPathExpressionResolver().expandPathVariables(argText, sourceUri, position.line);
+                const subdirArg = await this.getPathExpressionResolver().expandPathExpression(request);
                 if (!subdirArg) {
                     return null;
                 }
@@ -107,7 +121,7 @@ export class DefinitionResolver extends SymbolResolverBase {
         }
 
         const pathResolver = this.getPathExpressionResolver();
-        const expanded = await pathResolver.expandPathVariables(argText, sourceUri, maxLine);
+        const expanded = await pathResolver.expandPathExpression(this.createPathExpressionRequest(this.command.commandName.toLowerCase(), argText, sourceUri, maxLine));
         if (!expanded) {
             return null;
         }
