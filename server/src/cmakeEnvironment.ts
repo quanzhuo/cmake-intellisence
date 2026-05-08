@@ -6,6 +6,7 @@ import { URI } from 'vscode-uri';
 import * as which from 'which';
 import { ProjectTargetInfo } from './completion';
 import { FlatCommand } from './flatCommands';
+import { PathExpressionResolver } from './pathExpressionResolver';
 import paths, { mkdir_p } from './paths';
 import { execFilePromise } from './processUtils';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
@@ -429,6 +430,7 @@ async function getPkgConfigModules(pkgConfigPath: string): Promise<Map<string, s
 
 export class ProjectTargetInfoListener {
     targetInfo: ProjectTargetInfo;
+    private pathExpressionResolver?: PathExpressionResolver;
 
     constructor(
         private symbolIndex: SymbolIndex,
@@ -438,8 +440,21 @@ export class ProjectTargetInfoListener {
         private parsedFiles: Set<string>,
         private workspaceFolder: string,
         targetInfo?: ProjectTargetInfo,
+        private entryCMake: string = currentCMake,
     ) {
         this.targetInfo = targetInfo ?? {} as ProjectTargetInfo;
+    }
+
+    private getPathExpressionResolver(): PathExpressionResolver {
+        if (!this.pathExpressionResolver) {
+            this.pathExpressionResolver = new PathExpressionResolver({
+                symbolIndex: this.symbolIndex,
+                getFlatCommands: this.loadFlatCommands,
+                entryFile: URI.parse(this.entryCMake),
+            });
+        }
+
+        return this.pathExpressionResolver;
     }
 
     private addExecutable(ctx: FlatCommand): void {
@@ -520,7 +535,7 @@ export class ProjectTargetInfoListener {
 
         const commands = await this.loadFlatCommands(targetCMakeFile);
         const nextBaseDirectory = path.dirname(URI.parse(targetCMakeFile).fsPath);
-        const targetInfoListener = new ProjectTargetInfoListener(this.symbolIndex, targetCMakeFile, nextBaseDirectory, this.loadFlatCommands, this.parsedFiles, this.workspaceFolder, this.targetInfo);
+        const targetInfoListener = new ProjectTargetInfoListener(this.symbolIndex, targetCMakeFile, nextBaseDirectory, this.loadFlatCommands, this.parsedFiles, this.workspaceFolder, this.targetInfo, this.entryCMake);
         await targetInfoListener.processCommands(commands);
     }
 
@@ -530,7 +545,8 @@ export class ProjectTargetInfoListener {
             return;
         }
         const includeFile = args[0].getText();
-        const includeUri = getIncludeFileUri(this.symbolIndex, URI.file(this.baseDirectory), includeFile);
+        const includeUri = await this.getPathExpressionResolver().resolveFileExpression(includeFile, URI.parse(this.currentCMake), args[0].start.line - 1)
+            ?? getIncludeFileUri(this.symbolIndex, URI.file(this.baseDirectory), includeFile);
         if (!includeUri) {
             return;
         }
@@ -542,7 +558,7 @@ export class ProjectTargetInfoListener {
 
         const commands = await this.loadFlatCommands(targetCMakeFile);
         const nextBaseDirectory = path.dirname(URI.parse(targetCMakeFile).fsPath);
-        const targetInfoListener = new ProjectTargetInfoListener(this.symbolIndex, targetCMakeFile, nextBaseDirectory, this.loadFlatCommands, this.parsedFiles, this.workspaceFolder, this.targetInfo);
+        const targetInfoListener = new ProjectTargetInfoListener(this.symbolIndex, targetCMakeFile, nextBaseDirectory, this.loadFlatCommands, this.parsedFiles, this.workspaceFolder, this.targetInfo, this.entryCMake);
         await targetInfoListener.processCommands(commands);
     }
 

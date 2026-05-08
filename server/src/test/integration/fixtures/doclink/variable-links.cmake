@@ -1,0 +1,10 @@
+set(LOCAL_INCLUDE ${CMAKE_CURRENT_LIST_DIR}/local/include-local.cmake)
+set(CONFIG_INPUT ${CMAKE_CURRENT_LIST_DIR}/config/input.in)
+set(CONFIG_OUTPUT ${CMAKE_CURRENT_LIST_DIR}/config/output.txt)
+set(APP_DIR ${CMAKE_CURRENT_LIST_DIR}/app)
+set(EXTRA_SOURCE ${CMAKE_CURRENT_LIST_DIR}/extra/extra.cpp)
+
+include(${LOCAL_INCLUDE})
+configure_file(${CONFIG_INPUT} ${CONFIG_OUTPUT})
+add_subdirectory(${APP_DIR})
+target_sources(test_lib PRIVATE ${EXTRA_SOURCE})

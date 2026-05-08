@@ -205,4 +205,21 @@ suite('Document Link Integration Tests', () => {
         assert(Array.from(linkTargets).some(target => target?.endsWith('/CMakePrintHelpers.cmake')), 'include(module) should link to builtin modules');
         assert(Array.from(linkTargets).some(target => target?.endsWith('/FindThreads.cmake')), 'find_package() should link to Find-modules');
     });
+
+    test('should link variable-expanded file and directory arguments via shared path resolution', async function () {
+        const uri = await openFixture('variable-links.cmake');
+
+        const links = await connection.sendRequest(DocumentLinkRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(links !== null && Array.isArray(links), 'Should return a link array');
+
+        const linkTargets = new Set(links.map(link => link.target));
+        assert(linkTargets.has(fileUri('local/include-local.cmake')), 'include(${VAR}) should link to the expanded file');
+        assert(linkTargets.has(fileUri('config/input.in')), 'configure_file(${VAR}, ...) should link the expanded input file');
+        assert(linkTargets.has(fileUri('config/output.txt')), 'configure_file(..., ${VAR}) should link the expanded output file when it exists');
+        assert(linkTargets.has(fileUri('app/CMakeLists.txt')), 'add_subdirectory(${VAR}) should link to the expanded subdirectory CMakeLists.txt');
+        assert(linkTargets.has(fileUri('extra/extra.cpp')), 'target_sources(... ${VAR}) should link the expanded source file');
+    });
 });

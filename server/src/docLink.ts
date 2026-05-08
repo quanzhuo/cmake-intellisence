@@ -5,11 +5,13 @@ import { URI } from 'vscode-uri';
 import { DefinitionSubject, resolveArgumentTarget } from './argumentSemantics';
 import { FlatCommand } from './flatCommands';
 import { ArgumentContext } from './generated/CMakeParser';
+import { PathExpressionResolver } from './pathExpressionResolver';
 import { SymbolIndex } from './symbolIndex';
 
 export class DocumentLinkInfo {
     private _links: DocumentLink[] = [];
     private readonly fileExistsCache: Map<string, Promise<boolean>> = new Map();
+    private pathExpressionResolver?: PathExpressionResolver;
 
     private constructor(
         public commands: FlatCommand[],
@@ -18,16 +20,48 @@ export class DocumentLinkInfo {
          */
         public uri: string,
         public symbolIndex: SymbolIndex,
+        public entryFile: string,
+        public getFlatCommands: (uri: string) => Promise<FlatCommand[]>,
     ) { }
 
-    public static async create(commands: FlatCommand[], uri: string, symbolIndex: SymbolIndex): Promise<DocumentLinkInfo> {
-        const info = new DocumentLinkInfo(commands, uri, symbolIndex);
+    public static async create(
+        commands: FlatCommand[],
+        uri: string,
+        symbolIndex: SymbolIndex,
+        entryFile: string,
+        getFlatCommands: (uri: string) => Promise<FlatCommand[]>,
+    ): Promise<DocumentLinkInfo> {
+        const info = new DocumentLinkInfo(commands, uri, symbolIndex, entryFile, getFlatCommands);
         await info.findLinks();
         return info;
     }
 
+    private getCurrentDocumentUri(): URI {
+        return URI.parse(this.uri);
+    }
+
+    private getPathExpressionResolver(): PathExpressionResolver {
+        if (!this.pathExpressionResolver) {
+            this.pathExpressionResolver = new PathExpressionResolver({
+                symbolIndex: this.symbolIndex,
+                getFlatCommands: this.getFlatCommands,
+                entryFile: URI.parse(this.entryFile),
+            });
+        }
+
+        return this.pathExpressionResolver;
+    }
+
+    private createLink(argCtx: ArgumentContext, targetUri: URI): DocumentLink {
+        const argText = argCtx.getText();
+        return {
+            range: Range.create(argCtx.start.line - 1, argCtx.start.column, argCtx.stop!.line - 1, argCtx.stop!.column + argText.length),
+            target: targetUri.toString(),
+            tooltip: targetUri.fsPath,
+        };
+    }
+
     private async findLinks(): Promise<void> {
-        const argCtxList: ArgumentContext[] = [];
         for (const cmd of this.commands) {
             const cmdName = cmd.ID().getText().toLowerCase();
             let links: DocumentLink[] = [];
@@ -54,12 +88,11 @@ export class DocumentLinkInfo {
                     links = await this.configureFile(cmd);
                     break;
                 default:
-                    argCtxList.push(...this.getSemanticFileArguments(cmd));
+                    links = await this.addSemanticFileLinks(cmd);
             }
 
             this._links.push(...links);
         }
-        this._links.push(...await this.getLinksFromArguments(argCtxList, this.uri));
     }
 
     private async fileExists(filePath: string): Promise<boolean> {
@@ -75,26 +108,54 @@ export class DocumentLinkInfo {
         return request;
     }
 
-    private async getLinksFromArguments(args: ArgumentContext[], uri: string): Promise<DocumentLink[]> {
-        const vscodeUri = URI.parse(uri);
-        const folder = path.dirname(vscodeUri.fsPath);
+    private async resolveFileArgument(argText: string, maxLine: number): Promise<URI | null> {
+        return this.getPathExpressionResolver().resolveFileExpression(argText, this.getCurrentDocumentUri(), maxLine);
+    }
+
+    private async resolveSubdirectoryTarget(argText: string, maxLine: number): Promise<URI | null> {
+        const currentUri = this.getCurrentDocumentUri();
+        const expanded = await this.getPathExpressionResolver().expandPathVariables(argText, currentUri, maxLine);
+        if (!expanded) {
+            return null;
+        }
+
+        const cmakeLists = path.isAbsolute(expanded)
+            ? URI.file(path.join(path.normalize(expanded), 'CMakeLists.txt'))
+            : URI.file(path.resolve(path.dirname(currentUri.fsPath), expanded, 'CMakeLists.txt'));
+
+        if (!await this.fileExists(cmakeLists.fsPath)) {
+            return null;
+        }
+
+        return cmakeLists;
+    }
+
+    private async addSemanticFileLinks(cmd: FlatCommand, argIndices?: number[]): Promise<DocumentLink[]> {
         const links: DocumentLink[] = [];
-        for (const argCtx of args) {
+        const args = cmd.argument_list();
+        const targetIndices = argIndices
+            ?? args.flatMap((_, index) => {
+                const resolved = resolveArgumentTarget(cmd, index);
+                return resolved?.subject === DefinitionSubject.FilePath ? [index] : [];
+            });
+
+        for (const index of targetIndices) {
+            const argCtx = args[index];
             if (!argCtx.stop) {
                 continue;
             }
 
-            const source = argCtx.getText();
-            const filePath = path.join(folder, source);
-            if (!await this.fileExists(filePath)) {
+            const resolved = resolveArgumentTarget(cmd, index);
+            if (!resolved || resolved.subject !== DefinitionSubject.FilePath) {
                 continue;
             }
 
-            links.push({
-                range: Range.create(argCtx.start.line - 1, argCtx.start.column, argCtx.stop!.line - 1, argCtx.stop!.column + source.length),
-                target: URI.file(filePath).toString(),
-                tooltip: filePath,
-            });
+            const targetUri = await this.resolveFileArgument(resolved.text, argCtx.start.line - 1);
+            if (!targetUri) {
+                continue;
+            }
+
+            links.push(this.createLink(argCtx, targetUri));
         }
 
         return links;
@@ -129,25 +190,12 @@ export class DocumentLinkInfo {
             return [];
         }
 
-        const source = resolved.text;
-        const vscodeUri = URI.parse(this.uri);
-        const folder = path.dirname(vscodeUri.fsPath);
-
-        // The argument is always a directory; resolve CMakeLists.txt inside it.
-        const targetFsPath = path.join(folder, source, 'CMakeLists.txt');
-
-        if (!await this.fileExists(targetFsPath)) {
+        const targetUri = await this.resolveSubdirectoryTarget(resolved.text, firstArg.start.line - 1);
+        if (!targetUri) {
             return [];
         }
 
-        return [{
-            range: Range.create(
-                firstArg.start.line - 1, firstArg.start.column,
-                firstArg.stop.line - 1, firstArg.stop.column + source.length
-            ),
-            target: URI.file(targetFsPath).toString(),
-            tooltip: targetFsPath,
-        }];
+        return [this.createLink(firstArg, targetUri)];
     }
 
     private async include(cmd: FlatCommand): Promise<DocumentLink[]> {
@@ -167,7 +215,7 @@ export class DocumentLinkInfo {
         }
 
         return resolved.subject === DefinitionSubject.FilePath
-            ? this.getLinksFromArguments([firstArg], this.uri)
+            ? this.addSemanticFileLinks(cmd, [0])
             : [];
     }
 
@@ -192,7 +240,7 @@ export class DocumentLinkInfo {
             return Promise.resolve([]);
         }
 
-        return this.getLinksFromArguments(this.getSemanticFileArguments(cmd).slice(0, 2), this.uri);
+        return this.addSemanticFileLinks(cmd, [0, 1]);
     }
 
     private includeSystemModule(arg: ArgumentContext): Promise<DocumentLink[]> {
@@ -221,20 +269,8 @@ export class DocumentLinkInfo {
         }
     }
 
-    private getSemanticFileArguments(cmd: FlatCommand): ArgumentContext[] {
-        return cmd.argument_list().filter((argCtx: ArgumentContext, index: number) => {
-            const resolved = resolveArgumentTarget(cmd, index);
-            return resolved?.subject === DefinitionSubject.FilePath;
-        });
-    }
-
     private addSourceFiles(cmd: FlatCommand): Promise<DocumentLink[]> {
-        const args = this.getSemanticFileArguments(cmd);
-        if (args.length === 0) {
-            return Promise.resolve([]);
-        }
-
-        return this.getLinksFromArguments(args, this.uri);
+        return this.addSemanticFileLinks(cmd);
     }
 
     get links(): DocumentLink[] {

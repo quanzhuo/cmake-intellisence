@@ -792,7 +792,13 @@ export class CMakeLanguageServer {
         await this.ensureParsedFile(params.textDocument.uri);
         throwIfCancelled(token);
         const commands = this.getFlatCommands(params.textDocument.uri);
-        const linkInfo = await DocumentLinkInfo.create(commands, params.textDocument.uri, workspaceState.symbolIndex);
+        const linkInfo = await DocumentLinkInfo.create(
+            commands,
+            params.textDocument.uri,
+            workspaceState.symbolIndex,
+            this.getEntryFilePath(params.textDocument.uri),
+            this.getFlatCommandsAsync.bind(this),
+        );
         throwIfCancelled(token);
         return linkInfo.links;
     }
