@@ -96,6 +96,54 @@ export function getIncludeModuleUri(symbolIndex: SymbolIndex, includeFileName: s
     return null;
 }
 
+export async function getFindPackageUri(symbolIndex: SymbolIndex, workspaceFolder: string, packageName: string): Promise<URI | null> {
+    const findModuleUri = getIncludeModuleUri(symbolIndex, `Find${packageName}`);
+    if (findModuleUri) {
+        return findModuleUri;
+    }
+
+    const cmakeCacheFile = path.join(workspaceFolder, 'build', 'CMakeCache.txt');
+    try {
+        const cacheStats = await fsPromises.stat(cmakeCacheFile);
+        if (!cacheStats.isFile()) {
+            return null;
+        }
+    } catch {
+        return null;
+    }
+
+    const content = await fsPromises.readFile(cmakeCacheFile, 'utf-8');
+    const escapedName = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`^${escapedName}_DIR:PATH=(.*)$`, 'm');
+    const match = content.match(regex);
+    const packageDir = match ? match[1] : null;
+    if (!packageDir) {
+        return null;
+    }
+
+    const alternatives = [
+        path.join(packageDir, 'lib', 'cmake', packageName, `${packageName}Config.cmake`),
+        path.join(packageDir, 'lib', 'cmake', packageName, `${packageName.toLowerCase()}-config.cmake`),
+        path.join(packageDir, `${packageName}Config.cmake`),
+        path.join(packageDir, `${packageName.toLowerCase()}-config.cmake`),
+    ];
+
+    for (const candidate of alternatives) {
+        try {
+            const stats = await fsPromises.stat(candidate);
+            if (!stats.isFile()) {
+                continue;
+            }
+
+            return URI.file(candidate);
+        } catch {
+            continue;
+        }
+    }
+
+    return null;
+}
+
 export function getCmdKeyWords(sigs: string[]): string[] {
     const keywords = new Set<string>();
     sigs.forEach(sig => {

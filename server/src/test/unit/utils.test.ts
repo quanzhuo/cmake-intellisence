@@ -6,7 +6,7 @@ import { TextDocuments } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
 import { SymbolIndex } from '../../symbolIndex';
-import { getFileContent, getIncludeFileUri, getIncludeModuleUri } from '../../utils';
+import { getFileContent, getFindPackageUri, getIncludeFileUri, getIncludeModuleUri } from '../../utils';
 
 suite('Utils Tests', () => {
     test('getFileContent should return empty text for directories', async () => {
@@ -65,6 +65,44 @@ suite('Utils Tests', () => {
             const result = getIncludeModuleUri(symbolIndex, 'CMakePrintHelpers');
             assert.strictEqual(result?.toString(), URI.file(modulePath).toString());
             assert.strictEqual(getIncludeModuleUri(symbolIndex, 'local/include-local.cmake'), null);
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('getFindPackageUri should resolve builtin Find-modules first', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-find-package-module-'));
+        const modulesDir = path.join(tempDir, 'Modules');
+        const modulePath = path.join(modulesDir, 'FindThreads.cmake');
+        const symbolIndex = new SymbolIndex();
+        symbolIndex.cmakeModulePath = modulesDir;
+
+        try {
+            fs.mkdirSync(modulesDir, { recursive: true });
+            fs.writeFileSync(modulePath, '# module\n', 'utf8');
+
+            const result = await getFindPackageUri(symbolIndex, tempDir, 'Threads');
+            assert.strictEqual(result?.toString(), URI.file(modulePath).toString());
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('getFindPackageUri should resolve config packages from CMakeCache', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-find-package-config-'));
+        const buildDir = path.join(tempDir, 'build');
+        const packageDir = path.join(tempDir, 'packages', 'Example');
+        const configPath = path.join(packageDir, 'ExampleConfig.cmake');
+        const symbolIndex = new SymbolIndex();
+
+        try {
+            fs.mkdirSync(buildDir, { recursive: true });
+            fs.mkdirSync(packageDir, { recursive: true });
+            fs.writeFileSync(configPath, '# config\n', 'utf8');
+            fs.writeFileSync(path.join(buildDir, 'CMakeCache.txt'), `Example_DIR:PATH=${packageDir}\n`, 'utf8');
+
+            const result = await getFindPackageUri(symbolIndex, tempDir, 'Example');
+            assert.strictEqual(result?.toString(), URI.file(configPath).toString());
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });
         }

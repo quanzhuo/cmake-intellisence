@@ -10,7 +10,7 @@ import { PathExpressionResolver } from './pathExpressionResolver';
 import paths, { mkdir_p } from './paths';
 import { execFilePromise } from './processUtils';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
-import { getIncludeFileUri, getIncludeModuleUri } from './utils';
+import { getFindPackageUri, getIncludeFileUri, getIncludeModuleUri } from './utils';
 
 export interface ExtensionSettings {
     loggingLevel: string;
@@ -473,46 +473,6 @@ export class ProjectTargetInfoListener {
         }
     }
 
-    private async findConfigPackage(packageName: string): Promise<string | null> {
-        const cmakeCacheFile = path.join(this.workspaceFolder, 'build', 'CMakeCache.txt');
-        try {
-            const cacheStats = await fs.promises.stat(cmakeCacheFile);
-            if (!cacheStats.isFile()) {
-                return null;
-            }
-        } catch {
-            return null;
-        }
-
-        const content = await fs.promises.readFile(cmakeCacheFile, 'utf-8');
-        const escapedName = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`^${escapedName}_DIR:PATH=(.*)$`, 'm');
-        const match = content.match(regex);
-        const packageDir = match ? match[1] : null;
-        if (!packageDir) {
-            return null;
-        }
-        const alternatives = [
-            path.join(packageDir, 'lib', 'cmake', packageName, `${packageName}Config.cmake`),
-            path.join(packageDir, 'lib', 'cmake', packageName, `${packageName.toLowerCase()}-config.cmake`),
-            path.join(packageDir, `${packageName}Config.cmake`),
-            path.join(packageDir, `${packageName.toLowerCase()}-config.cmake`),
-        ];
-
-        for (const pkgConfig of alternatives) {
-            try {
-                const stats = await fs.promises.stat(pkgConfig);
-                if (!stats.isFile()) {
-                    continue;
-                }
-                return pkgConfig;
-            } catch {
-                continue;
-            }
-        }
-        return null;
-    }
-
     private async findPackage(ctx: FlatCommand): Promise<void> {
         const args = ctx.argument_list();
         if (args.length <= 0) {
@@ -520,15 +480,12 @@ export class ProjectTargetInfoListener {
         }
 
         const packageName = args[0].getText();
-        let targetCMakeFile: string | null = path.join(this.symbolIndex.cmakeModulePath ?? '', `Find${packageName}.cmake`);
-        if (!fs.existsSync(targetCMakeFile)) {
-            targetCMakeFile = await this.findConfigPackage(packageName);
-            if (!targetCMakeFile) {
-                return;
-            }
+        const targetCMakeUri = await getFindPackageUri(this.symbolIndex, this.workspaceFolder, packageName);
+        if (!targetCMakeUri) {
+            return;
         }
 
-        targetCMakeFile = URI.file(targetCMakeFile).toString();
+        const targetCMakeFile = targetCMakeUri.toString();
         if (this.parsedFiles.has(targetCMakeFile)) {
             return;
         }

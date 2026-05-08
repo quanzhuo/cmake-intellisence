@@ -204,6 +204,40 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].range.start.line, 0, 'HELPER_VAR defined at line 0');
     });
 
+    test('find_package should resolve to the builtin Find-module when available', async function () {
+        const uri = await openFixture('find-packages.cmake');
+        const result = await getDefinition(uri, 0, 16);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert(locs.length > 0, 'Should find the builtin Find-module');
+        assert(locs[0].uri.endsWith('/FindThreads.cmake'), `Expected FindThreads.cmake, got ${locs[0].uri}`);
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
+    test('find_package should resolve to a config package entry from CMakeCache', async function () {
+        const buildDir = path.join(fixtureDir, 'build');
+        const cacheFile = path.join(buildDir, 'CMakeCache.txt');
+        const examplePackageDir = path.join(fixtureDir, 'packages', 'Example');
+        const exampleConfigUri = fileUri('packages/Example/ExampleConfig.cmake');
+
+        fs.mkdirSync(buildDir, { recursive: true });
+        fs.writeFileSync(cacheFile, `Example_DIR:PATH=${examplePackageDir}\n`, 'utf8');
+
+        try {
+            const uri = await openFixture('find-packages.cmake');
+            const result = await getDefinition(uri, 1, 16);
+
+            assert(result !== null, 'Definition should not be null');
+            const locs = (Array.isArray(result) ? result : [result]) as Location[];
+            assert(locs.length > 0, 'Should find the config package entry file');
+            assert.strictEqual(locs[0].uri, exampleConfigUri);
+            assert.strictEqual(locs[0].range.start.line, 0);
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
     test('include file argument should resolve to the included file', async function () {
         const uri = await openFixture('CMakeLists.txt');
         const result = await getDefinition(uri, 9, 12);

@@ -6,7 +6,7 @@ import { DefinitionSubject } from './argumentSemantics';
 import { PathExpressionResolver } from './pathExpressionResolver';
 import { DestinationType, SymbolResolverBase } from "./symbolResolverBase";
 import { FlatCommand } from './flatCommands';
-import { getIncludeFileUri, getIncludeModuleUri } from './utils';
+import { getFindPackageUri, getIncludeFileUri, getIncludeModuleUri } from './utils';
 
 export { DestinationType };
 
@@ -86,6 +86,10 @@ export class DefinitionResolver extends SymbolResolverBase {
                 return this.resolveSourceFileArgument(argIndex, argText, new Set(['STATIC', 'SHARED', 'MODULE', 'OBJECT', 'ALIAS', 'GLOBAL', 'INTERFACE', 'IMPORTED']), sourceUri, position.line);
             case 'target_sources':
                 return this.resolveSourceFileArgument(argIndex, argText, new Set(['INTERFACE', 'PUBLIC', 'PRIVATE', 'FILE_SET', 'TYPE', 'BASE_DIRS', 'FILES']), sourceUri, position.line);
+            case 'find_package':
+                return argIndex === 0
+                    ? getFindPackageUri(this.symbolIndex, path.dirname(this.entryFile.fsPath), argText)
+                    : null;
             default:
                 return null;
         }
