@@ -30,6 +30,7 @@ import { buildSignatureHelp, buildSignatureHelpForInvocation } from './signature
 import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex } from './symbolIndex';
 import { populateIndexTopDown } from './symbolIndexManager';
+import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, CMakeToolsProjectSnapshot, CMakeToolsProjectSnapshotNotificationParams } from './cmakeToolsSnapshot';
 import { READY_NOTIFICATION } from './testing';
 import { ParsedCMakeFile, getFileContent, parseCMakeText } from './utils';
 import { WorkspaceSymbolResolver } from './workspaceSymbol';
@@ -43,6 +44,7 @@ type Word = {
 type WorkspaceState = {
     workspaceFolder: URI;
     symbolIndex: SymbolIndex;
+    cmakeToolsProjectSnapshot?: CMakeToolsProjectSnapshot;
     projectTargetInfo?: ProjectTargetInfo;
     projectTargetInfoDirty: boolean;
     projectTargetInfoVersion: number;
@@ -119,6 +121,7 @@ export class CMakeLanguageServer {
             this.connection.onWorkspaceSymbol(this.wrapRequest('workspaceSymbol', this.onWorkspaceSymbol.bind(this), null)),
             this.connection.onCodeAction(this.wrapRequest('codeAction', this.onCodeAction.bind(this), [])),
             this.connection.onDidChangeConfiguration(this.wrapNotification('didChangeConfiguration', this.onDidChangeConfiguration.bind(this))),
+            this.connection.onNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, this.wrapNotification('cmakeToolsProjectSnapshotChanged', this.onCMakeToolsProjectSnapshotChanged.bind(this))),
             this.connection.onDocumentLinks(this.wrapRequest('documentLinks', this.onDocumentLinks.bind(this), null)),
             this.connection.onShutdown(this.wrapNotification('shutdown', this.onShutdown.bind(this))),
             this.connection.languages.semanticTokens.on(this.wrapRequest('semanticTokens', this.onSemanticTokens.bind(this), { data: [] })),
@@ -281,6 +284,13 @@ export class CMakeLanguageServer {
         await Promise.all(this.getWorkspaceFolders().map(folder => this.ensureEnvironmentInitialized(folder)));
         await this.ensureAllWorkspaceFoldersIndexed();
         this.connection.sendNotification(READY_NOTIFICATION);
+    }
+
+    private async onCMakeToolsProjectSnapshotChanged(params: CMakeToolsProjectSnapshotNotificationParams): Promise<void> {
+        const workspaceFolder = URI.parse(params.workspaceFolderUri);
+        const workspaceState = this.getWorkspaceState(workspaceFolder);
+        workspaceState.cmakeToolsProjectSnapshot = params.snapshot ?? undefined;
+        this.logger.debug(`Updated CMake Tools snapshot for ${workspaceFolder.fsPath}`, JSON.stringify(params.snapshot));
     }
 
     private async onHover(params: HoverParams, token: CancellationToken): Promise<Hover | null> {

@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
+import { CMakeToolsSnapshotBridge } from './cmakeToolsBridge';
 import * as which from 'which';
 import { getConfigLogLevel, Logger } from './logging';
 
@@ -8,6 +9,7 @@ export const SERVER_ID = 'cmakeIntelliSence';
 export const SERVER_NAME = 'CMake Language Server';
 
 let client: LanguageClient | undefined;
+let cmakeToolsSnapshotBridge: CMakeToolsSnapshotBridge | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
     const channel = vscode.window.createOutputChannel('CMake IntelliSence');
@@ -22,6 +24,8 @@ export async function activate(context: vscode.ExtensionContext) {
         }
 
         if (e.affectsConfiguration(`${SERVER_ID}.cmakePath`)) {
+            cmakeToolsSnapshotBridge?.dispose();
+            cmakeToolsSnapshotBridge = undefined;
             if (client && client.isRunning()) {
                 await client.stop();
             }
@@ -84,6 +88,8 @@ function startLanguageServer(cmakePath: string, serverModule: string, channel: v
     };
 
     client = new LanguageClient(SERVER_ID, SERVER_NAME, serverOptions, clientOptions);
+    cmakeToolsSnapshotBridge?.dispose();
+    cmakeToolsSnapshotBridge = new CMakeToolsSnapshotBridge(client, logger);
 
     // start the client. This will also launch the server
     logger.info(`Start ${SERVER_NAME} ...`);
@@ -92,6 +98,8 @@ function startLanguageServer(cmakePath: string, serverModule: string, channel: v
 
 
 export function deactivate() {
+    cmakeToolsSnapshotBridge?.dispose();
+    cmakeToolsSnapshotBridge = undefined;
     if (client) {
         return client.stop();
     }
