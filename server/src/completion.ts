@@ -12,29 +12,41 @@ import { SymbolIndex, SymbolKind } from "./symbolIndex";
 
 export { builtinCmds };
 
-const FILE_SUGGESTION_STAT_CONCURRENCY = 10;
+const FILE_SUGGESTION_DIR_CACHE_TTL_MS = 1500;
+const FILE_SUGGESTION_DIR_CACHE_MAX_ENTRIES = 128;
 
-async function mapWithConcurrency<TInput, TOutput>(
-    inputs: TInput[],
-    limit: number,
-    mapper: (input: TInput) => Promise<TOutput>,
-): Promise<TOutput[]> {
-    if (inputs.length === 0) {
-        return [];
+type CachedDirEntries = {
+    expiresAt: number;
+    entries: fs.Dirent[];
+};
+
+const fileSuggestionDirectoryCache = new Map<string, CachedDirEntries>();
+
+async function readDirectoryEntriesWithCache(directory: string): Promise<fs.Dirent[]> {
+    const now = Date.now();
+    const cached = fileSuggestionDirectoryCache.get(directory);
+    if (cached && cached.expiresAt > now) {
+        fileSuggestionDirectoryCache.delete(directory);
+        fileSuggestionDirectoryCache.set(directory, cached);
+        return cached.entries;
     }
 
-    const results = new Array<TOutput>(inputs.length);
-    let nextIndex = 0;
-    const workerCount = Math.min(limit, inputs.length);
+    const entries = await fs.promises.readdir(directory, { withFileTypes: true });
+    fileSuggestionDirectoryCache.set(directory, {
+        entries,
+        expiresAt: now + FILE_SUGGESTION_DIR_CACHE_TTL_MS,
+    });
 
-    await Promise.all(Array.from({ length: workerCount }, async () => {
-        while (nextIndex < inputs.length) {
-            const currentIndex = nextIndex++;
-            results[currentIndex] = await mapper(inputs[currentIndex]);
+    while (fileSuggestionDirectoryCache.size > FILE_SUGGESTION_DIR_CACHE_MAX_ENTRIES) {
+        const oldestKey = fileSuggestionDirectoryCache.keys().next().value as string | undefined;
+        if (!oldestKey) {
+            break;
         }
-    }));
 
-    return results;
+        fileSuggestionDirectoryCache.delete(oldestKey);
+    }
+
+    return entries;
 }
 
 export enum CMakeCompletionType {
@@ -1278,37 +1290,21 @@ export default class Completion {
         const dir = path.join(curDir, word.substring(0, lastSlashIndex + 1));
         const filter = word.substring(lastSlashIndex + 1);
 
-        // Read the directory contents
-        const files = await new Promise<string[]>((resolve, reject) => {
-            fs.readdir(dir, (err: NodeJS.ErrnoException | null, files: string[]) => {
-                if (err) {
-                    this.logger.error(`Error reading directory ${dir}: ${err.message}`);
-                    resolve([]);
-                } else {
-                    resolve(files);
-                }
-            });
-        });
-
-        // Filter the files based on the filter part
-        const filteredFiles = files.filter(file => file.includes(filter));
-
-        // Create completion items
-        const suggestions = (await mapWithConcurrency(filteredFiles, FILE_SUGGESTION_STAT_CONCURRENCY, async (file) => {
-            const filePath = path.join(dir, file);
-            try {
-                const stat = await fs.promises.stat(filePath);
-                return {
-                    label: file,
-                    kind: stat.isDirectory() ? CompletionItemKind.Folder : CompletionItemKind.File,
-                } as CompletionItem;
-            } catch (error) {
-                this.logger.warning(`Error stating completion candidate ${filePath}: ${error}`);
-                return null;
-            }
-        })).filter((item): item is CompletionItem => item !== null);
-
-        return suggestions;
+        try {
+            const entries = await readDirectoryEntriesWithCache(dir);
+            return entries
+                .filter(entry => entry.name.includes(filter))
+                .map((entry): CompletionItem => {
+                    return {
+                        label: entry.name,
+                        kind: entry.isDirectory() ? CompletionItemKind.Folder : CompletionItemKind.File,
+                    };
+                });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.logger.error(`Error reading directory ${dir}: ${message}`);
+            return [];
+        }
     }
 
     private getVariableSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
