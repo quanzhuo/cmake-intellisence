@@ -68,6 +68,17 @@ type HelpCacheEntry = {
 };
 
 const CMAKE_HELP_NULL_CACHE_TTL_MS = 5 * 60 * 1000;
+const DIAGNOSTICS_DEBOUNCE_MS = 220;
+const TARGET_INFO_STRUCTURE_COMMANDS = new Set([
+    'add_executable',
+    'add_library',
+    'target_sources',
+    'find_package',
+    'include',
+    'add_subdirectory',
+    'set',
+    'option',
+]);
 
 export function getWordAtPosition(textDocument: TextDocument, position: Position): Word {
     const lineRange: Range = {
@@ -100,6 +111,15 @@ export class CMakeLanguageServer {
     private commentsMap: Map<string, Token[]> = new Map();
     private workspaceStates: Map<string, WorkspaceState> = new Map();
     private logger: Logger = createLogger('cmake-intelli', 'off');
+    private diagnosticsTimerByUri: Map<string, ReturnType<typeof setTimeout>> = new Map();
+    private diagnosticsSequenceByUri: Map<string, number> = new Map();
+    private targetInfoStructureFingerprintByUri: Map<string, string> = new Map();
+    private diagnosticsRescheduledCount = 0;
+    private diagnosticsDroppedStaleSequenceCount = 0;
+    private diagnosticsDroppedStaleVersionCount = 0;
+    private diagnosticsPublishedCount = 0;
+    private targetInfoForegroundRebuildCount = 0;
+    private targetInfoBackgroundRebuildCount = 0;
 
     private readonly defaultExtSettings: ExtensionSettings = {
         cmakePath: 'cmake',
@@ -1016,11 +1036,73 @@ export class CMakeLanguageServer {
      * @param event 
      */
     private async onDidChangeContent(event: TextDocumentChangeEvent<TextDocument>) {
-        await this.publishDiagnosticsForDocument(event.document);
-        this.markProjectTargetInfoDirty(event.document.uri);
+        this.scheduleDiagnosticsForDocument(event.document);
     }
 
-    private async publishDiagnosticsForDocument(document: TextDocument): Promise<void> {
+    private scheduleDiagnosticsForDocument(document: TextDocument): void {
+        const uri = document.uri;
+        const existingTimer = this.diagnosticsTimerByUri.get(uri);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+            this.diagnosticsRescheduledCount++;
+        }
+
+        const sequence = (this.diagnosticsSequenceByUri.get(uri) ?? 0) + 1;
+        this.diagnosticsSequenceByUri.set(uri, sequence);
+        const timer = setTimeout(() => {
+            void this.runScheduledDiagnostics(uri, sequence);
+        }, DIAGNOSTICS_DEBOUNCE_MS);
+        this.diagnosticsTimerByUri.set(uri, timer);
+    }
+
+    private async runScheduledDiagnostics(uri: string, sequence: number): Promise<void> {
+        if (this.diagnosticsSequenceByUri.get(uri) !== sequence) {
+            this.diagnosticsDroppedStaleSequenceCount++;
+            return;
+        }
+        this.diagnosticsTimerByUri.delete(uri);
+
+        const document = this.documents.get(uri);
+        if (!document) {
+            return;
+        }
+
+        await this.publishDiagnosticsForDocument(document, sequence);
+    }
+
+    private computeTargetInfoStructureFingerprint(flatCommands: FlatCommand[]): string {
+        const parts: string[] = [];
+        for (const command of flatCommands) {
+            const commandName = command.commandName.toLowerCase();
+            if (!TARGET_INFO_STRUCTURE_COMMANDS.has(commandName)) {
+                continue;
+            }
+
+            const args = command.argument_list().map(arg => arg.getText()).join('\u001f');
+            parts.push(`${commandName}\u001e${args}`);
+        }
+
+        return parts.join('\u001d');
+    }
+
+    private updateTargetInfoStructureFingerprint(uri: string, flatCommands: FlatCommand[], markDirtyOnChange: boolean): void {
+        const nextFingerprint = this.computeTargetInfoStructureFingerprint(flatCommands);
+        const previousFingerprint = this.targetInfoStructureFingerprintByUri.get(uri);
+        if (markDirtyOnChange && previousFingerprint !== undefined && previousFingerprint !== nextFingerprint) {
+            this.markProjectTargetInfoDirty(uri);
+        }
+
+        this.targetInfoStructureFingerprintByUri.set(uri, nextFingerprint);
+    }
+
+    private async publishDiagnosticsForDocument(document: TextDocument, expectedSequence?: number): Promise<void> {
+        const diagnosticsStart = Date.now();
+        const startVersion = document.version;
+        if (expectedSequence !== undefined && this.diagnosticsSequenceByUri.get(document.uri) !== expectedSequence) {
+            this.diagnosticsDroppedStaleSequenceCount++;
+            return;
+        }
+
         const workspaceState = this.getWorkspaceStateForUri(document.uri);
         await this.ensureEnvironmentInitialized(document.uri);
 
@@ -1030,6 +1112,7 @@ export class CMakeLanguageServer {
             parser.addErrorListener(syntaxErrorListener);
         });
         const { fileContext, flatCommands } = parsedFile;
+        this.updateTargetInfoStructureFingerprint(document.uri, flatCommands, true);
         await this.storeParsedFileSnapshot(document.uri, parsedFile);
 
         const semanticListener = new SemanticDiagnosticsListener();
@@ -1058,7 +1141,35 @@ export class CMakeLanguageServer {
             cmdCaseChecker.check(flatCommands);
             diagnostics.diagnostics.push(...cmdCaseChecker.getCmdCaseDiagnostics());
         }
+
+        const latestDocument = this.documents.get(document.uri);
+        if (!latestDocument || latestDocument.version !== startVersion) {
+            this.diagnosticsDroppedStaleVersionCount++;
+            return;
+        }
+        if (expectedSequence !== undefined && this.diagnosticsSequenceByUri.get(document.uri) !== expectedSequence) {
+            this.diagnosticsDroppedStaleSequenceCount++;
+            return;
+        }
+
         this.connection.sendDiagnostics(diagnostics);
+        this.diagnosticsPublishedCount++;
+        const elapsedMs = Date.now() - diagnosticsStart;
+        this.logger.debug(`Diagnostics published for ${document.uri}: ${diagnostics.diagnostics.length} items in ${elapsedMs}ms`);
+        this.logDiagnosticsStatsIfNeeded();
+    }
+
+    private logDiagnosticsStatsIfNeeded(): void {
+        const total = this.diagnosticsPublishedCount
+            + this.diagnosticsDroppedStaleSequenceCount
+            + this.diagnosticsDroppedStaleVersionCount;
+        if (total === 0 || total % 50 !== 0) {
+            return;
+        }
+
+        this.logger.info(
+            `Diagnostics stats: published=${this.diagnosticsPublishedCount}, rescheduled=${this.diagnosticsRescheduledCount}, dropped(stale-sequence)=${this.diagnosticsDroppedStaleSequenceCount}, dropped(stale-version)=${this.diagnosticsDroppedStaleVersionCount}`
+        );
     }
 
     private async refreshOpenDocumentDiagnosticsForWorkspace(workspaceFolder: URI): Promise<void> {
@@ -1096,6 +1207,13 @@ export class CMakeLanguageServer {
 
     private async onDidClose(event: TextDocumentChangeEvent<TextDocument>) {
         const uri = event.document.uri;
+        const diagnosticsTimer = this.diagnosticsTimerByUri.get(uri);
+        if (diagnosticsTimer) {
+            clearTimeout(diagnosticsTimer);
+            this.diagnosticsTimerByUri.delete(uri);
+        }
+        this.diagnosticsSequenceByUri.delete(uri);
+        this.targetInfoStructureFingerprintByUri.delete(uri);
         tokenBuilders.delete(uri);
         this.fileContexts.delete(uri);
         this.tokenStreams.delete(uri);
@@ -1116,6 +1234,10 @@ export class CMakeLanguageServer {
     }
 
     private onShutdown() {
+        for (const timer of this.diagnosticsTimerByUri.values()) {
+            clearTimeout(timer);
+        }
+        this.diagnosticsTimerByUri.clear();
         this.disposables.forEach((disposable) => {
             disposable.dispose();
         });
@@ -1207,6 +1329,12 @@ export class CMakeLanguageServer {
         for (const uri of [...this.commentsMap.keys()]) {
             if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
                 this.commentsMap.delete(uri);
+            }
+        }
+
+        for (const uri of [...this.targetInfoStructureFingerprintByUri.keys()]) {
+            if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
+                this.targetInfoStructureFingerprintByUri.delete(uri);
             }
         }
 
@@ -1319,6 +1447,7 @@ export class CMakeLanguageServer {
         this.fileContexts.set(uri, parsedFile.fileContext);
         this.tokenStreams.set(uri, parsedFile.tokenStream);
         this.flatCommandsMap.set(uri, parsedFile.flatCommands);
+        this.updateTargetInfoStructureFingerprint(uri, parsedFile.flatCommands, false);
 
         const baseDir = URI.file(path.dirname(URI.parse(uri).fsPath));
         const fileSymbolCache = await extractSymbols(uri, parsedFile.flatCommands, baseDir, workspaceState.symbolIndex, {
@@ -1411,22 +1540,59 @@ export class CMakeLanguageServer {
     private async getProjectTargetInfoForUri(docUri: string, entryUri?: string): Promise<ProjectTargetInfo> {
         const workspaceFolder = this.getWorkspaceFolderForUri(docUri);
         const workspaceState = this.getWorkspaceState(workspaceFolder);
-        if (workspaceState.projectTargetInfo && !workspaceState.projectTargetInfoDirty) {
+        if (workspaceState.projectTargetInfo) {
+            if (workspaceState.projectTargetInfoDirty && !workspaceState.projectTargetInfoBuild) {
+                void this.startProjectTargetInfoRebuild(workspaceState, workspaceFolder, docUri, entryUri, 'background');
+            }
             return workspaceState.projectTargetInfo;
         }
 
+        return await this.startProjectTargetInfoRebuild(workspaceState, workspaceFolder, docUri, entryUri, 'foreground');
+    }
+
+    private startProjectTargetInfoRebuild(
+        workspaceState: WorkspaceState,
+        workspaceFolder: URI,
+        docUri: string,
+        entryUri?: string,
+        mode: 'foreground' | 'background' = 'foreground',
+    ): Promise<ProjectTargetInfo> {
         if (workspaceState.projectTargetInfoBuild) {
-            return await workspaceState.projectTargetInfoBuild;
+            return workspaceState.projectTargetInfoBuild;
+        }
+
+        const startMs = Date.now();
+        if (mode === 'background') {
+            this.targetInfoBackgroundRebuildCount++;
+        } else {
+            this.targetInfoForegroundRebuildCount++;
         }
 
         const buildPromise = this.buildProjectTargetInfoForUri(workspaceState, workspaceFolder, docUri, entryUri)
+            .then(result => {
+                const elapsedMs = Date.now() - startMs;
+                this.logger.debug(`Project target info rebuild (${mode}) finished in ${elapsedMs}ms for ${workspaceFolder.fsPath}`);
+                this.logTargetInfoStatsIfNeeded();
+                return result;
+            })
             .finally(() => {
                 if (workspaceState.projectTargetInfoBuild === buildPromise) {
                     workspaceState.projectTargetInfoBuild = undefined;
                 }
             });
         workspaceState.projectTargetInfoBuild = buildPromise;
-        return await buildPromise;
+        return buildPromise;
+    }
+
+    private logTargetInfoStatsIfNeeded(): void {
+        const total = this.targetInfoForegroundRebuildCount + this.targetInfoBackgroundRebuildCount;
+        if (total === 0 || total % 20 !== 0) {
+            return;
+        }
+
+        this.logger.info(
+            `Project target info rebuild stats: foreground=${this.targetInfoForegroundRebuildCount}, background=${this.targetInfoBackgroundRebuildCount}`
+        );
     }
 
     private async buildProjectTargetInfoForUri(
