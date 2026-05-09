@@ -141,6 +141,26 @@ suite('Utils Tests', () => {
         }
     });
 
+    test('getFindPackageUri should resolve config packages from custom build directory', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-find-package-custom-build-'));
+        const buildDir = path.join(tempDir, 'cmake-build-debug');
+        const packageDir = path.join(tempDir, 'packages', 'Example');
+        const configPath = path.join(packageDir, 'ExampleConfig.cmake');
+        const symbolIndex = new SymbolIndex();
+
+        try {
+            fs.mkdirSync(buildDir, { recursive: true });
+            fs.mkdirSync(packageDir, { recursive: true });
+            fs.writeFileSync(configPath, '# config\n', 'utf8');
+            fs.writeFileSync(path.join(buildDir, 'CMakeCache.txt'), `Example_DIR:PATH=${packageDir}\n`, 'utf8');
+
+            const result = await getFindPackageUri(symbolIndex, tempDir, 'Example', undefined, buildDir);
+            assert.strictEqual(result?.toString(), URI.file(configPath).toString());
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
     test('getFindPackageUri should resolve config packages from File API cache snapshot first', async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-find-package-file-api-'));
         const packageDir = path.join(tempDir, 'packages', 'Example');

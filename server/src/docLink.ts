@@ -26,6 +26,7 @@ export class DocumentLinkInfo {
         public workspaceFolder: string,
         public getFlatCommands: (uri: string) => Promise<FlatCommand[]>,
         public fileApiRawSnapshot?: FileApiRawSnapshot,
+        public buildDirectory?: string,
     ) { }
 
     public static async create(
@@ -36,8 +37,9 @@ export class DocumentLinkInfo {
         workspaceFolder: string,
         getFlatCommands: (uri: string) => Promise<FlatCommand[]>,
         fileApiRawSnapshot?: FileApiRawSnapshot,
+        buildDirectory?: string,
     ): Promise<DocumentLinkInfo> {
-        const info = new DocumentLinkInfo(commands, uri, symbolIndex, entryFile, workspaceFolder, getFlatCommands, fileApiRawSnapshot);
+        const info = new DocumentLinkInfo(commands, uri, symbolIndex, entryFile, workspaceFolder, getFlatCommands, fileApiRawSnapshot, buildDirectory);
         await info.findLinks();
         return info;
     }
@@ -251,7 +253,7 @@ export class DocumentLinkInfo {
             return [];
         }
 
-        const targetUri = await getFindPackageUri(this.symbolIndex, this.workspaceFolder, resolved.text, this.fileApiRawSnapshot);
+        const targetUri = await getFindPackageUri(this.symbolIndex, this.workspaceFolder, resolved.text, this.fileApiRawSnapshot, this.buildDirectory);
         return targetUri ? [this.createLink(firstArg, targetUri)] : [];
     }
 

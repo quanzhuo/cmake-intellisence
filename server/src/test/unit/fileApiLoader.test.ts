@@ -104,30 +104,30 @@ suite('File API Loader Tests', () => {
             assert.strictEqual(findLatestFileApiIndexFile(replyDir), 'index-zzz.json');
 
             const snapshot = loadFileApiRawSnapshot(buildDir);
-            assert(snapshot !== null);
+            assert.ok(snapshot !== null);
             assert.strictEqual(snapshot!.indexFile, 'index-zzz.json');
             assert.strictEqual(snapshot!.cacheEntriesByName.CMAKE_BUILD_TYPE.type, 'STRING');
             assert.strictEqual(snapshot!.cacheEntriesByName.CMAKE_BUILD_TYPE.help, 'Build type');
             assert.strictEqual(snapshot!.cmakeInputs.length, 2);
-            assert(snapshot!.globDependencies.includes('src/a.cpp'));
+            assert.ok(snapshot!.globDependencies.includes('src/a.cpp'));
             assert.strictEqual(snapshot!.toolchainsByLanguage.CXX.compilerId, 'GNU');
             assert.strictEqual(snapshot!.toolchainsByLanguage.CXX.compilerCommandFragment, '--target x86_64-linux-gnu');
-            assert(snapshot!.toolchainsByLanguage.CXX.implicitIncludeDirectories?.includes('/usr/include/c++/13'));
-            assert(snapshot!.toolchainsByLanguage.CXX.implicitLinkDirectories?.includes('/usr/lib/gcc'));
-            assert(snapshot!.toolchainsByLanguage.CXX.implicitLinkLibraries?.includes('stdc++'));
-            assert(snapshot!.toolchainsByLanguage.CXX.sourceFileExtensions?.includes('cpp'));
+            assert.ok(snapshot!.toolchainsByLanguage.CXX.implicitIncludeDirectories?.includes('/usr/include/c++/13'));
+            assert.ok(snapshot!.toolchainsByLanguage.CXX.implicitLinkDirectories?.includes('/usr/lib/gcc'));
+            assert.ok(snapshot!.toolchainsByLanguage.CXX.implicitLinkLibraries?.includes('stdc++'));
+            assert.ok(snapshot!.toolchainsByLanguage.CXX.sourceFileExtensions?.includes('cpp'));
             assert.strictEqual(snapshot!.targetsByName.app.type, 'EXECUTABLE');
-            assert(snapshot!.targetsByName.app.sourcePaths?.includes('src/main.cpp'));
-            assert(snapshot!.targetsByName.app.sourcePaths?.includes('include/api.hpp'));
-            assert(snapshot!.targetsByName.app.generatedSourcePaths?.includes('src/generated.cpp'));
-            assert(snapshot!.targetsByName.app.includeDirectories?.includes('include'));
-            assert(snapshot!.targetsByName.app.compileDefinitions?.includes('APP_DEFINE=1'));
-            assert(snapshot!.targetsByName.app.artifactPaths?.includes('bin/app.exe'));
-            assert(snapshot!.targetsByName.app.dependencyIds?.includes('lib::id'));
+            assert.ok(snapshot!.targetsByName.app.sourcePaths?.includes('src/main.cpp'));
+            assert.ok(snapshot!.targetsByName.app.sourcePaths?.includes('include/api.hpp'));
+            assert.ok(snapshot!.targetsByName.app.generatedSourcePaths?.includes('src/generated.cpp'));
+            assert.ok(snapshot!.targetsByName.app.includeDirectories?.includes('include'));
+            assert.ok(snapshot!.targetsByName.app.compileDefinitions?.includes('APP_DEFINE=1'));
+            assert.ok(snapshot!.targetsByName.app.artifactPaths?.includes('bin/app.exe'));
+            assert.ok(snapshot!.targetsByName.app.dependencyIds?.includes('lib::id'));
             assert.strictEqual(snapshot!.targetsByName.app.folderName, 'apps');
             assert.strictEqual(snapshot!.targetsByName.app.nameOnDisk, 'app.exe');
-            assert(snapshot!.targetsByName.app.backtraceFiles?.includes('CMakeLists.txt'));
-            assert(snapshot!.targetsByName.app.backtraceCommands?.includes('add_executable'));
+            assert.ok(snapshot!.targetsByName.app.backtraceFiles?.includes('CMakeLists.txt'));
+            assert.ok(snapshot!.targetsByName.app.backtraceCommands?.includes('add_executable'));
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }

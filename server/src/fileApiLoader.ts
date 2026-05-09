@@ -128,7 +128,20 @@ type FileApiTargetObject = {
 };
 
 function readJsonFile<T>(filePath: string): T {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
+    try {
+        return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to read JSON file ${filePath}: ${message}`);
+    }
+}
+
+function tryReadJsonFile<T>(filePath: string): T | null {
+    try {
+        return readJsonFile<T>(filePath);
+    } catch {
+        return null;
+    }
 }
 
 function findObjectReference(index: FileApiReplyIndex, kind: string, majorVersion: number): FileApiObjectReference | null {
@@ -202,7 +215,10 @@ function loadTargetSnapshot(codemodelFilePath: string, targetReference: { id: st
         return targetSnapshot;
     }
 
-    const targetObject = readJsonFile<FileApiTargetObject>(targetFilePath);
+    const targetObject = tryReadJsonFile<FileApiTargetObject>(targetFilePath);
+    if (!targetObject) {
+        return targetSnapshot;
+    }
     const sourcePaths = Array.from(new Set([
         ...(targetObject.sources ?? []).map((source) => source.path).filter((sourcePath): sourcePath is string => typeof sourcePath === 'string'),
         ...(targetObject.interfaceSources ?? []).map((source) => source.path).filter((sourcePath): sourcePath is string => typeof sourcePath === 'string'),
@@ -308,20 +324,20 @@ export function loadFileApiRawSnapshot(buildDirectory: string): FileApiRawSnapsh
     const codemodelReference = findObjectReference(replyIndex, 'codemodel', 2);
 
     const cacheObject = cacheReference?.jsonFile
-        ? readJsonFile<FileApiCacheObject>(path.resolve(path.dirname(indexFilePath), cacheReference.jsonFile))
+        ? tryReadJsonFile<FileApiCacheObject>(path.resolve(path.dirname(indexFilePath), cacheReference.jsonFile))
         : null;
     const cmakeFilesObject = cmakeFilesReference?.jsonFile
-        ? readJsonFile<FileApiCMakeFilesObject>(path.resolve(path.dirname(indexFilePath), cmakeFilesReference.jsonFile))
+        ? tryReadJsonFile<FileApiCMakeFilesObject>(path.resolve(path.dirname(indexFilePath), cmakeFilesReference.jsonFile))
         : null;
     const toolchainsObject = toolchainsReference?.jsonFile
-        ? readJsonFile<FileApiToolchainsObject>(path.resolve(path.dirname(indexFilePath), toolchainsReference.jsonFile))
+        ? tryReadJsonFile<FileApiToolchainsObject>(path.resolve(path.dirname(indexFilePath), toolchainsReference.jsonFile))
         : null;
 
     let codemodelFilePath: string | null = null;
     let codemodelObject: FileApiCodeModelObject | null = null;
     if (codemodelReference?.jsonFile) {
         codemodelFilePath = path.resolve(path.dirname(indexFilePath), codemodelReference.jsonFile);
-        codemodelObject = readJsonFile<FileApiCodeModelObject>(codemodelFilePath);
+        codemodelObject = tryReadJsonFile<FileApiCodeModelObject>(codemodelFilePath);
     }
 
     const targets = codemodelFilePath && codemodelObject

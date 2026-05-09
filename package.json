@@ -125,7 +125,7 @@
           "cmakeIntelliSence.cmdCaseDiagnostics": {
             "type": "boolean",
             "description": "%cmdCaseDiagnostics%",
-            "default": "true"
+            "default": false
           },
           "cmakeIntelliSence.loggingLevel": {
             "type": "string",

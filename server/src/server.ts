@@ -285,7 +285,24 @@ export class CMakeLanguageServer {
 
     private async onInitialized(params: InitializedParams) {
         this.connection.client.register(DidChangeConfigurationNotification.type, undefined);
-        await Promise.all(this.getWorkspaceFolders().map(folder => this.ensureEnvironmentInitialized(folder)));
+        const workspaceFolders = this.getWorkspaceFolders();
+        const initializationResults = await Promise.allSettled(workspaceFolders.map(folder => this.ensureEnvironmentInitialized(folder)));
+        const failedWorkspaceFolders: string[] = [];
+        initializationResults.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+                return;
+            }
+
+            const failedFolder = workspaceFolders[index];
+            const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+            failedWorkspaceFolders.push(failedFolder.fsPath);
+            this.logger.error(`Failed to initialize workspace folder ${failedFolder.fsPath}: ${message}`);
+        });
+
+        if (failedWorkspaceFolders.length > 0) {
+            this.connection.window.showWarningMessage(`CMake environment initialization failed for ${failedWorkspaceFolders.length} workspace folder(s). Check output logs for details.`);
+        }
+
         await this.ensureAllWorkspaceFoldersIndexed();
         this.connection.sendNotification(READY_NOTIFICATION);
     }
@@ -806,6 +823,7 @@ export class CMakeLanguageServer {
             this.logger,
             () => token.isCancellationRequested,
             workspaceState.fileApiRawSnapshot,
+            workspaceState.cmakeToolsProjectSnapshot?.buildDirectory,
         );
         return await resolver.resolve(params);
     }
@@ -1070,6 +1088,7 @@ export class CMakeLanguageServer {
             this.getWorkspaceFolderForUri(params.textDocument.uri).fsPath,
             this.getFlatCommandsAsync.bind(this),
             workspaceState.fileApiRawSnapshot,
+            workspaceState.cmakeToolsProjectSnapshot?.buildDirectory,
         );
         throwIfCancelled(token);
         return linkInfo.links;

@@ -130,6 +130,7 @@ export async function getFindPackageUri(
     workspaceFolder: string,
     packageName: string,
     fileApiRawSnapshot?: FileApiRawSnapshot,
+    buildDirectory?: string,
 ): Promise<URI | null> {
     const findModuleUri = getIncludeModuleUri(symbolIndex, `Find${packageName}`, fileApiRawSnapshot);
     if (findModuleUri) {
@@ -138,7 +139,7 @@ export async function getFindPackageUri(
 
     let packageDir = getPackageDirFromFileApiSnapshot(fileApiRawSnapshot, packageName);
     if (!packageDir) {
-        const cmakeCacheFile = path.join(workspaceFolder, 'build', 'CMakeCache.txt');
+        const cmakeCacheFile = path.join(buildDirectory ?? path.join(workspaceFolder, 'build'), 'CMakeCache.txt');
         try {
             const cacheStats = await fsPromises.stat(cmakeCacheFile);
             if (!cacheStats.isFile()) {

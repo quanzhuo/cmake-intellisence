@@ -24,6 +24,7 @@ export class DefinitionResolver extends SymbolResolverBase {
         logger: SymbolResolverBase['logger'],
         shouldCancel?: () => boolean,
         private fileApiRawSnapshot?: FileApiRawSnapshot,
+        private buildDirectory?: string,
     ) {
         super(documents, symbolIndex, getFlatCommands, workspaceFolder, curFile, command, logger, shouldCancel);
     }
@@ -123,7 +124,7 @@ export class DefinitionResolver extends SymbolResolverBase {
                 return this.resolveSourceFileArgument(argIndex, argText, new Set(['INTERFACE', 'PUBLIC', 'PRIVATE', 'FILE_SET', 'TYPE', 'BASE_DIRS', 'FILES']), sourceUri, position.line);
             case 'find_package':
                 return argIndex === 0
-                    ? getFindPackageUri(this.symbolIndex, path.dirname(this.entryFile.fsPath), argText, this.fileApiRawSnapshot)
+                    ? getFindPackageUri(this.symbolIndex, path.dirname(this.entryFile.fsPath), argText, this.fileApiRawSnapshot, this.buildDirectory)
                     : null;
             default:
                 return null;
