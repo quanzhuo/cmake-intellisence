@@ -670,6 +670,121 @@ suite('Condition Completion Tests', () => {
         assert(labels.includes('INTERFACE'));
     });
 
+    test('target completions should include snapshot targets when local target info is empty', async () => {
+        const parsed = parseCMakeText('target_link_libraries(root Ext)');
+        const uri = URI.file(path.resolve(__dirname, 'target-link-libraries-snapshot-completion.cmake')).toString();
+        const completion = new Completion(
+            new Map([[uri, parsed.flatCommands]]),
+            new Map([[uri, parsed.tokenStream]]),
+            {},
+            'Ext',
+            new Logger('test', 'off'),
+            symbolIndex,
+            undefined,
+            undefined,
+            undefined,
+            ['ExtCore', 'ExtRuntime'],
+        );
+
+        const result = await completion.onCompletion({
+            textDocument: { uri },
+            position: { line: 0, character: 'target_link_libraries(root Ext'.length },
+        });
+
+        const items = Array.isArray(result) ? result : (result?.items ?? []);
+        const labels = items.map(item => item.label.toString());
+
+        assert(labels.includes('ExtCore'));
+        assert(labels.includes('ExtRuntime'));
+    });
+
+    test('condition test completions should include snapshot tests when local test info is empty', async () => {
+        const parsed = parseCMakeText('if(TEST Smoke)');
+        const uri = URI.file(path.resolve(__dirname, 'condition-test-snapshot-completion.cmake')).toString();
+        const completion = new Completion(
+            new Map([[uri, parsed.flatCommands]]),
+            new Map([[uri, parsed.tokenStream]]),
+            {},
+            'Smoke',
+            new Logger('test', 'off'),
+            symbolIndex,
+            undefined,
+            undefined,
+            undefined,
+            [],
+            ['SmokeSuite', 'SmokeFast'],
+        );
+
+        const result = await completion.onCompletion({
+            textDocument: { uri },
+            position: { line: 0, character: 'if(TEST Smoke'.length },
+        });
+
+        const items = Array.isArray(result) ? result : (result?.items ?? []);
+        const labels = items.map(item => item.label.toString());
+
+        assert(labels.includes('SmokeSuite'));
+        assert(labels.includes('SmokeFast'));
+    });
+
+    test('get_test_property should suggest snapshot tests for the first argument', async () => {
+        const parsed = parseCMakeText('get_test_property(Smoke PROPERTY TIMEOUT)');
+        const uri = URI.file(path.resolve(__dirname, 'get-test-property-snapshot-completion.cmake')).toString();
+        const completion = new Completion(
+            new Map([[uri, parsed.flatCommands]]),
+            new Map([[uri, parsed.tokenStream]]),
+            {},
+            'Smoke',
+            new Logger('test', 'off'),
+            symbolIndex,
+            undefined,
+            undefined,
+            undefined,
+            [],
+            ['SmokeSuite', 'SmokeFast'],
+        );
+
+        const result = await completion.onCompletion({
+            textDocument: { uri },
+            position: { line: 0, character: 'get_test_property(Smoke'.length },
+        });
+
+        const items = Array.isArray(result) ? result : (result?.items ?? []);
+        const labels = items.map(item => item.label.toString());
+
+        assert(labels.includes('SmokeSuite'));
+        assert(labels.includes('SmokeFast'));
+    });
+
+    test('set_tests_properties should suggest snapshot tests before PROPERTIES', async () => {
+        const parsed = parseCMakeText('set_tests_properties(Smoke PROPERTIES TIMEOUT 10)');
+        const uri = URI.file(path.resolve(__dirname, 'set-tests-properties-snapshot-completion.cmake')).toString();
+        const completion = new Completion(
+            new Map([[uri, parsed.flatCommands]]),
+            new Map([[uri, parsed.tokenStream]]),
+            {},
+            'Smoke',
+            new Logger('test', 'off'),
+            symbolIndex,
+            undefined,
+            undefined,
+            undefined,
+            [],
+            ['SmokeSuite', 'SmokeFast'],
+        );
+
+        const result = await completion.onCompletion({
+            textDocument: { uri },
+            position: { line: 0, character: 'set_tests_properties(Smoke'.length },
+        });
+
+        const items = Array.isArray(result) ? result : (result?.items ?? []);
+        const labels = items.map(item => item.label.toString());
+
+        assert(labels.includes('SmokeSuite'));
+        assert(labels.includes('SmokeFast'));
+    });
+
     test('include dependency resolution should ignore directories', () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-include-dir-'));
         const childDir = path.join(tempDir, '.vscode');

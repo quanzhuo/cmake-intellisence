@@ -6,6 +6,7 @@ import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocumen
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
 import { CancellationToken, CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
+import { ArgumentSemanticKind, resolveCursorTarget } from './argumentSemantics';
 import { loadBuiltinModuleCommandCatalog, warmBuiltinModuleCaches } from './builtinModuleIndex';
 import { isCancellationError, throwIfCancelled } from './cancellation';
 import { BuiltinEntriesLoadStats, ExtensionSettings, ProjectTargetInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
@@ -391,12 +392,60 @@ export class CMakeLanguageServer {
                 }
 
                 this.logger.debug(`Hover help lookup failed for ${category || 'unknown'} ${word}: ${error instanceof Error ? error.message : String(error)}`);
-                return null;
+                return this.getTargetHover(params, workspaceState, hoveredCommand, word);
             }
         }
-        return null;
+        return this.getTargetHover(params, workspaceState, hoveredCommand, word);
     }
 
+    private getTargetHover(
+        _params: HoverParams,
+        workspaceState: WorkspaceState,
+        hoveredCommand: FlatCommand | null,
+        word: string,
+    ): Hover | null {
+        if (!hoveredCommand) {
+            return null;
+        }
+
+        const cursorTarget = resolveCursorTarget(hoveredCommand, word, _params.position);
+        if (cursorTarget.semanticKind !== ArgumentSemanticKind.Target || cursorTarget.text.length === 0) {
+            return null;
+        }
+
+        const snapshot = workspaceState.cmakeToolsProjectSnapshot;
+        if (!snapshot?.targetNames.includes(cursorTarget.text)) {
+            return null;
+        }
+
+        const details = [
+            `目标: ${cursorTarget.text}`,
+            `来源: ${snapshot.sourceKind}`,
+        ];
+
+        if (snapshot.activeBuildType) {
+            details.push(`构建类型: ${snapshot.activeBuildType}`);
+        }
+
+        if (snapshot.buildDirectory) {
+            details.push(`构建目录: ${snapshot.buildDirectory}`);
+        }
+
+        if (snapshot.configurePresetName) {
+            details.push(`Configure Preset: ${snapshot.configurePresetName}`);
+        }
+
+        if (snapshot.buildPresetName) {
+            details.push(`Build Preset: ${snapshot.buildPresetName}`);
+        }
+
+        return {
+            contents: {
+                kind: 'markdown',
+                value: details.join('  \n'),
+            }
+        };
+    }
     private getEntryFilePath(docUri: string): string {
         const workspaceFolder = this.getWorkspaceFolderForUri(docUri);
         const workspaceState = this.getWorkspaceState(workspaceFolder);
@@ -437,7 +486,21 @@ export class CMakeLanguageServer {
         const word = getWordAtPosition(document, params.position).text;
         const targetInfo = await this.getProjectTargetInfoForUri(params.textDocument.uri, entryFileSource);
         throwIfCancelled(token);
-        const completion = new Completion(this.flatCommandsMap, this.tokenStreams, targetInfo, word, this.logger, workspaceState.symbolIndex, params.textDocument.uri, entryFileSource, workspaceState.workspaceFolder.toString());
+        const snapshotTargetNames = workspaceState.cmakeToolsProjectSnapshot?.targetNames ?? [];
+        const snapshotTestNames = workspaceState.cmakeToolsProjectSnapshot?.testNames ?? [];
+        const completion = new Completion(
+            this.flatCommandsMap,
+            this.tokenStreams,
+            targetInfo,
+            word,
+            this.logger,
+            workspaceState.symbolIndex,
+            params.textDocument.uri,
+            entryFileSource,
+            workspaceState.workspaceFolder.toString(),
+            snapshotTargetNames,
+            snapshotTestNames,
+        );
         return completion.onCompletion(params);
     }
 

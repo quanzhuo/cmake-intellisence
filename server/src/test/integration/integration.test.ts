@@ -30,6 +30,7 @@ import {
     SignatureHelpRequest,
     createProtocolConnection,
 } from 'vscode-languageserver-protocol/node';
+import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION } from '../../cmakeToolsSnapshot';
 import { ExtensionSettings, initializeCMakeEnvironment } from '../../cmakeEnvironment';
 import { SymbolIndex, SymbolKind } from '../../symbolIndex';
 import { waitForServerReady } from './testUtils';
@@ -583,6 +584,42 @@ suite('LSP Integration Tests', () => {
 
         assert(result !== null, 'Hover result should not be null for incomplete commands');
         assert(result!.contents !== undefined);
+    });
+
+    test('should provide hover information for snapshot-backed targets', async function () {
+        const uri = 'file:///test-workspace/hover-target.txt';
+        openDocument(uri, 'target_link_libraries(app PRIVATE ExtCore)');
+
+        connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+            workspaceFolderUri: 'file:///test-workspace',
+            snapshot: {
+                workspaceFolderUri: 'file:///test-workspace',
+                sourceUri: uri,
+                projectId: 'test-project',
+                buildDirectory: '/test-workspace/build',
+                activeBuildType: 'Debug',
+                useCMakePresets: false,
+                targetNames: ['ExtCore'],
+                testNames: [],
+                codeModelSummary: { hasCodeModel: true },
+                generation: 1,
+                sourceKind: 'kylin-cmake-tools',
+            },
+        });
+
+        const result = await connection.sendRequest(HoverRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'target_link_libraries(app PRIVATE Ext'.length },
+        });
+
+        assert(result !== null, 'Target hover result should not be null');
+        const hoverContents = result!.contents;
+        assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
+        assert('kind' in hoverContents);
+        assert.strictEqual(hoverContents.kind, 'markdown');
+        assert.match(hoverContents.value, /目标: ExtCore/);
+        assert.match(hoverContents.value, /来源: kylin-cmake-tools/);
+        assert.match(hoverContents.value, /构建类型: Debug/);
     });
 
     //#endregion ── Hover ──────────────────────────────────────────────────

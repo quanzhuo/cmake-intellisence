@@ -963,6 +963,8 @@ export default class Completion {
         private currentUri?: string,
         private entryUri?: string,
         private workspaceKey?: string,
+        private snapshotTargetNames: string[] = [],
+        private snapshotTestNames: string[] = [],
     ) { }
 
     private getCompletionItemData(type: CompletionItemType, helpLabel?: string): CompletionItemData {
@@ -988,9 +990,48 @@ export default class Completion {
     private getProjectTargetNames(): string[] {
         return Array.from(new Set<string>([
             ...this.getIndexedSymbols(SymbolKind.Target),
+            ...this.snapshotTargetNames,
             ...this.targetInfo.executables ?? [],
             ...this.targetInfo.libraries ?? [],
         ]));
+    }
+
+    private getProjectTestNames(): string[] {
+        return Array.from(new Set<string>(this.snapshotTestNames));
+    }
+
+    private getTestsSuggestion(): CompletionItem[] | undefined {
+        const tests = this.getProjectTestNames();
+        if (tests.length > 0) {
+            return tests.map((test) => {
+                return {
+                    label: test,
+                    kind: CompletionItemKind.Variable,
+                };
+            });
+        }
+    }
+
+    private getTestArgumentSuggestions(info: CMakeCompletionInfo, args: string[]): CompletionItem[] | null {
+        const tests = this.getTestsSuggestion() ?? [];
+        if (tests.length === 0 || info.index === undefined) {
+            return null;
+        }
+
+        switch (info.command) {
+            case 'get_test_property':
+                return info.index === 0 ? tests : null;
+            case 'set_tests_properties': {
+                const propertiesIndex = args.indexOf('PROPERTIES');
+                if (propertiesIndex === -1 || info.index < propertiesIndex) {
+                    return tests;
+                }
+
+                return null;
+            }
+            default:
+                return null;
+        }
     }
 
     private getCommandSuggestion(commandName: string, type: CompletionItemType): CompletionItem {
@@ -1454,6 +1495,11 @@ export default class Completion {
             return targetArgumentSuggestions;
         }
 
+        const testArgumentSuggestions = this.getTestArgumentSuggestions(info, args);
+        if (testArgumentSuggestions) {
+            return testArgumentSuggestions;
+        }
+
         const argumentSemanticKinds = this.getArgumentSemanticKinds(info);
         if (argumentSemanticKinds?.has(ArgumentSemanticKind.Property)) {
             return this.getPropertySuggestions(info, word);
@@ -1808,7 +1854,7 @@ export default class Completion {
             case 'target-name':
                 return this.getTargetsSuggestion(info) ?? [];
             case 'test-name':
-                return [];
+                return this.getTestsSuggestion() ?? [];
             case 'defined-name':
                 return this.getDefinedNameSuggestions(info, word);
             case 'list-variable':
