@@ -622,6 +622,42 @@ suite('LSP Integration Tests', () => {
         assert.match(hoverContents.value, /构建类型: Debug/);
     });
 
+    test('should provide hover information for snapshot-backed tests', async function () {
+        const uri = 'file:///test-workspace/hover-test.txt';
+        openDocument(uri, 'get_test_property(SmokeSuite PROPERTY TIMEOUT)');
+
+        connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+            workspaceFolderUri: 'file:///test-workspace',
+            snapshot: {
+                workspaceFolderUri: 'file:///test-workspace',
+                sourceUri: uri,
+                projectId: 'test-project',
+                buildDirectory: '/test-workspace/build',
+                activeBuildType: 'Debug',
+                useCMakePresets: false,
+                targetNames: [],
+                testNames: ['SmokeSuite'],
+                codeModelSummary: { hasCodeModel: true },
+                generation: 1,
+                sourceKind: 'kylin-cmake-tools',
+            },
+        });
+
+        const result = await connection.sendRequest(HoverRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'get_test_property(Smoke'.length },
+        });
+
+        assert(result !== null, 'Test hover result should not be null');
+        const hoverContents = result!.contents;
+        assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
+        assert('kind' in hoverContents);
+        assert.strictEqual(hoverContents.kind, 'markdown');
+        assert.match(hoverContents.value, /测试: SmokeSuite/);
+        assert.match(hoverContents.value, /来源: kylin-cmake-tools/);
+        assert.match(hoverContents.value, /构建类型: Debug/);
+    });
+
     //#endregion ── Hover ──────────────────────────────────────────────────
 
     //#region ── Formatting ─────────────────────────────────────────────

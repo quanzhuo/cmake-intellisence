@@ -5,6 +5,7 @@ export enum ArgumentSemanticKind {
     Command = 'command',
     Variable = 'variable',
     Target = 'target',
+    Test = 'test',
     FilePath = 'file-path',
     Property = 'property',
     IncludeModule = 'include-module',
@@ -15,6 +16,7 @@ export enum DefinitionSubject {
     Command = 'command',
     Variable = 'variable',
     Target = 'target',
+    Test = 'test',
     FilePath = 'file-path',
     IncludeModule = 'include-module',
     FindPackage = 'find-package',
@@ -240,6 +242,7 @@ function resolveCursorText(command: FlatCommand, subject: DefinitionSubject, wor
             case DefinitionSubject.Variable:
                 return word || extractVariableName(argumentSpan.text);
             case DefinitionSubject.Target:
+            case DefinitionSubject.Test:
             case DefinitionSubject.FilePath:
             case DefinitionSubject.IncludeModule:
             case DefinitionSubject.FindPackage:
@@ -458,6 +461,26 @@ export function isTargetArgumentIndex(command: FlatCommand, argIndex: number): b
     }
 }
 
+export function isTestArgumentIndex(command: FlatCommand, argIndex: number): boolean {
+    const args = command.argument_list();
+    const commandName = command.ID().symbol.text.toLowerCase();
+
+    switch (commandName) {
+        case 'get_test_property':
+            return argIndex === 0;
+        case 'set_tests_properties': {
+            const propertyKeywordIndex = getPropertyKeywordIndex(args);
+            return propertyKeywordIndex === -1 ? argIndex >= 0 : argIndex < propertyKeywordIndex;
+        }
+        case 'if':
+        case 'elseif':
+        case 'while':
+            return argIndex > 0 && args[argIndex - 1]?.getText().toUpperCase() === 'TEST';
+        default:
+            return false;
+    }
+}
+
 export function getTargetOccurrencesInArgument(command: FlatCommand, argIndex: number): TargetOccurrence[] {
     const argText = command.argument_list()[argIndex]?.getText();
     if (!argText) {
@@ -511,6 +534,10 @@ export function getArgumentSemanticKinds(command: FlatCommand, argIndex: number)
 
     if (isTargetArgumentIndex(command, argIndex)) {
         kinds.add(ArgumentSemanticKind.Target);
+    }
+
+    if (isTestArgumentIndex(command, argIndex)) {
+        kinds.add(ArgumentSemanticKind.Test);
     }
 
     if (isPropertyArgumentIndex(command, argIndex)) {
@@ -573,6 +600,10 @@ export function getDefinitionSubject(command: FlatCommand, word: string, pos: Po
         return DefinitionSubject.Target;
     }
 
+    if (isTestArgumentIndex(command, argumentSpan.argumentIndex)) {
+        return DefinitionSubject.Test;
+    }
+
     const commandName = command.ID().symbol.text.toLowerCase();
     switch (commandName) {
         case 'include':
@@ -624,6 +655,8 @@ export function resolveCursorTarget(command: FlatCommand, word: string, pos: Pos
             return { text, subject, semanticKind: ArgumentSemanticKind.Command, argumentSpan };
         case DefinitionSubject.Target:
             return { text, subject, semanticKind: ArgumentSemanticKind.Target, argumentSpan };
+        case DefinitionSubject.Test:
+            return { text, subject, semanticKind: ArgumentSemanticKind.Test, argumentSpan };
         case DefinitionSubject.FilePath:
             return { text, subject, semanticKind: ArgumentSemanticKind.FilePath, argumentSpan };
         case DefinitionSubject.IncludeModule:

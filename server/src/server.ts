@@ -392,13 +392,13 @@ export class CMakeLanguageServer {
                 }
 
                 this.logger.debug(`Hover help lookup failed for ${category || 'unknown'} ${word}: ${error instanceof Error ? error.message : String(error)}`);
-                return this.getTargetHover(params, workspaceState, hoveredCommand, word);
+                return this.getSnapshotEntityHover(params, workspaceState, hoveredCommand, word);
             }
         }
-        return this.getTargetHover(params, workspaceState, hoveredCommand, word);
+        return this.getSnapshotEntityHover(params, workspaceState, hoveredCommand, word);
     }
 
-    private getTargetHover(
+    private getSnapshotEntityHover(
         _params: HoverParams,
         workspaceState: WorkspaceState,
         hoveredCommand: FlatCommand | null,
@@ -409,19 +409,27 @@ export class CMakeLanguageServer {
         }
 
         const cursorTarget = resolveCursorTarget(hoveredCommand, word, _params.position);
-        if (cursorTarget.semanticKind !== ArgumentSemanticKind.Target || cursorTarget.text.length === 0) {
+        if (cursorTarget.text.length === 0) {
             return null;
         }
 
         const snapshot = workspaceState.cmakeToolsProjectSnapshot;
-        if (!snapshot?.targetNames.includes(cursorTarget.text)) {
+        if (!snapshot) {
             return null;
         }
 
-        const details = [
-            `目标: ${cursorTarget.text}`,
-            `来源: ${snapshot.sourceKind}`,
-        ];
+        let entityLabel: string | null = null;
+        if (cursorTarget.semanticKind === ArgumentSemanticKind.Target && snapshot.targetNames.includes(cursorTarget.text)) {
+            entityLabel = `目标: ${cursorTarget.text}`;
+        } else if (cursorTarget.semanticKind === ArgumentSemanticKind.Test && snapshot.testNames.includes(cursorTarget.text)) {
+            entityLabel = `测试: ${cursorTarget.text}`;
+        }
+
+        if (!entityLabel) {
+            return null;
+        }
+
+        const details = [entityLabel, `来源: ${snapshot.sourceKind}`];
 
         if (snapshot.activeBuildType) {
             details.push(`构建类型: ${snapshot.activeBuildType}`);
