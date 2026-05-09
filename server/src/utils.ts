@@ -4,6 +4,7 @@ import * as path from 'path';
 import { TextDocuments } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI, Utils } from 'vscode-uri';
+import { FileApiRawSnapshot } from './fileApiSnapshot';
 import { FlatCommand, extractFlatCommands } from './flatCommands';
 import CMakeLexer from './generated/CMakeLexer';
 import CMakeParser, { FileContext } from './generated/CMakeParser';
@@ -83,7 +84,22 @@ export function getIncludeFileUri(symbolIndex: SymbolIndex, baseDir: URI, includ
     return null;
 }
 
-export function getIncludeModuleUri(symbolIndex: SymbolIndex, includeFileName: string): URI | null {
+function getIncludeModuleUriFromFileApiSnapshot(fileApiRawSnapshot: FileApiRawSnapshot | undefined, includeFileName: string): URI | null {
+    if (!fileApiRawSnapshot) {
+        return null;
+    }
+
+    const expectedFileName = `${includeFileName}.cmake`.toLowerCase();
+    const matchedInput = fileApiRawSnapshot.cmakeInputs.find((input) => {
+        return path.isAbsolute(input.path)
+            && path.extname(input.path).toLowerCase() === '.cmake'
+            && path.basename(input.path).toLowerCase() === expectedFileName;
+    });
+
+    return matchedInput ? URI.file(path.normalize(matchedInput.path)) : null;
+}
+
+export function getIncludeModuleUri(symbolIndex: SymbolIndex, includeFileName: string, fileApiRawSnapshot?: FileApiRawSnapshot): URI | null {
     if (includeFileName.includes('/') || includeFileName.includes('\\') || path.extname(includeFileName) !== '') {
         return null;
     }
@@ -93,30 +109,52 @@ export function getIncludeModuleUri(symbolIndex: SymbolIndex, includeFileName: s
         return URI.file(resPath);
     }
 
-    return null;
+    return getIncludeModuleUriFromFileApiSnapshot(fileApiRawSnapshot, includeFileName);
 }
 
-export async function getFindPackageUri(symbolIndex: SymbolIndex, workspaceFolder: string, packageName: string): Promise<URI | null> {
-    const findModuleUri = getIncludeModuleUri(symbolIndex, `Find${packageName}`);
+function getPackageDirFromFileApiSnapshot(fileApiRawSnapshot: FileApiRawSnapshot | undefined, packageName: string): string | null {
+    if (!fileApiRawSnapshot) {
+        return null;
+    }
+
+    const cacheEntry = fileApiRawSnapshot.cacheEntriesByName[`${packageName}_DIR`];
+    if (!cacheEntry?.value) {
+        return null;
+    }
+
+    return cacheEntry.value;
+}
+
+export async function getFindPackageUri(
+    symbolIndex: SymbolIndex,
+    workspaceFolder: string,
+    packageName: string,
+    fileApiRawSnapshot?: FileApiRawSnapshot,
+): Promise<URI | null> {
+    const findModuleUri = getIncludeModuleUri(symbolIndex, `Find${packageName}`, fileApiRawSnapshot);
     if (findModuleUri) {
         return findModuleUri;
     }
 
-    const cmakeCacheFile = path.join(workspaceFolder, 'build', 'CMakeCache.txt');
-    try {
-        const cacheStats = await fsPromises.stat(cmakeCacheFile);
-        if (!cacheStats.isFile()) {
+    let packageDir = getPackageDirFromFileApiSnapshot(fileApiRawSnapshot, packageName);
+    if (!packageDir) {
+        const cmakeCacheFile = path.join(workspaceFolder, 'build', 'CMakeCache.txt');
+        try {
+            const cacheStats = await fsPromises.stat(cmakeCacheFile);
+            if (!cacheStats.isFile()) {
+                return null;
+            }
+        } catch {
             return null;
         }
-    } catch {
-        return null;
+
+        const content = await fsPromises.readFile(cmakeCacheFile, 'utf-8');
+        const escapedName = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`^${escapedName}_DIR:PATH=(.*)$`, 'm');
+        const match = content.match(regex);
+        packageDir = match ? match[1] : null;
     }
 
-    const content = await fsPromises.readFile(cmakeCacheFile, 'utf-8');
-    const escapedName = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`^${escapedName}_DIR:PATH=(.*)$`, 'm');
-    const match = content.match(regex);
-    const packageDir = match ? match[1] : null;
     if (!packageDir) {
         return null;
     }

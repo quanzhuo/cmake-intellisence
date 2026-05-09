@@ -1,6 +1,8 @@
 import * as assert from 'assert';
 import * as cp from 'child_process';
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import {
     CodeActionRequest,
@@ -598,7 +600,9 @@ suite('LSP Integration Tests', () => {
                 projectId: 'test-project',
                 buildDirectory: '/test-workspace/build',
                 activeBuildType: 'Debug',
-                useCMakePresets: false,
+                useCMakePresets: true,
+                configurePresetName: 'linux-debug',
+                buildPresetName: 'linux-debug-build',
                 targetNames: ['ExtCore'],
                 testNames: [],
                 codeModelSummary: { hasCodeModel: true },
@@ -619,7 +623,11 @@ suite('LSP Integration Tests', () => {
         assert.strictEqual(hoverContents.kind, 'markdown');
         assert.match(hoverContents.value, /目标: ExtCore/);
         assert.match(hoverContents.value, /来源: kylin-cmake-tools/);
+        assert.match(hoverContents.value, /使用 CMake Presets: 是/);
+        assert.match(hoverContents.value, /Code Model: 可用/);
         assert.match(hoverContents.value, /构建类型: Debug/);
+        assert.match(hoverContents.value, /Configure Preset: linux-debug/);
+        assert.match(hoverContents.value, /Build Preset: linux-debug-build/);
     });
 
     test('should provide hover information for snapshot-backed tests', async function () {
@@ -634,10 +642,12 @@ suite('LSP Integration Tests', () => {
                 projectId: 'test-project',
                 buildDirectory: '/test-workspace/build',
                 activeBuildType: 'Debug',
-                useCMakePresets: false,
+                useCMakePresets: true,
+                testPresetName: 'linux-debug-test',
+                packagePresetName: 'linux-debug-package',
                 targetNames: [],
                 testNames: ['SmokeSuite'],
-                codeModelSummary: { hasCodeModel: true },
+                codeModelSummary: { hasCodeModel: false },
                 generation: 1,
                 sourceKind: 'kylin-cmake-tools',
             },
@@ -655,7 +665,290 @@ suite('LSP Integration Tests', () => {
         assert.strictEqual(hoverContents.kind, 'markdown');
         assert.match(hoverContents.value, /测试: SmokeSuite/);
         assert.match(hoverContents.value, /来源: kylin-cmake-tools/);
+        assert.match(hoverContents.value, /使用 CMake Presets: 是/);
+        assert.match(hoverContents.value, /Code Model: 不可用/);
         assert.match(hoverContents.value, /构建类型: Debug/);
+        assert.match(hoverContents.value, /Test Preset: linux-debug-test/);
+        assert.match(hoverContents.value, /Package Preset: linux-debug-package/);
+    });
+
+    test('should enrich snapshot-backed target hover with File API target details', async function () {
+        const uri = 'file:///test-workspace/hover-target-file-api.txt';
+        const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-hover-file-api-'));
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+            objects: [
+                {
+                    kind: 'toolchains',
+                    version: { major: 1, minor: 0 },
+                    jsonFile: 'toolchains-v1.json',
+                },
+                {
+                    kind: 'codemodel',
+                    version: { major: 2, minor: 0 },
+                    jsonFile: 'codemodel-v2.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'toolchains-v1.json'), JSON.stringify({
+            toolchains: [
+                {
+                    language: 'CXX',
+                    compiler: {
+                        path: '/usr/bin/c++',
+                        commandFragment: '--target x86_64-linux-gnu',
+                        id: 'GNU',
+                        version: '13.2.0',
+                        target: 'x86_64-linux-gnu',
+                        implicit: {
+                            includeDirectories: ['/usr/include/c++/13', '/usr/local/include'],
+                            linkDirectories: ['/usr/lib/gcc'],
+                            linkFrameworkDirectories: [],
+                            linkLibraries: ['stdc++', 'm'],
+                        },
+                    },
+                    sourceFileExtensions: ['cc', 'cpp'],
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'codemodel-v2.json'), JSON.stringify({
+            configurations: [
+                {
+                    targets: [
+                        {
+                            id: 'ExtCore::id',
+                            name: 'ExtCore',
+                            jsonFile: 'target-extcore.json',
+                        },
+                    ],
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'target-extcore.json'), JSON.stringify({
+            id: 'ExtCore::id',
+            name: 'ExtCore',
+            type: 'STATIC_LIBRARY',
+            imported: true,
+            symbolic: true,
+            isGeneratorProvided: true,
+            folder: {
+                name: 'libs',
+            },
+            paths: {
+                source: '/test-workspace',
+                build: buildDir,
+            },
+            nameOnDisk: 'ExtCore.a',
+            sources: [
+                {
+                    path: 'generated/extcore_autogen.cpp',
+                    isGenerated: true,
+                },
+            ],
+            compileGroups: [
+                {
+                    includes: [
+                        { path: 'include' },
+                        { path: 'generated/include' },
+                    ],
+                },
+            ],
+            artifacts: [
+                { path: 'lib/ExtCore.a' },
+            ],
+            dependencies: [
+                { id: 'Base::id' },
+                { id: 'Utils::id' },
+            ],
+            defines: [
+                { define: 'EXTCORE_EXPORTS' },
+            ],
+            backtraceGraph: {
+                files: ['CMakeLists.txt', 'cmake/ExtCore.cmake'],
+                commands: ['add_library', 'target_link_libraries'],
+            },
+        }), 'utf8');
+
+        try {
+            openDocument(uri, 'target_link_libraries(app PRIVATE ExtCore)');
+
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: 'file:///test-workspace',
+                snapshot: {
+                    workspaceFolderUri: 'file:///test-workspace',
+                    sourceUri: uri,
+                    projectId: 'test-project-file-api-hover',
+                    buildDirectory: buildDir,
+                    activeBuildType: 'RelWithDebInfo',
+                    useCMakePresets: false,
+                    targetNames: ['ExtCore'],
+                    testNames: [],
+                    codeModelSummary: { hasCodeModel: true },
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            const result = await connection.sendRequest(HoverRequest.type, {
+                textDocument: { uri },
+                position: { line: 0, character: 'target_link_libraries(app PRIVATE Ext'.length },
+            });
+
+            assert(result !== null, 'Target hover result should not be null');
+            const hoverContents = result!.contents;
+            assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
+            assert('kind' in hoverContents);
+            assert.strictEqual(hoverContents.kind, 'markdown');
+            assert.match(hoverContents.value, /目标: ExtCore/);
+            assert.match(hoverContents.value, /File API 类型: STATIC_LIBRARY/);
+            assert.match(hoverContents.value, /目标属性: IMPORTED, SYMBOLIC, GENERATOR_PROVIDED/);
+            assert.match(hoverContents.value, /目录分组: libs/);
+            assert.match(hoverContents.value, /磁盘名: ExtCore\.a/);
+            assert.match(hoverContents.value, /生成源: 1/);
+            assert.match(hoverContents.value, /包含目录: include, generated\/include/);
+            assert.match(hoverContents.value, /产物: lib\/ExtCore\.a/);
+            assert.match(hoverContents.value, /编译定义: EXTCORE_EXPORTS/);
+            assert.match(hoverContents.value, /回溯文件: CMakeLists\.txt, cmake\/ExtCore\.cmake/);
+            assert.match(hoverContents.value, /回溯命令: add_library, target_link_libraries/);
+            assert.match(hoverContents.value, /依赖数量: 2/);
+            assert.match(hoverContents.value, /工具链: CXX GNU 13\.2\.0/);
+            assert.match(hoverContents.value, /编译器参数: --target x86_64-linux-gnu/);
+            assert.match(hoverContents.value, /隐式包含目录: \/usr\/include\/c\+\+\/13, \/usr\/local\/include/);
+            assert.match(hoverContents.value, /隐式链接目录: \/usr\/lib\/gcc/);
+            assert.match(hoverContents.value, /隐式链接库: stdc\+\+, m/);
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
+    test('should provide hover information for File API backed find_package cache entries', async function () {
+        const uri = 'file:///test-workspace/hover-find-package-file-api.txt';
+        const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-hover-package-file-api-'));
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+            objects: [
+                {
+                    kind: 'cache',
+                    version: { major: 2, minor: 0 },
+                    jsonFile: 'cache-v2.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'cache-v2.json'), JSON.stringify({
+            entries: [
+                {
+                    name: 'Example_DIR',
+                    type: 'PATH',
+                    value: '/opt/example/lib/cmake/Example',
+                    properties: [
+                        { name: 'HELPSTRING', value: 'Directory containing ExampleConfig.cmake' },
+                    ],
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            openDocument(uri, 'find_package(Example REQUIRED)');
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: 'file:///test-workspace',
+                snapshot: {
+                    workspaceFolderUri: 'file:///test-workspace',
+                    sourceUri: uri,
+                    projectId: 'test-project-file-api-package-hover',
+                    buildDirectory: buildDir,
+                    useCMakePresets: false,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            const result = await connection.sendRequest(HoverRequest.type, {
+                textDocument: { uri },
+                position: { line: 0, character: 'find_package(Exa'.length },
+            });
+
+            assert(result !== null, 'find_package hover result should not be null');
+            const hoverContents = result!.contents;
+            assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
+            assert('kind' in hoverContents);
+            assert.strictEqual(hoverContents.kind, 'markdown');
+            assert.match(hoverContents.value, /包: Example/);
+            assert.match(hoverContents.value, /缓存类型: PATH/);
+            assert.match(hoverContents.value, /包目录: \/opt\/example\/lib\/cmake\/Example/);
+            assert.match(hoverContents.value, /缓存说明: Directory containing ExampleConfig\.cmake/);
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
+    test('should provide hover information for File API backed external include modules', async function () {
+        const uri = 'file:///test-workspace/hover-include-module-file-api.txt';
+        const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-hover-module-file-api-'));
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+        const modulePath = path.join(buildDir, 'cmake', 'ExternalHelpers.cmake');
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.mkdirSync(path.dirname(modulePath), { recursive: true });
+        fs.writeFileSync(modulePath, '# external helper\n', 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+            objects: [
+                {
+                    kind: 'cmakeFiles',
+                    version: { major: 1, minor: 0 },
+                    jsonFile: 'cmakeFiles-v1.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'cmakeFiles-v1.json'), JSON.stringify({
+            inputs: [
+                {
+                    path: modulePath,
+                    isExternal: true,
+                    isGenerated: false,
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            openDocument(uri, 'include(ExternalHelpers)');
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: 'file:///test-workspace',
+                snapshot: {
+                    workspaceFolderUri: 'file:///test-workspace',
+                    sourceUri: uri,
+                    projectId: 'test-project-file-api-module-hover',
+                    buildDirectory: buildDir,
+                    useCMakePresets: false,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            const result = await connection.sendRequest(HoverRequest.type, {
+                textDocument: { uri },
+                position: { line: 0, character: 'include(External'.length },
+            });
+
+            assert(result !== null, 'include(module) hover result should not be null');
+            const hoverContents = result!.contents;
+            assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
+            assert('kind' in hoverContents);
+            assert.strictEqual(hoverContents.kind, 'markdown');
+            assert.match(hoverContents.value, /模块: ExternalHelpers/);
+            assert.match(hoverContents.value, new RegExp(`模块路径: ${modulePath.replace(/\\/g, '\\\\')}`));
+            assert.match(hoverContents.value, /外部输入: 是/);
+            assert.match(hoverContents.value, /生成输入: 否/);
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
     });
 
     //#endregion ── Hover ──────────────────────────────────────────────────

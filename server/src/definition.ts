@@ -3,6 +3,7 @@ import * as path from 'path';
 import { DefinitionParams, Location, LocationLink, Position } from "vscode-languageserver";
 import { URI } from 'vscode-uri';
 import { DefinitionSubject } from './argumentSemantics';
+import { FileApiRawSnapshot } from './fileApiSnapshot';
 import { PathExpressionRequest, PathExpressionResolver } from './pathExpressionResolver';
 import { DestinationType, SymbolResolverBase } from "./symbolResolverBase";
 import { FlatCommand } from './flatCommands';
@@ -12,6 +13,20 @@ export { DestinationType };
 
 export class DefinitionResolver extends SymbolResolverBase {
     private pathExpressionResolver?: PathExpressionResolver;
+
+    constructor(
+        documents: SymbolResolverBase['documents'],
+        symbolIndex: SymbolResolverBase['symbolIndex'],
+        getFlatCommands: SymbolResolverBase['getFlatCommands'],
+        workspaceFolder: string,
+        curFile: URI,
+        command: FlatCommand,
+        logger: SymbolResolverBase['logger'],
+        shouldCancel?: () => boolean,
+        private fileApiRawSnapshot?: FileApiRawSnapshot,
+    ) {
+        super(documents, symbolIndex, getFlatCommands, workspaceFolder, curFile, command, logger, shouldCancel);
+    }
 
     private getPathExpressionResolver(): PathExpressionResolver {
         if (!this.pathExpressionResolver) {
@@ -84,7 +99,7 @@ export class DefinitionResolver extends SymbolResolverBase {
                 }
 
                 return getIncludeFileUri(this.symbolIndex, sourceBaseDir, includeArg)
-                    ?? getIncludeModuleUri(this.symbolIndex, includeArg);
+                    ?? getIncludeModuleUri(this.symbolIndex, includeArg, this.fileApiRawSnapshot);
             case 'add_subdirectory': {
                 if (argIndex !== 0) {
                     return null;
@@ -108,7 +123,7 @@ export class DefinitionResolver extends SymbolResolverBase {
                 return this.resolveSourceFileArgument(argIndex, argText, new Set(['INTERFACE', 'PUBLIC', 'PRIVATE', 'FILE_SET', 'TYPE', 'BASE_DIRS', 'FILES']), sourceUri, position.line);
             case 'find_package':
                 return argIndex === 0
-                    ? getFindPackageUri(this.symbolIndex, path.dirname(this.entryFile.fsPath), argText)
+                    ? getFindPackageUri(this.symbolIndex, path.dirname(this.entryFile.fsPath), argText, this.fileApiRawSnapshot)
                     : null;
             default:
                 return null;

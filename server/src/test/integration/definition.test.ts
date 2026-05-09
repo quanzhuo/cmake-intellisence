@@ -20,6 +20,7 @@ import {
     RegistrationRequest,
     ShutdownRequest,
 } from 'vscode-languageserver-protocol/node';
+import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION } from '../../cmakeToolsSnapshot';
 import { URI } from 'vscode-uri';
 import { ExtensionSettings } from '../../cmakeEnvironment';
 import { waitForServerReady } from './testUtils';
@@ -246,6 +247,65 @@ suite('Definition Integration Tests', () => {
         const locs = (Array.isArray(result) ? result : [result]) as Location[];
         assert.strictEqual(locs[0].uri, fileUri('include/helpers.cmake'));
         assert.strictEqual(locs[0].range.start.line, 0, 'File definitions should point at the start of the target file');
+    });
+
+    test('include module argument should resolve through File API cmake inputs when the module is not builtin', async function () {
+        const buildDir = path.join(fixtureDir, 'build-file-api');
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+        const externalModulePath = path.join(fixtureDir, 'external-modules', 'ExternalHelpers.cmake');
+        const uri = fileUri('file-api-module-definition.cmake');
+        const diagPromise = waitForDiagnostics(uri);
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.mkdirSync(path.dirname(externalModulePath), { recursive: true });
+        fs.writeFileSync(externalModulePath, '# external module\n', 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+            objects: [
+                {
+                    kind: 'cmakeFiles',
+                    version: { major: 1, minor: 0 },
+                    jsonFile: 'cmakeFiles-v1.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'cmakeFiles-v1.json'), JSON.stringify({
+            inputs: [
+                {
+                    path: externalModulePath,
+                    isExternal: true,
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            openDocument(uri, 'include(ExternalHelpers)');
+            await diagPromise;
+
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: fixtureUri,
+                snapshot: {
+                    workspaceFolderUri: fixtureUri,
+                    sourceUri: uri,
+                    projectId: 'definition-file-api-module',
+                    buildDirectory: buildDir,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            const result = await getDefinition(uri, 0, 'include(External'.length);
+
+            assert(result !== null, 'Definition should not be null');
+            const locs = (Array.isArray(result) ? result : [result]) as Location[];
+            assert(locs.length > 0, 'Should find the File API module input');
+            assert.strictEqual(locs[0].uri, URI.file(externalModulePath).toString());
+            assert.strictEqual(locs[0].range.start.line, 0);
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+            fs.rmSync(path.dirname(externalModulePath), { recursive: true, force: true });
+        }
     });
 
     // ── Cross-file: add_subdirectory() ─────────────────────────

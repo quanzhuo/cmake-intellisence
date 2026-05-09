@@ -19,6 +19,7 @@ import {
     RegistrationRequest,
     ShutdownRequest,
 } from 'vscode-languageserver-protocol/node';
+import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION } from '../../cmakeToolsSnapshot';
 import { URI } from 'vscode-uri';
 import { ExtensionSettings } from '../../cmakeEnvironment';
 import { waitForServerReady } from './testUtils';
@@ -110,7 +111,7 @@ suite('Document Link Integration Tests', () => {
                 extSettings.cmakePath,
                 extSettings.loggingLevel,
                 extSettings.cmdCaseDiagnostics,
-                extSettings.pkgConfigPath
+                extSettings.pkgConfigPath,
             ];
         });
         connection.onNotification(PublishDiagnosticsNotification.type, params => {
@@ -126,6 +127,7 @@ suite('Document Link Integration Tests', () => {
         };
 
         await connection.sendRequest(InitializeRequest.type, initParams);
+
         connection.sendNotification(InitializedNotification.type, {});
         await configurationPromise;
         await readyPromise;
@@ -238,6 +240,66 @@ suite('Document Link Integration Tests', () => {
         assert(linkTargets.has(fileUri('config/output.txt')), 'configure_file(${PROJECT_SOURCE_DIR}/...) should link the output file when it exists');
         assert(linkTargets.has(fileUri('app/CMakeLists.txt')), 'add_subdirectory(${PROJECT_SOURCE_DIR}/...) should link to the target CMakeLists.txt');
         assert(linkTargets.has(fileUri('extra/extra.cpp')), 'target_sources(${CMAKE_SOURCE_DIR}/...) should link the source file');
+    });
+
+    test('should link include(module) through File API cmake inputs when the module is not builtin', async function () {
+        const buildDir = path.join(fixtureDir, 'build-file-api');
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+        const externalModulePath = path.join(fixtureDir, 'external-modules', 'ExternalHelpers.cmake');
+        const indexPath = path.join(replyDir, 'index-zzz.json');
+        const cmakeFilesPath = path.join(replyDir, 'cmakeFiles-v1.json');
+        const uri = fileUri('file-api-module-links.cmake');
+        const diagPromise = waitForDiagnostics(uri);
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.mkdirSync(path.dirname(externalModulePath), { recursive: true });
+        fs.writeFileSync(externalModulePath, '# external module\n', 'utf8');
+        fs.writeFileSync(indexPath, JSON.stringify({
+            objects: [
+                {
+                    kind: 'cmakeFiles',
+                    version: { major: 1, minor: 0 },
+                    jsonFile: 'cmakeFiles-v1.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(cmakeFilesPath, JSON.stringify({
+            inputs: [
+                {
+                    path: externalModulePath,
+                    isExternal: true,
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            openDocument(uri, 'include(ExternalHelpers)');
+            await diagPromise;
+
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: fixtureUri,
+                snapshot: {
+                    workspaceFolderUri: fixtureUri,
+                    sourceUri: uri,
+                    projectId: 'doclink-file-api-module',
+                    buildDirectory: buildDir,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            const links = await connection.sendRequest(DocumentLinkRequest.type, {
+                textDocument: { uri }
+            });
+
+            assert(links !== null && Array.isArray(links), 'Should return a link array');
+            assert(links.some(link => link.target === URI.file(externalModulePath).toString()), 'include(module) should link to the File API module input');
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+            fs.rmSync(path.dirname(externalModulePath), { recursive: true, force: true });
+        }
     });
 
     test('should link find_package to builtin Find-modules and config package entries', async function () {

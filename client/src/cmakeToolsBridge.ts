@@ -68,10 +68,10 @@ export class CMakeToolsSnapshotBridge implements vscode.Disposable {
     private readonly disposables: vscode.Disposable[] = [];
     private readonly projectDisposables = new Map<string, vscode.Disposable[]>();
     private readonly trackedProjects = new Map<string, ExternalCMakeToolsProject | undefined>();
+    private readonly lastPublishedSnapshots = new Map<string, CMakeToolsProjectSnapshot | null>();
     private providerExtensionId?: string;
     private providerApi?: ExternalCMakeToolsApi;
     private providerDisposable?: vscode.Disposable;
-    private generation = 0;
     private serverReady = false;
 
     constructor(
@@ -291,7 +291,6 @@ export class CMakeToolsSnapshotBridge implements vscode.Disposable {
             project.listTests(),
         ]);
 
-        this.generation += 1;
         const sourceKind: CMakeToolsSourceKind = providerExtensionId === KYLIN_CMAKE_TOOLS_EXTENSION_ID
             ? 'kylin-cmake-tools'
             : 'ms-vscode-cmake-tools';
@@ -312,7 +311,7 @@ export class CMakeToolsSnapshotBridge implements vscode.Disposable {
             codeModelSummary: {
                 hasCodeModel: project.codeModel !== undefined && project.codeModel !== null,
             },
-            generation: this.generation,
+            generation: 0,
             sourceKind,
         };
     }
@@ -332,7 +331,65 @@ export class CMakeToolsSnapshotBridge implements vscode.Disposable {
     }
 
     private sendSnapshot(params: CMakeToolsProjectSnapshotNotificationParams, reason: string): void {
+        const previousSnapshot = this.lastPublishedSnapshots.get(params.workspaceFolderUri);
+        const nextSnapshot = this.withSnapshotGeneration(previousSnapshot, params.snapshot);
+
+        if (this.areSnapshotsEquivalent(previousSnapshot, nextSnapshot)) {
+            return;
+        }
+
+        this.lastPublishedSnapshots.set(params.workspaceFolderUri, nextSnapshot);
+        params = {
+            ...params,
+            snapshot: nextSnapshot,
+        };
         this.logger.debug(`Sending CMake Tools snapshot update: ${reason}`, params);
         this.client.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, params);
+    }
+
+    private withSnapshotGeneration(
+        previousSnapshot: CMakeToolsProjectSnapshot | null | undefined,
+        snapshot: CMakeToolsProjectSnapshot | null,
+    ): CMakeToolsProjectSnapshot | null {
+        if (!snapshot) {
+            return null;
+        }
+
+        const generation = previousSnapshot && this.areSnapshotsEquivalent(previousSnapshot, snapshot)
+            ? previousSnapshot.generation
+            : (previousSnapshot?.generation ?? 0) + 1;
+
+        return {
+            ...snapshot,
+            generation,
+        };
+    }
+
+    private areSnapshotsEquivalent(
+        previousSnapshot: CMakeToolsProjectSnapshot | null | undefined,
+        nextSnapshot: CMakeToolsProjectSnapshot | null | undefined,
+    ): boolean {
+        if (!previousSnapshot || !nextSnapshot) {
+            return previousSnapshot === nextSnapshot;
+        }
+
+        return previousSnapshot.workspaceFolderUri === nextSnapshot.workspaceFolderUri
+            && previousSnapshot.projectId === nextSnapshot.projectId
+            && previousSnapshot.buildDirectory === nextSnapshot.buildDirectory
+            && previousSnapshot.activeBuildType === nextSnapshot.activeBuildType
+            && previousSnapshot.useCMakePresets === nextSnapshot.useCMakePresets
+            && previousSnapshot.configurePresetName === nextSnapshot.configurePresetName
+            && previousSnapshot.buildPresetName === nextSnapshot.buildPresetName
+            && previousSnapshot.testPresetName === nextSnapshot.testPresetName
+            && previousSnapshot.packagePresetName === nextSnapshot.packagePresetName
+            && previousSnapshot.sourceKind === nextSnapshot.sourceKind
+            && previousSnapshot.codeModelSummary?.hasCodeModel === nextSnapshot.codeModelSummary?.hasCodeModel
+            && this.haveSameEntries(previousSnapshot.targetNames, nextSnapshot.targetNames)
+            && this.haveSameEntries(previousSnapshot.testNames, nextSnapshot.testNames);
+    }
+
+    private haveSameEntries(previousValues: string[], nextValues: string[]): boolean {
+        return previousValues.length === nextValues.length
+            && previousValues.every((value, index) => value === nextValues[index]);
     }
 }

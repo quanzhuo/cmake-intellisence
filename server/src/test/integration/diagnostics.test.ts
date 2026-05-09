@@ -20,6 +20,7 @@ import {
 } from 'vscode-languageserver-protocol/node';
 import { DiagnosticSeverity } from 'vscode-languageserver-types';
 import { URI } from 'vscode-uri';
+import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION } from '../../cmakeToolsSnapshot';
 import { ExtensionSettings } from '../../cmakeEnvironment';
 import { DIAG_CODE_MISSING_FILE_PATH, DIAG_CODE_MISSING_SUBDIRECTORY } from '../../pathDiagnostics';
 import { waitForServerReady } from './testUtils';
@@ -154,5 +155,184 @@ suite('Diagnostics Integration Tests', () => {
         const diagnostics = (await openFixture('unresolved-paths.cmake')).diagnostics;
 
         assert.strictEqual(diagnostics.length, 0, 'Unresolved variable-backed paths should not emit diagnostics');
+    });
+
+    test('should suppress include missing-file diagnostics for File API known inputs', async function () {
+        const buildDir = path.join(fixtureDir, 'build-file-api');
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+        const knownInputPath = path.join(fixtureDir, 'missing', 'generated-include.cmake');
+        const uri = fileUri('file-api-known-input.cmake');
+        const diagPromise = waitForDiagnostics(uri);
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+            objects: [
+                {
+                    kind: 'cmakeFiles',
+                    version: { major: 1, minor: 0 },
+                    jsonFile: 'cmakeFiles-v1.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'cmakeFiles-v1.json'), JSON.stringify({
+            inputs: [
+                {
+                    path: knownInputPath,
+                    isGenerated: true,
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: fixtureUri,
+                snapshot: {
+                    workspaceFolderUri: fixtureUri,
+                    sourceUri: uri,
+                    projectId: 'diagnostics-file-api-input',
+                    buildDirectory: buildDir,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            openDocument(uri, 'include(missing/generated-include.cmake)');
+            const diagnostics = (await diagPromise).diagnostics;
+            assert.strictEqual(diagnostics.length, 0, 'Known File API include inputs should not emit missing-file diagnostics');
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
+    test('should suppress generated source diagnostics for File API target snapshots', async function () {
+        const buildDir = path.join(fixtureDir, 'build-file-api-generated');
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+        const uri = fileUri('file-api-generated-source.cmake');
+        const diagPromise = waitForDiagnostics(uri);
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+            objects: [
+                {
+                    kind: 'codemodel',
+                    version: { major: 2, minor: 0 },
+                    jsonFile: 'codemodel-v2.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'codemodel-v2.json'), JSON.stringify({
+            configurations: [
+                {
+                    targets: [
+                        {
+                            id: 'test_lib::id',
+                            name: 'test_lib',
+                            jsonFile: 'target-test-lib.json',
+                        },
+                    ],
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'target-test-lib.json'), JSON.stringify({
+            id: 'test_lib::id',
+            name: 'test_lib',
+            type: 'STATIC_LIBRARY',
+            paths: {
+                source: fixtureDir,
+                build: buildDir,
+            },
+            sources: [
+                {
+                    path: 'missing/generated.cpp',
+                    isGenerated: true,
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: fixtureUri,
+                snapshot: {
+                    workspaceFolderUri: fixtureUri,
+                    sourceUri: uri,
+                    projectId: 'diagnostics-file-api-generated',
+                    buildDirectory: buildDir,
+                    targetNames: ['test_lib'],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            openDocument(uri, 'add_library(test_lib STATIC missing/generated.cpp)');
+            const diagnostics = (await diagPromise).diagnostics;
+            assert.strictEqual(diagnostics.length, 0, 'Generated sources from File API target snapshots should not emit missing-file diagnostics');
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
+    test('should refresh open-document diagnostics when File API snapshot appears and disappears', async function () {
+        const buildDir = path.join(fixtureDir, 'build-file-api-refresh');
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+        const knownInputPath = path.join(fixtureDir, 'missing', 'generated-include.cmake');
+        const uri = fileUri('file-api-refresh.cmake');
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+            objects: [
+                {
+                    kind: 'cmakeFiles',
+                    version: { major: 1, minor: 0 },
+                    jsonFile: 'cmakeFiles-v1.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'cmakeFiles-v1.json'), JSON.stringify({
+            inputs: [
+                {
+                    path: knownInputPath,
+                    isGenerated: true,
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            const initialDiagnosticsPromise = waitForDiagnostics(uri);
+            openDocument(uri, 'include(missing/generated-include.cmake)');
+            const initialDiagnostics = (await initialDiagnosticsPromise).diagnostics;
+            assert.strictEqual(initialDiagnostics.length, 1, 'Expected initial missing-file diagnostic before File API snapshot arrives');
+
+            const suppressedDiagnosticsPromise = waitForDiagnostics(uri);
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: fixtureUri,
+                snapshot: {
+                    workspaceFolderUri: fixtureUri,
+                    sourceUri: uri,
+                    projectId: 'diagnostics-file-api-refresh',
+                    buildDirectory: buildDir,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                    useCMakePresets: false,
+                },
+            });
+            const suppressedDiagnostics = (await suppressedDiagnosticsPromise).diagnostics;
+            assert.strictEqual(suppressedDiagnostics.length, 0, 'Diagnostics should be recomputed and suppressed when File API snapshot appears');
+
+            const restoredDiagnosticsPromise = waitForDiagnostics(uri);
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: fixtureUri,
+                snapshot: null,
+            });
+            const restoredDiagnostics = (await restoredDiagnosticsPromise).diagnostics;
+            assert.strictEqual(restoredDiagnostics.length, 1, 'Diagnostics should be recomputed when File API snapshot disappears');
+            assert.strictEqual(String(restoredDiagnostics[0].code), DIAG_CODE_MISSING_FILE_PATH);
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
     });
 });

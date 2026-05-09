@@ -14,7 +14,9 @@ import Completion, { CMakeCompletionType, CompletionItemType, ProjectTargetInfo,
 import { DefinitionResolver } from './definition';
 import SemanticDiagnosticsListener, { CommandCaseChecker, DIAG_CODE_CMD_CASE, SyntaxErrorListener } from './diagnostics';
 import { DocumentLinkInfo } from './docLink';
+import { loadFileApiRawSnapshot } from './fileApiLoader';
 import { SymbolListener } from './docSymbols';
+import { FileApiRawSnapshot } from './fileApiSnapshot';
 import { FlatCommand } from './flatCommands';
 import { Formatter } from './format';
 import CMakeLexer from './generated/CMakeLexer';
@@ -46,6 +48,7 @@ type WorkspaceState = {
     workspaceFolder: URI;
     symbolIndex: SymbolIndex;
     cmakeToolsProjectSnapshot?: CMakeToolsProjectSnapshot;
+    fileApiRawSnapshot?: FileApiRawSnapshot;
     projectTargetInfo?: ProjectTargetInfo;
     projectTargetInfoDirty: boolean;
     projectTargetInfoVersion: number;
@@ -290,8 +293,54 @@ export class CMakeLanguageServer {
     private async onCMakeToolsProjectSnapshotChanged(params: CMakeToolsProjectSnapshotNotificationParams): Promise<void> {
         const workspaceFolder = URI.parse(params.workspaceFolderUri);
         const workspaceState = this.getWorkspaceState(workspaceFolder);
-        workspaceState.cmakeToolsProjectSnapshot = params.snapshot ?? undefined;
+        const previousSnapshot = workspaceState.cmakeToolsProjectSnapshot;
+        const previousFileApiRawSnapshot = workspaceState.fileApiRawSnapshot;
+        const nextSnapshot = params.snapshot ?? undefined;
+        workspaceState.cmakeToolsProjectSnapshot = nextSnapshot;
+        if (this.shouldResetFileApiRawSnapshot(previousSnapshot, nextSnapshot)) {
+            workspaceState.fileApiRawSnapshot = undefined;
+        }
+
+        if (nextSnapshot?.buildDirectory) {
+            try {
+                workspaceState.fileApiRawSnapshot = loadFileApiRawSnapshot(nextSnapshot.buildDirectory) ?? undefined;
+            } catch (error) {
+                workspaceState.fileApiRawSnapshot = undefined;
+                this.logger.debug(`Failed to load File API snapshot for ${workspaceFolder.fsPath}: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+
+        if (this.didFileApiRawSnapshotChange(previousFileApiRawSnapshot, workspaceState.fileApiRawSnapshot)) {
+            await this.refreshOpenDocumentDiagnosticsForWorkspace(workspaceFolder);
+        }
+
         this.logger.debug(`Updated CMake Tools snapshot for ${workspaceFolder.fsPath}`, JSON.stringify(params.snapshot));
+    }
+
+    private shouldResetFileApiRawSnapshot(
+        previousSnapshot?: CMakeToolsProjectSnapshot,
+        nextSnapshot?: CMakeToolsProjectSnapshot,
+    ): boolean {
+        if (!previousSnapshot || !nextSnapshot) {
+            return previousSnapshot !== nextSnapshot;
+        }
+
+        return previousSnapshot.projectId !== nextSnapshot.projectId
+            || previousSnapshot.buildDirectory !== nextSnapshot.buildDirectory
+            || previousSnapshot.generation !== nextSnapshot.generation;
+    }
+
+    private didFileApiRawSnapshotChange(
+        previousSnapshot?: FileApiRawSnapshot,
+        nextSnapshot?: FileApiRawSnapshot,
+    ): boolean {
+        if (!previousSnapshot || !nextSnapshot) {
+            return previousSnapshot !== nextSnapshot;
+        }
+
+        return previousSnapshot.replyDirectory !== nextSnapshot.replyDirectory
+            || previousSnapshot.indexFile !== nextSnapshot.indexFile
+            || previousSnapshot.indexMtimeMs !== nextSnapshot.indexMtimeMs;
     }
 
     private async onHover(params: HoverParams, token: CancellationToken): Promise<Hover | null> {
@@ -419,17 +468,124 @@ export class CMakeLanguageServer {
         }
 
         let entityLabel: string | null = null;
+        let extraDetails: string[] = [];
         if (cursorTarget.semanticKind === ArgumentSemanticKind.Target && snapshot.targetNames.includes(cursorTarget.text)) {
             entityLabel = `目标: ${cursorTarget.text}`;
         } else if (cursorTarget.semanticKind === ArgumentSemanticKind.Test && snapshot.testNames.includes(cursorTarget.text)) {
             entityLabel = `测试: ${cursorTarget.text}`;
+        } else if (cursorTarget.semanticKind === ArgumentSemanticKind.FindPackage) {
+            const cacheEntry = workspaceState.fileApiRawSnapshot?.cacheEntriesByName[`${cursorTarget.text}_DIR`];
+            if (cacheEntry) {
+                entityLabel = `包: ${cursorTarget.text}`;
+                if (cacheEntry.type) {
+                    extraDetails.push(`缓存类型: ${cacheEntry.type}`);
+                }
+                if (cacheEntry.value) {
+                    extraDetails.push(`包目录: ${cacheEntry.value}`);
+                }
+                if (cacheEntry.help) {
+                    extraDetails.push(`缓存说明: ${cacheEntry.help}`);
+                }
+            }
+        } else if (cursorTarget.semanticKind === ArgumentSemanticKind.IncludeModule) {
+            const moduleFileName = `${cursorTarget.text}.cmake`.toLowerCase();
+            const matchedInput = workspaceState.fileApiRawSnapshot?.cmakeInputs.find((input) => {
+                return path.isAbsolute(input.path)
+                    && path.extname(input.path).toLowerCase() === '.cmake'
+                    && path.basename(input.path).toLowerCase() === moduleFileName;
+            });
+            if (matchedInput) {
+                entityLabel = `模块: ${cursorTarget.text}`;
+                extraDetails.push(`模块路径: ${matchedInput.path}`);
+                if (matchedInput.isExternal !== undefined) {
+                    extraDetails.push(`外部输入: ${matchedInput.isExternal ? '是' : '否'}`);
+                }
+                if (matchedInput.isGenerated !== undefined) {
+                    extraDetails.push(`生成输入: ${matchedInput.isGenerated ? '是' : '否'}`);
+                }
+            }
         }
 
         if (!entityLabel) {
             return null;
         }
 
-        const details = [entityLabel, `来源: ${snapshot.sourceKind}`];
+        const details = [entityLabel, `来源: ${snapshot.sourceKind}`, ...extraDetails];
+        if (cursorTarget.semanticKind === ArgumentSemanticKind.Target) {
+            const targetSnapshot = workspaceState.fileApiRawSnapshot?.targetsByName[cursorTarget.text];
+            const toolchainSnapshot = workspaceState.fileApiRawSnapshot
+                ? workspaceState.fileApiRawSnapshot.toolchainsByLanguage.CXX
+                    ?? workspaceState.fileApiRawSnapshot.toolchainsByLanguage.C
+                    ?? Object.values(workspaceState.fileApiRawSnapshot.toolchainsByLanguage)[0]
+                : undefined;
+            const targetFlags: string[] = [];
+            if (targetSnapshot?.type) {
+                details.push(`File API 类型: ${targetSnapshot.type}`);
+            }
+            if (targetSnapshot?.imported) {
+                targetFlags.push('IMPORTED');
+            }
+            if (targetSnapshot?.abstract) {
+                targetFlags.push('ABSTRACT');
+            }
+            if (targetSnapshot?.symbolic) {
+                targetFlags.push('SYMBOLIC');
+            }
+            if (targetSnapshot?.isGeneratorProvided) {
+                targetFlags.push('GENERATOR_PROVIDED');
+            }
+            if (targetFlags.length) {
+                details.push(`目标属性: ${targetFlags.join(', ')}`);
+            }
+            if (targetSnapshot?.folderName) {
+                details.push(`目录分组: ${targetSnapshot.folderName}`);
+            }
+            if (targetSnapshot?.nameOnDisk) {
+                details.push(`磁盘名: ${targetSnapshot.nameOnDisk}`);
+            }
+            if (targetSnapshot?.generatedSourcePaths?.length) {
+                details.push(`生成源: ${targetSnapshot.generatedSourcePaths.length}`);
+            }
+            if (targetSnapshot?.includeDirectories?.length) {
+                details.push(`包含目录: ${targetSnapshot.includeDirectories.join(', ')}`);
+            }
+            if (targetSnapshot?.artifactPaths?.length) {
+                details.push(`产物: ${targetSnapshot.artifactPaths.join(', ')}`);
+            }
+            if (targetSnapshot?.compileDefinitions?.length) {
+                details.push(`编译定义: ${targetSnapshot.compileDefinitions.join(', ')}`);
+            }
+            if (targetSnapshot?.backtraceFiles?.length) {
+                details.push(`回溯文件: ${targetSnapshot.backtraceFiles.join(', ')}`);
+            }
+            if (targetSnapshot?.backtraceCommands?.length) {
+                details.push(`回溯命令: ${targetSnapshot.backtraceCommands.join(', ')}`);
+            }
+            if (targetSnapshot?.dependencyIds?.length) {
+                details.push(`依赖数量: ${targetSnapshot.dependencyIds.length}`);
+            }
+            if (toolchainSnapshot?.compilerId || toolchainSnapshot?.compilerVersion) {
+                details.push(`工具链: ${toolchainSnapshot.language} ${toolchainSnapshot.compilerId ?? 'unknown'} ${toolchainSnapshot.compilerVersion ?? ''}`.trim());
+            }
+            if (toolchainSnapshot?.compilerCommandFragment) {
+                details.push(`编译器参数: ${toolchainSnapshot.compilerCommandFragment}`);
+            }
+            if (toolchainSnapshot?.implicitIncludeDirectories?.length) {
+                details.push(`隐式包含目录: ${toolchainSnapshot.implicitIncludeDirectories.join(', ')}`);
+            }
+            if (toolchainSnapshot?.implicitLinkDirectories?.length) {
+                details.push(`隐式链接目录: ${toolchainSnapshot.implicitLinkDirectories.join(', ')}`);
+            }
+            if (toolchainSnapshot?.implicitLinkLibraries?.length) {
+                details.push(`隐式链接库: ${toolchainSnapshot.implicitLinkLibraries.join(', ')}`);
+            }
+        }
+
+        details.push(`使用 CMake Presets: ${snapshot.useCMakePresets ? '是' : '否'}`);
+
+        if (snapshot.codeModelSummary) {
+            details.push(`Code Model: ${snapshot.codeModelSummary.hasCodeModel ? '可用' : '不可用'}`);
+        }
 
         if (snapshot.activeBuildType) {
             details.push(`构建类型: ${snapshot.activeBuildType}`);
@@ -445,6 +601,14 @@ export class CMakeLanguageServer {
 
         if (snapshot.buildPresetName) {
             details.push(`Build Preset: ${snapshot.buildPresetName}`);
+        }
+
+        if (snapshot.testPresetName) {
+            details.push(`Test Preset: ${snapshot.testPresetName}`);
+        }
+
+        if (snapshot.packagePresetName) {
+            details.push(`Package Preset: ${snapshot.packagePresetName}`);
         }
 
         return {
@@ -641,6 +805,7 @@ export class CMakeLanguageServer {
             command,
             this.logger,
             () => token.isCancellationRequested,
+            workspaceState.fileApiRawSnapshot,
         );
         return await resolver.resolve(params);
     }
@@ -833,33 +998,36 @@ export class CMakeLanguageServer {
      * @param event 
      */
     private async onDidChangeContent(event: TextDocumentChangeEvent<TextDocument>) {
-        const workspaceState = this.getWorkspaceStateForUri(event.document.uri);
-        await this.ensureEnvironmentInitialized(event.document.uri);
+        await this.publishDiagnosticsForDocument(event.document);
+        this.markProjectTargetInfoDirty(event.document.uri);
+    }
 
-        // check syntax errors
+    private async publishDiagnosticsForDocument(document: TextDocument): Promise<void> {
+        const workspaceState = this.getWorkspaceStateForUri(document.uri);
+        await this.ensureEnvironmentInitialized(document.uri);
+
         const syntaxErrorListener = new SyntaxErrorListener();
-        const parsedFile = this.parseCMakeFile(event.document, 'document change', parser => {
+        const parsedFile = this.parseCMakeFile(document, 'document change', parser => {
             parser.removeErrorListeners();
             parser.addErrorListener(syntaxErrorListener);
         });
         const { fileContext, flatCommands } = parsedFile;
-        await this.storeParsedFileSnapshot(event.document.uri, parsedFile);
+        await this.storeParsedFileSnapshot(document.uri, parsedFile);
 
-        // check semantic errors
         const semanticListener = new SemanticDiagnosticsListener();
         ParseTreeWalker.DEFAULT.walk(semanticListener, fileContext);
 
         const pathDiagnosticsProvider = new PathDiagnosticsProvider({
             symbolIndex: workspaceState.symbolIndex,
-            entryFile: URI.parse(this.getEntryFilePath(event.document.uri)),
-            sourceUri: URI.parse(event.document.uri),
+            entryFile: URI.parse(this.getEntryFilePath(document.uri)),
+            sourceUri: URI.parse(document.uri),
             getFlatCommands: this.getFlatCommandsAsync.bind(this),
+            fileApiRawSnapshot: workspaceState.fileApiRawSnapshot,
         });
         const pathDiagnostics = await pathDiagnosticsProvider.getDiagnostics(flatCommands);
 
-        // all diagnostics
         const diagnostics = {
-            uri: event.document.uri,
+            uri: document.uri,
             diagnostics: [
                 ...syntaxErrorListener.getSyntaxErrors(),
                 ...semanticListener.getSemanticDiagnostics(),
@@ -873,8 +1041,19 @@ export class CMakeLanguageServer {
             diagnostics.diagnostics.push(...cmdCaseChecker.getCmdCaseDiagnostics());
         }
         this.connection.sendDiagnostics(diagnostics);
+    }
 
-        this.markProjectTargetInfoDirty(event.document.uri);
+    private async refreshOpenDocumentDiagnosticsForWorkspace(workspaceFolder: URI): Promise<void> {
+        for (const document of this.documents.all()) {
+            if (document.languageId !== 'cmake') {
+                continue;
+            }
+            if (this.getWorkspaceFolderForUri(document.uri).toString() !== workspaceFolder.toString()) {
+                continue;
+            }
+
+            await this.publishDiagnosticsForDocument(document);
+        }
     }
 
     private async onDocumentLinks(params: DocumentLinkParams, token: CancellationToken): Promise<DocumentLink[] | null> {
@@ -890,6 +1069,7 @@ export class CMakeLanguageServer {
             this.getEntryFilePath(params.textDocument.uri),
             this.getWorkspaceFolderForUri(params.textDocument.uri).fsPath,
             this.getFlatCommandsAsync.bind(this),
+            workspaceState.fileApiRawSnapshot,
         );
         throwIfCancelled(token);
         return linkInfo.links;

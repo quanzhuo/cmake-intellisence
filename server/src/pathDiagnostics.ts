@@ -3,6 +3,7 @@ import * as path from 'path';
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver';
 import { URI } from 'vscode-uri';
 import { DefinitionSubject, resolveArgumentTarget } from './argumentSemantics';
+import { FileApiRawSnapshot } from './fileApiSnapshot';
 import { FlatCommand } from './flatCommands';
 import { ArgumentContext } from './generated/CMakeParser';
 import localize from './localize';
@@ -17,11 +18,13 @@ interface PathDiagnosticsProviderOptions {
     entryFile: URI;
     sourceUri: URI;
     getFlatCommands: (uri: string) => Promise<FlatCommand[]>;
+    fileApiRawSnapshot?: FileApiRawSnapshot;
 }
 
 export class PathDiagnosticsProvider {
     private readonly resolver: PathExpressionResolver;
     private readonly subdirectoryExistsCache = new Map<string, boolean>();
+    private readonly knownCMakeInputPaths: Set<string>;
 
     constructor(private readonly options: PathDiagnosticsProviderOptions) {
         this.resolver = new PathExpressionResolver({
@@ -29,6 +32,9 @@ export class PathDiagnosticsProvider {
             getFlatCommands: options.getFlatCommands,
             entryFile: options.entryFile,
         });
+        this.knownCMakeInputPaths = new Set((options.fileApiRawSnapshot?.cmakeInputs ?? [])
+            .filter((input) => path.isAbsolute(input.path))
+            .map((input) => this.normalizeFsPath(input.path)));
     }
 
     public async getDiagnostics(commands: FlatCommand[]): Promise<Diagnostic[]> {
@@ -99,6 +105,78 @@ export class PathDiagnosticsProvider {
         return expandedPath.includes('/') || expandedPath.includes('\\') || path.extname(expandedPath) !== '';
     }
 
+    private normalizeFsPath(filePath: string): string {
+        const normalized = path.normalize(filePath);
+        return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+    }
+
+    private getMissingPathCandidates(expandedPath: string | null, candidates: URI[]): string[] {
+        const resolvedCandidates = candidates.map((candidate) => candidate.fsPath);
+        if (!expandedPath) {
+            return resolvedCandidates;
+        }
+
+        if (path.isAbsolute(expandedPath)) {
+            return [...resolvedCandidates, expandedPath];
+        }
+
+        return [...resolvedCandidates, path.resolve(path.dirname(this.options.sourceUri.fsPath), expandedPath)];
+    }
+
+    private isKnownCMakeInput(expandedPath: string | null, candidates: URI[]): boolean {
+        if (this.knownCMakeInputPaths.size === 0) {
+            return false;
+        }
+
+        return this.getMissingPathCandidates(expandedPath, candidates)
+            .some((candidate) => this.knownCMakeInputPaths.has(this.normalizeFsPath(candidate)));
+    }
+
+    private getCommandTargetName(command: FlatCommand): string | null {
+        return command.argument_list()[0]?.getText() ?? null;
+    }
+
+    private getKnownGeneratedSourcePaths(command: FlatCommand): Set<string> {
+        const targetName = this.getCommandTargetName(command);
+        if (!targetName) {
+            return new Set();
+        }
+
+        const targetSnapshot = this.options.fileApiRawSnapshot?.targetsByName[targetName];
+        if (!targetSnapshot?.generatedSourcePaths?.length) {
+            return new Set();
+        }
+
+        const knownPaths = new Set<string>();
+        for (const generatedPath of targetSnapshot.generatedSourcePaths) {
+            if (path.isAbsolute(generatedPath)) {
+                knownPaths.add(this.normalizeFsPath(generatedPath));
+                continue;
+            }
+
+            if (targetSnapshot.sourceDirectory) {
+                knownPaths.add(this.normalizeFsPath(path.resolve(targetSnapshot.sourceDirectory, generatedPath)));
+            }
+            if (targetSnapshot.buildDirectory) {
+                knownPaths.add(this.normalizeFsPath(path.resolve(targetSnapshot.buildDirectory, generatedPath)));
+            }
+
+            knownPaths.add(this.normalizeFsPath(path.resolve(path.dirname(this.options.sourceUri.fsPath), generatedPath)));
+        }
+
+        return knownPaths;
+    }
+
+    private isKnownGeneratedSource(command: FlatCommand, expandedPath: string | null, candidates: URI[]): boolean {
+        const knownGeneratedSourcePaths = this.getKnownGeneratedSourcePaths(command);
+        if (knownGeneratedSourcePaths.size === 0) {
+            return false;
+        }
+
+        return this.getMissingPathCandidates(expandedPath, candidates)
+            .some((candidate) => knownGeneratedSourcePaths.has(this.normalizeFsPath(candidate)));
+    }
+
     private async getIncludeDiagnostics(command: FlatCommand): Promise<Diagnostic[]> {
         const pathArgument = this.getPathArgument(command, 0);
         if (!pathArgument) {
@@ -109,6 +187,9 @@ export class PathDiagnosticsProvider {
             this.createRequest(command.commandName.toLowerCase(), pathArgument.argText, pathArgument.argCtx),
         );
         if (result.reason !== 'missing-file' || !result.expandedPath) {
+            return [];
+        }
+        if (this.isKnownCMakeInput(result.expandedPath, result.bestEffortCandidates)) {
             return [];
         }
 
@@ -155,6 +236,9 @@ export class PathDiagnosticsProvider {
                 this.createRequest(command.commandName.toLowerCase(), pathArgument.argText, pathArgument.argCtx),
             );
             if (result.reason !== 'missing-file' || !result.expandedPath || !this.isLikelySourcePath(result.expandedPath)) {
+                continue;
+            }
+            if (this.isKnownGeneratedSource(command, result.expandedPath, result.bestEffortCandidates)) {
                 continue;
             }
 

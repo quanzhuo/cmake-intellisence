@@ -3,11 +3,12 @@ import * as path from 'path';
 import { DocumentLink, Range } from "vscode-languageserver";
 import { URI } from 'vscode-uri';
 import { DefinitionSubject, resolveArgumentTarget } from './argumentSemantics';
+import { FileApiRawSnapshot } from './fileApiSnapshot';
 import { FlatCommand } from './flatCommands';
 import { ArgumentContext } from './generated/CMakeParser';
 import { PathExpressionRequest, PathExpressionResolver } from './pathExpressionResolver';
 import { SymbolIndex } from './symbolIndex';
-import { getFindPackageUri } from './utils';
+import { getFindPackageUri, getIncludeModuleUri } from './utils';
 
 export class DocumentLinkInfo {
     private _links: DocumentLink[] = [];
@@ -24,6 +25,7 @@ export class DocumentLinkInfo {
         public entryFile: string,
         public workspaceFolder: string,
         public getFlatCommands: (uri: string) => Promise<FlatCommand[]>,
+        public fileApiRawSnapshot?: FileApiRawSnapshot,
     ) { }
 
     public static async create(
@@ -33,8 +35,9 @@ export class DocumentLinkInfo {
         entryFile: string,
         workspaceFolder: string,
         getFlatCommands: (uri: string) => Promise<FlatCommand[]>,
+        fileApiRawSnapshot?: FileApiRawSnapshot,
     ): Promise<DocumentLinkInfo> {
-        const info = new DocumentLinkInfo(commands, uri, symbolIndex, entryFile, workspaceFolder, getFlatCommands);
+        const info = new DocumentLinkInfo(commands, uri, symbolIndex, entryFile, workspaceFolder, getFlatCommands, fileApiRawSnapshot);
         await info.findLinks();
         return info;
     }
@@ -222,8 +225,13 @@ export class DocumentLinkInfo {
             return [];
         }
 
-        if (resolved.subject === DefinitionSubject.IncludeModule && this.symbolIndex.getSystemCache().modules.has(resolved.text)) {
-            return this.includeSystemModule(firstArg);
+        if (resolved.subject === DefinitionSubject.IncludeModule) {
+            if (this.symbolIndex.getSystemCache().modules.has(resolved.text)) {
+                return this.includeSystemModule(firstArg);
+            }
+
+            const targetUri = getIncludeModuleUri(this.symbolIndex, resolved.text, this.fileApiRawSnapshot);
+            return targetUri ? [this.createLink(firstArg, targetUri)] : [];
         }
 
         return resolved.subject === DefinitionSubject.FilePath
@@ -243,7 +251,7 @@ export class DocumentLinkInfo {
             return [];
         }
 
-        const targetUri = await getFindPackageUri(this.symbolIndex, this.workspaceFolder, resolved.text);
+        const targetUri = await getFindPackageUri(this.symbolIndex, this.workspaceFolder, resolved.text, this.fileApiRawSnapshot);
         return targetUri ? [this.createLink(firstArg, targetUri)] : [];
     }
 

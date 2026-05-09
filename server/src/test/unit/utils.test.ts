@@ -5,6 +5,7 @@ import * as path from 'path';
 import { TextDocuments } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
+import { FileApiRawSnapshot } from '../../fileApiSnapshot';
 import { SymbolIndex } from '../../symbolIndex';
 import { getFileContent, getFindPackageUri, getIncludeFileUri, getIncludeModuleUri } from '../../utils';
 
@@ -70,6 +71,38 @@ suite('Utils Tests', () => {
         }
     });
 
+    test('getIncludeModuleUri should resolve external modules from File API cmake inputs', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-include-module-file-api-'));
+        const externalModulePath = path.join(tempDir, 'cmake', 'ExternalHelpers.cmake');
+        const symbolIndex = new SymbolIndex();
+        const fileApiRawSnapshot: FileApiRawSnapshot = {
+            replyDirectory: path.join(tempDir, '.cmake', 'api', 'v1', 'reply'),
+            indexFile: 'index-test.json',
+            indexMtimeMs: 1,
+            cacheEntriesByName: {},
+            cmakeInputs: [
+                {
+                    path: externalModulePath,
+                    isExternal: true,
+                },
+            ],
+            globDependencies: [],
+            toolchainsByLanguage: {},
+            targetsByName: {},
+            targetsById: {},
+        };
+
+        try {
+            fs.mkdirSync(path.dirname(externalModulePath), { recursive: true });
+            fs.writeFileSync(externalModulePath, '# external module\n', 'utf8');
+
+            const result = getIncludeModuleUri(symbolIndex, 'ExternalHelpers', fileApiRawSnapshot);
+            assert.strictEqual(result?.toString(), URI.file(externalModulePath).toString());
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
     test('getFindPackageUri should resolve builtin Find-modules first', async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-find-package-module-'));
         const modulesDir = path.join(tempDir, 'Modules');
@@ -103,6 +136,72 @@ suite('Utils Tests', () => {
 
             const result = await getFindPackageUri(symbolIndex, tempDir, 'Example');
             assert.strictEqual(result?.toString(), URI.file(configPath).toString());
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('getFindPackageUri should resolve config packages from File API cache snapshot first', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-find-package-file-api-'));
+        const packageDir = path.join(tempDir, 'packages', 'Example');
+        const configPath = path.join(packageDir, 'ExampleConfig.cmake');
+        const symbolIndex = new SymbolIndex();
+        const fileApiRawSnapshot: FileApiRawSnapshot = {
+            replyDirectory: path.join(tempDir, '.cmake', 'api', 'v1', 'reply'),
+            indexFile: 'index-test.json',
+            indexMtimeMs: 1,
+            cacheEntriesByName: {
+                Example_DIR: {
+                    name: 'Example_DIR',
+                    type: 'PATH',
+                    value: packageDir,
+                },
+            },
+            cmakeInputs: [],
+            globDependencies: [],
+            toolchainsByLanguage: {},
+            targetsByName: {},
+            targetsById: {},
+        };
+
+        try {
+            fs.mkdirSync(packageDir, { recursive: true });
+            fs.writeFileSync(configPath, '# config\n', 'utf8');
+
+            const result = await getFindPackageUri(symbolIndex, tempDir, 'Example', fileApiRawSnapshot);
+            assert.strictEqual(result?.toString(), URI.file(configPath).toString());
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('getFindPackageUri should resolve external Find-modules from File API cmake inputs', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-find-package-module-file-api-'));
+        const findModulePath = path.join(tempDir, 'cmake', 'FindExample.cmake');
+        const symbolIndex = new SymbolIndex();
+        const fileApiRawSnapshot: FileApiRawSnapshot = {
+            replyDirectory: path.join(tempDir, '.cmake', 'api', 'v1', 'reply'),
+            indexFile: 'index-test.json',
+            indexMtimeMs: 1,
+            cacheEntriesByName: {},
+            cmakeInputs: [
+                {
+                    path: findModulePath,
+                    isExternal: true,
+                },
+            ],
+            globDependencies: [],
+            toolchainsByLanguage: {},
+            targetsByName: {},
+            targetsById: {},
+        };
+
+        try {
+            fs.mkdirSync(path.dirname(findModulePath), { recursive: true });
+            fs.writeFileSync(findModulePath, '# external find module\n', 'utf8');
+
+            const result = await getFindPackageUri(symbolIndex, tempDir, 'Example', fileApiRawSnapshot);
+            assert.strictEqual(result?.toString(), URI.file(findModulePath).toString());
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });
         }
