@@ -1,5 +1,6 @@
 import { Position } from 'vscode-languageserver';
 import { FlatCommand } from './flatCommands';
+import { normalizeQuotedArgument } from './utils';
 
 export enum ArgumentSemanticKind {
     Command = 'command',
@@ -244,9 +245,10 @@ function resolveCursorText(command: FlatCommand, subject: DefinitionSubject, wor
             case DefinitionSubject.Target:
             case DefinitionSubject.Test:
             case DefinitionSubject.FilePath:
+                return argumentSpan.text;
             case DefinitionSubject.IncludeModule:
             case DefinitionSubject.FindPackage:
-                return argumentSpan.text;
+                return normalizeQuotedArgument(argumentSpan.text);
             default:
                 break;
         }

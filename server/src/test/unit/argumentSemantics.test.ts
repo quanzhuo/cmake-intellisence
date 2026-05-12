@@ -34,6 +34,24 @@ suite('Argument Semantics Tests', () => {
         assert.strictEqual(result.argumentSpan?.text, 'Threads');
     });
 
+    test('resolveCursorTarget should normalize quoted include module and find_package arguments', () => {
+        const includeCommand = parseCMakeText('include("CMakePrintHelpers")\n').flatCommands[0];
+        const includeArg = includeCommand.argument_list()[0];
+        const includePosition = { line: includeArg.start.line - 1, character: includeArg.start.column + 2 };
+        const includeResult = resolveCursorTarget(includeCommand, '', includePosition);
+
+        assert.strictEqual(includeResult.subject, DefinitionSubject.IncludeModule);
+        assert.strictEqual(includeResult.text, 'CMakePrintHelpers');
+
+        const packageCommand = parseCMakeText('find_package("Threads" REQUIRED)\n').flatCommands[0];
+        const packageArg = packageCommand.argument_list()[0];
+        const packagePosition = { line: packageArg.start.line - 1, character: packageArg.start.column + 2 };
+        const packageResult = resolveCursorTarget(packageCommand, '', packagePosition);
+
+        assert.strictEqual(packageResult.subject, DefinitionSubject.FindPackage);
+        assert.strictEqual(packageResult.text, 'Threads');
+    });
+
     test('resolveCursorTarget should derive variable text from a full ${VAR} span when word lookup is empty', () => {
         const command = parseCMakeText('message(${ROOT_VAR})\n').flatCommands[0];
         const arg = command.argument_list()[0];

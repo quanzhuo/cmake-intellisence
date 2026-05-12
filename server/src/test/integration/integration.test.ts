@@ -887,6 +887,73 @@ suite('LSP Integration Tests', () => {
         }
     });
 
+    test('should provide hover information for quoted File API backed find_package cache entries', async function () {
+        const uri = 'file:///test-workspace/hover-find-package-file-api-quoted.txt';
+        const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-hover-package-file-api-quoted-'));
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+            objects: [
+                {
+                    kind: 'cache',
+                    version: { major: 2, minor: 0 },
+                    jsonFile: 'cache-v2.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'cache-v2.json'), JSON.stringify({
+            entries: [
+                {
+                    name: 'Example_DIR',
+                    type: 'PATH',
+                    value: '/opt/example/lib/cmake/Example',
+                    properties: [
+                        {
+                            name: 'HELPSTRING',
+                            value: 'Directory containing ExampleConfig.cmake',
+                        },
+                    ],
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            openDocument(uri, 'find_package("Example" REQUIRED)');
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: 'file:///test-workspace',
+                snapshot: {
+                    workspaceFolderUri: 'file:///test-workspace',
+                    sourceUri: uri,
+                    projectId: 'test-project-file-api-package-hover-quoted',
+                    buildDirectory: buildDir,
+                    useCMakePresets: false,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            const result = await connection.sendRequest(HoverRequest.type, {
+                textDocument: { uri },
+                position: { line: 0, character: 'find_package("Exa'.length },
+            });
+
+            assert(result !== null, 'quoted find_package hover result should not be null');
+            const hoverContents = result!.contents;
+            assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
+            assert('kind' in hoverContents);
+            assert.strictEqual(hoverContents.kind, 'markdown');
+            assert.match(hoverContents.value, /包: Example/);
+            assert.match(hoverContents.value, /缓存类型: PATH/);
+            assert.match(hoverContents.value, /包目录: \/opt\/example\/lib\/cmake\/Example/);
+            assert.match(hoverContents.value, /缓存说明: Directory containing ExampleConfig\.cmake/);
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
     test('should provide hover information for File API backed external include modules', async function () {
         const uri = 'file:///test-workspace/hover-include-module-file-api.txt';
         const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-hover-module-file-api-'));
@@ -938,6 +1005,70 @@ suite('LSP Integration Tests', () => {
             });
 
             assert(result !== null, 'include(module) hover result should not be null');
+            const hoverContents = result!.contents;
+            assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
+            assert('kind' in hoverContents);
+            assert.strictEqual(hoverContents.kind, 'markdown');
+            assert.match(hoverContents.value, /模块: ExternalHelpers/);
+            assert.match(hoverContents.value, new RegExp(`模块路径: ${modulePath.replace(/\\/g, '\\\\')}`));
+            assert.match(hoverContents.value, /外部输入: 是/);
+            assert.match(hoverContents.value, /生成输入: 否/);
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
+    test('should provide hover information for quoted File API backed external include modules', async function () {
+        const uri = 'file:///test-workspace/hover-include-module-file-api-quoted.txt';
+        const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-hover-module-file-api-quoted-'));
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+        const modulePath = path.join(buildDir, 'cmake', 'ExternalHelpers.cmake');
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.mkdirSync(path.dirname(modulePath), { recursive: true });
+        fs.writeFileSync(modulePath, '# external helper\n', 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+            objects: [
+                {
+                    kind: 'cmakeFiles',
+                    version: { major: 1, minor: 0 },
+                    jsonFile: 'cmakeFiles-v1.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'cmakeFiles-v1.json'), JSON.stringify({
+            inputs: [
+                {
+                    path: modulePath,
+                    isExternal: true,
+                    isGenerated: false,
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            openDocument(uri, 'include("ExternalHelpers")');
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: 'file:///test-workspace',
+                snapshot: {
+                    workspaceFolderUri: 'file:///test-workspace',
+                    sourceUri: uri,
+                    projectId: 'test-project-file-api-module-hover-quoted',
+                    buildDirectory: buildDir,
+                    useCMakePresets: false,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            const result = await connection.sendRequest(HoverRequest.type, {
+                textDocument: { uri },
+                position: { line: 0, character: 'include("External'.length },
+            });
+
+            assert(result !== null, 'quoted include(module) hover result should not be null');
             const hoverContents = result!.contents;
             assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
             assert('kind' in hoverContents);

@@ -56,14 +56,24 @@ export async function getFileContent(documents: TextDocuments<TextDocument>, uri
     return readFileContentOrEmpty(uri);
 }
 
+export function normalizeQuotedArgument(argText: string): string {
+    if ((argText.startsWith('"') && argText.endsWith('"'))
+        || (argText.startsWith("'") && argText.endsWith("'"))) {
+        return argText.slice(1, -1);
+    }
+
+    return argText;
+}
+
 export function getIncludeFileUri(symbolIndex: SymbolIndex, baseDir: URI, includeFileName: string): URI | null {
-    if (includeFileName.endsWith('/') || includeFileName.endsWith('\\')) {
+    const normalizedArgText = normalizeQuotedArgument(includeFileName);
+    if (normalizedArgText.endsWith('/') || normalizedArgText.endsWith('\\')) {
         return null;
     }
 
-    const normalizedIncludeFileName = includeFileName.replace(/\\/g, '/');
-    const incFileUri = path.isAbsolute(includeFileName)
-        ? URI.file(path.normalize(includeFileName))
+    const normalizedIncludeFileName = normalizedArgText.replace(/\\/g, '/');
+    const incFileUri = path.isAbsolute(normalizedArgText)
+        ? URI.file(path.normalize(normalizedArgText))
         : Utils.joinPath(baseDir, normalizedIncludeFileName);
     if (existsSync(incFileUri.fsPath)) {
         if (statSync(incFileUri.fsPath).isDirectory()) {
@@ -77,7 +87,7 @@ export function getIncludeFileUri(symbolIndex: SymbolIndex, baseDir: URI, includ
     }
 
     // Keep explicit local include targets stable even before they exist on disk.
-    if (path.extname(includeFileName) !== '' || includeFileName.includes('/') || includeFileName.includes('\\')) {
+    if (path.extname(normalizedArgText) !== '' || normalizedArgText.includes('/') || normalizedArgText.includes('\\')) {
         return incFileUri;
     }
 
@@ -89,7 +99,8 @@ function getIncludeModuleUriFromFileApiSnapshot(fileApiRawSnapshot: FileApiRawSn
         return null;
     }
 
-    const expectedFileName = `${includeFileName}.cmake`.toLowerCase();
+    const normalizedIncludeFileName = normalizeQuotedArgument(includeFileName);
+    const expectedFileName = `${normalizedIncludeFileName}.cmake`.toLowerCase();
     const matchedInput = fileApiRawSnapshot.cmakeInputs.find((input) => {
         return path.isAbsolute(input.path)
             && path.extname(input.path).toLowerCase() === '.cmake'
@@ -100,16 +111,17 @@ function getIncludeModuleUriFromFileApiSnapshot(fileApiRawSnapshot: FileApiRawSn
 }
 
 export function getIncludeModuleUri(symbolIndex: SymbolIndex, includeFileName: string, fileApiRawSnapshot?: FileApiRawSnapshot): URI | null {
-    if (includeFileName.includes('/') || includeFileName.includes('\\') || path.extname(includeFileName) !== '') {
+    const normalizedIncludeFileName = normalizeQuotedArgument(includeFileName);
+    if (normalizedIncludeFileName.includes('/') || normalizedIncludeFileName.includes('\\') || path.extname(normalizedIncludeFileName) !== '') {
         return null;
     }
 
-    const resPath = path.join(symbolIndex.cmakeModulePath ?? '', `${includeFileName}.cmake`);
+    const resPath = path.join(symbolIndex.cmakeModulePath ?? '', `${normalizedIncludeFileName}.cmake`);
     if (existsSync(resPath)) {
         return URI.file(resPath);
     }
 
-    return getIncludeModuleUriFromFileApiSnapshot(fileApiRawSnapshot, includeFileName);
+    return getIncludeModuleUriFromFileApiSnapshot(fileApiRawSnapshot, normalizedIncludeFileName);
 }
 
 function getPackageDirFromFileApiSnapshot(fileApiRawSnapshot: FileApiRawSnapshot | undefined, packageName: string): string | null {
@@ -117,7 +129,8 @@ function getPackageDirFromFileApiSnapshot(fileApiRawSnapshot: FileApiRawSnapshot
         return null;
     }
 
-    const cacheEntry = fileApiRawSnapshot.cacheEntriesByName[`${packageName}_DIR`];
+    const normalizedPackageName = normalizeQuotedArgument(packageName);
+    const cacheEntry = fileApiRawSnapshot.cacheEntriesByName[`${normalizedPackageName}_DIR`];
     if (!cacheEntry?.value) {
         return null;
     }
@@ -132,12 +145,13 @@ export async function getFindPackageUri(
     fileApiRawSnapshot?: FileApiRawSnapshot,
     buildDirectory?: string,
 ): Promise<URI | null> {
-    const findModuleUri = getIncludeModuleUri(symbolIndex, `Find${packageName}`, fileApiRawSnapshot);
+    const normalizedPackageName = normalizeQuotedArgument(packageName);
+    const findModuleUri = getIncludeModuleUri(symbolIndex, `Find${normalizedPackageName}`, fileApiRawSnapshot);
     if (findModuleUri) {
         return findModuleUri;
     }
 
-    let packageDir = getPackageDirFromFileApiSnapshot(fileApiRawSnapshot, packageName);
+    let packageDir = getPackageDirFromFileApiSnapshot(fileApiRawSnapshot, normalizedPackageName);
     if (!packageDir) {
         const cmakeCacheFile = path.join(buildDirectory ?? path.join(workspaceFolder, 'build'), 'CMakeCache.txt');
         try {
@@ -150,7 +164,7 @@ export async function getFindPackageUri(
         }
 
         const content = await fsPromises.readFile(cmakeCacheFile, 'utf-8');
-        const escapedName = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const escapedName = normalizedPackageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const regex = new RegExp(`^${escapedName}_DIR:PATH=(.*)$`, 'm');
         const match = content.match(regex);
         packageDir = match ? match[1] : null;
@@ -161,10 +175,10 @@ export async function getFindPackageUri(
     }
 
     const alternatives = [
-        path.join(packageDir, 'lib', 'cmake', packageName, `${packageName}Config.cmake`),
-        path.join(packageDir, 'lib', 'cmake', packageName, `${packageName.toLowerCase()}-config.cmake`),
-        path.join(packageDir, `${packageName}Config.cmake`),
-        path.join(packageDir, `${packageName.toLowerCase()}-config.cmake`),
+        path.join(packageDir, 'lib', 'cmake', normalizedPackageName, `${normalizedPackageName}Config.cmake`),
+        path.join(packageDir, 'lib', 'cmake', normalizedPackageName, `${normalizedPackageName.toLowerCase()}-config.cmake`),
+        path.join(packageDir, `${normalizedPackageName}Config.cmake`),
+        path.join(packageDir, `${normalizedPackageName.toLowerCase()}-config.cmake`),
     ];
 
     for (const candidate of alternatives) {

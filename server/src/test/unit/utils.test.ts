@@ -7,7 +7,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
 import { FileApiRawSnapshot } from '../../fileApiSnapshot';
 import { SymbolIndex } from '../../symbolIndex';
-import { getFileContent, getFindPackageUri, getIncludeFileUri, getIncludeModuleUri } from '../../utils';
+import { getFileContent, getFindPackageUri, getIncludeFileUri, getIncludeModuleUri, normalizeQuotedArgument } from '../../utils';
 
 suite('Utils Tests', () => {
     test('getFileContent should return empty text for directories', async () => {
@@ -71,6 +71,30 @@ suite('Utils Tests', () => {
         }
     });
 
+    test('normalizeQuotedArgument should strip one pair of enclosing quotes', () => {
+        assert.strictEqual(normalizeQuotedArgument('"Example"'), 'Example');
+        assert.strictEqual(normalizeQuotedArgument("'Example'"), 'Example');
+        assert.strictEqual(normalizeQuotedArgument('Example'), 'Example');
+    });
+
+    test('getIncludeModuleUri should resolve quoted builtin include modules', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-include-module-quoted-'));
+        const modulesDir = path.join(tempDir, 'Modules');
+        const modulePath = path.join(modulesDir, 'CMakePrintHelpers.cmake');
+        const symbolIndex = new SymbolIndex();
+        symbolIndex.cmakeModulePath = modulesDir;
+
+        try {
+            fs.mkdirSync(modulesDir, { recursive: true });
+            fs.writeFileSync(modulePath, '# module\n', 'utf8');
+
+            const result = getIncludeModuleUri(symbolIndex, '"CMakePrintHelpers"');
+            assert.strictEqual(result?.toString(), URI.file(modulePath).toString());
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
     test('getIncludeModuleUri should resolve external modules from File API cmake inputs', () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-include-module-file-api-'));
         const externalModulePath = path.join(tempDir, 'cmake', 'ExternalHelpers.cmake');
@@ -115,6 +139,24 @@ suite('Utils Tests', () => {
             fs.writeFileSync(modulePath, '# module\n', 'utf8');
 
             const result = await getFindPackageUri(symbolIndex, tempDir, 'Threads');
+            assert.strictEqual(result?.toString(), URI.file(modulePath).toString());
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('getFindPackageUri should resolve quoted builtin Find-modules', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-find-package-module-quoted-'));
+        const modulesDir = path.join(tempDir, 'Modules');
+        const modulePath = path.join(modulesDir, 'FindThreads.cmake');
+        const symbolIndex = new SymbolIndex();
+        symbolIndex.cmakeModulePath = modulesDir;
+
+        try {
+            fs.mkdirSync(modulesDir, { recursive: true });
+            fs.writeFileSync(modulePath, '# module\n', 'utf8');
+
+            const result = await getFindPackageUri(symbolIndex, tempDir, '"Threads"');
             assert.strictEqual(result?.toString(), URI.file(modulePath).toString());
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });

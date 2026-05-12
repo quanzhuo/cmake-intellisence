@@ -318,6 +318,66 @@ suite('Document Link Integration Tests', () => {
         }
     });
 
+    test('should link quoted include(module) through File API cmake inputs', async function () {
+        const buildDir = path.join(fixtureDir, 'build-file-api-quoted-module');
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+        const externalModulePath = path.join(fixtureDir, 'external-modules', 'ExternalHelpers.cmake');
+        const indexPath = path.join(replyDir, 'index-zzz.json');
+        const cmakeFilesPath = path.join(replyDir, 'cmakeFiles-v1.json');
+        const uri = fileUri('quoted-file-api-module-links.cmake');
+        const diagPromise = waitForDiagnostics(uri);
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.mkdirSync(path.dirname(externalModulePath), { recursive: true });
+        fs.writeFileSync(externalModulePath, '# external module\n', 'utf8');
+        fs.writeFileSync(indexPath, JSON.stringify({
+            objects: [
+                {
+                    kind: 'cmakeFiles',
+                    version: { major: 1, minor: 0 },
+                    jsonFile: 'cmakeFiles-v1.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(cmakeFilesPath, JSON.stringify({
+            inputs: [
+                {
+                    path: externalModulePath,
+                    isExternal: true,
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            openDocument(uri, 'include("ExternalHelpers")');
+            await diagPromise;
+
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: fixtureUri,
+                snapshot: {
+                    workspaceFolderUri: fixtureUri,
+                    sourceUri: uri,
+                    projectId: 'doclink-file-api-quoted-module',
+                    buildDirectory: buildDir,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            const links = await connection.sendRequest(DocumentLinkRequest.type, {
+                textDocument: { uri }
+            });
+
+            assert(links !== null && Array.isArray(links), 'Should return a link array');
+            assert(links.some(link => link.target === URI.file(externalModulePath).toString()), 'include("module") should link to the File API module input');
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+            fs.rmSync(path.dirname(externalModulePath), { recursive: true, force: true });
+        }
+    });
+
     test('should link find_package to builtin Find-modules and config package entries', async function () {
         const buildDir = path.join(fixtureDir, 'build');
         const cacheFile = path.join(buildDir, 'CMakeCache.txt');
@@ -327,6 +387,11 @@ suite('Document Link Integration Tests', () => {
         fs.writeFileSync(cacheFile, `Example_DIR:PATH=${examplePackageDir}\n`, 'utf8');
 
         try {
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: fixtureUri,
+                snapshot: null,
+            });
+
             const uri = await openFixture('find-packages.cmake');
 
             const links = await connection.sendRequest(DocumentLinkRequest.type, {
@@ -338,6 +403,39 @@ suite('Document Link Integration Tests', () => {
             const linkTargets = new Set(links.map(link => link.target));
             assert(Array.from(linkTargets).some(target => target?.endsWith('/FindThreads.cmake')), 'find_package() should still link builtin Find-modules');
             assert(linkTargets.has(fileUri('packages/Example/ExampleConfig.cmake')), 'find_package() should link config package entries from CMakeCache');
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
+    test('should link quoted find_package to builtin Find-modules and config package entries', async function () {
+        const buildDir = path.join(fixtureDir, 'build');
+        const cacheFile = path.join(buildDir, 'CMakeCache.txt');
+        const examplePackageDir = path.join(fixtureDir, 'packages', 'Example');
+        const uri = fileUri('quoted-find-packages.cmake');
+        const diagPromise = waitForDiagnostics(uri);
+
+        fs.mkdirSync(buildDir, { recursive: true });
+        fs.writeFileSync(cacheFile, `Example_DIR:PATH=${examplePackageDir}\n`, 'utf8');
+
+        try {
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: fixtureUri,
+                snapshot: null,
+            });
+
+            openDocument(uri, 'find_package("Threads" REQUIRED)\nfind_package("Example" CONFIG REQUIRED)');
+            await diagPromise;
+
+            const links = await connection.sendRequest(DocumentLinkRequest.type, {
+                textDocument: { uri }
+            });
+
+            assert(links !== null && Array.isArray(links), 'Should return a link array');
+
+            const linkTargets = new Set(links.map(link => link.target));
+            assert(Array.from(linkTargets).some(target => target?.endsWith('/FindThreads.cmake')), 'quoted find_package() should still link builtin Find-modules');
+            assert(linkTargets.has(fileUri('packages/Example/ExampleConfig.cmake')), 'quoted find_package() should link config package entries from CMakeCache');
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }
