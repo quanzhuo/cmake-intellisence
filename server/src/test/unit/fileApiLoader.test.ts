@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { URI } from 'vscode-uri';
 import { findLatestFileApiIndexFile, getFileApiReplyDirectory, loadFileApiRawSnapshot } from '../../fileApiLoader';
 
 suite('File API Loader Tests', () => {
@@ -20,6 +21,11 @@ suite('File API Loader Tests', () => {
                         value: 'Debug',
                         type: 'STRING',
                         properties: [{ name: 'HELPSTRING', value: 'Build type' }],
+                    },
+                    {
+                        name: 'CMAKE_HOME_DIRECTORY',
+                        value: buildDir,
+                        type: 'INTERNAL',
                     },
                 ],
             }), 'utf8');
@@ -85,6 +91,10 @@ suite('File API Loader Tests', () => {
             fs.writeFileSync(path.join(replyDir, 'codemodel-v2.json'), JSON.stringify({
                 configurations: [
                     {
+                        directories: [
+                            { source: '.', build: '.' },
+                            { source: 'src', build: 'build-src' },
+                        ],
                         targets: [
                             { id: 'app::id', name: 'app', jsonFile: 'target-app.json' },
                         ],
@@ -128,6 +138,55 @@ suite('File API Loader Tests', () => {
             assert.strictEqual(snapshot!.targetsByName.app.nameOnDisk, 'app.exe');
             assert.ok(snapshot!.targetsByName.app.backtraceFiles?.includes('CMakeLists.txt'));
             assert.ok(snapshot!.targetsByName.app.backtraceCommands?.includes('add_executable'));
+            assert.strictEqual(snapshot!.buildDirectoriesBySourcePath?.[path.normalize(buildDir).toLowerCase()], path.normalize(buildDir));
+            assert.strictEqual(snapshot!.buildDirectoriesBySourcePath?.[path.join(buildDir, 'src').toLowerCase()], path.join(buildDir, 'build-src'));
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
+    test('should preserve drive-less rooted source directories when building codemodel directory maps on Windows', () => {
+        if (process.platform !== 'win32') {
+            return;
+        }
+
+        const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-file-api-rootless-'));
+        const replyDir = getFileApiReplyDirectory(buildDir);
+        const sourceRoot = URI.parse('file:///test-workspace').fsPath;
+        fs.mkdirSync(replyDir, { recursive: true });
+
+        try {
+            fs.writeFileSync(path.join(replyDir, 'cache-v2.json'), JSON.stringify({
+                entries: [
+                    {
+                        name: 'CMAKE_HOME_DIRECTORY',
+                        value: sourceRoot,
+                        type: 'INTERNAL',
+                    },
+                ],
+            }), 'utf8');
+            fs.writeFileSync(path.join(replyDir, 'codemodel-v2.json'), JSON.stringify({
+                configurations: [
+                    {
+                        directories: [
+                            { source: '.', build: '.' },
+                            { source: 'src', build: 'src-build' },
+                        ],
+                        targets: [],
+                    },
+                ],
+            }), 'utf8');
+            fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+                objects: [
+                    { kind: 'cache', version: { major: 2, minor: 0 }, jsonFile: 'cache-v2.json' },
+                    { kind: 'codemodel', version: { major: 2, minor: 8 }, jsonFile: 'codemodel-v2.json' },
+                ],
+            }), 'utf8');
+
+            const snapshot = loadFileApiRawSnapshot(buildDir);
+            assert.ok(snapshot !== null);
+            assert.strictEqual(snapshot!.buildDirectoriesBySourcePath?.[path.normalize(sourceRoot).toLowerCase()], path.normalize(buildDir));
+            assert.strictEqual(snapshot!.buildDirectoriesBySourcePath?.[path.join(sourceRoot, 'src').toLowerCase()], path.join(buildDir, 'src-build'));
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }

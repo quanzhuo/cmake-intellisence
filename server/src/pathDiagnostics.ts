@@ -19,6 +19,7 @@ interface PathDiagnosticsProviderOptions {
     sourceUri: URI;
     getFlatCommands: (uri: string) => Promise<FlatCommand[]>;
     fileApiRawSnapshot?: FileApiRawSnapshot;
+    buildDirectory?: string;
 }
 
 export class PathDiagnosticsProvider {
@@ -31,6 +32,8 @@ export class PathDiagnosticsProvider {
             symbolIndex: options.symbolIndex,
             getFlatCommands: options.getFlatCommands,
             entryFile: options.entryFile,
+            buildDirectory: options.buildDirectory,
+            buildDirectoriesBySourcePath: options.fileApiRawSnapshot?.buildDirectoriesBySourcePath,
         });
         this.knownCMakeInputPaths = new Set((options.fileApiRawSnapshot?.cmakeInputs ?? [])
             .filter((input) => path.isAbsolute(input.path))

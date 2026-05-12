@@ -66,6 +66,10 @@ type FileApiToolchainsObject = {
 
 type FileApiCodeModelObject = {
     configurations?: Array<{
+        directories?: Array<{
+            source?: string;
+            build?: string;
+        }>;
         targets?: Array<{
             id: string;
             name: string;
@@ -197,6 +201,61 @@ function getToolchainsByLanguage(toolchainsObject: FileApiToolchainsObject | nul
     }
 
     return toolchains;
+}
+
+function getCacheEntryValue(cacheObject: FileApiCacheObject | null, entryName: string): string | null {
+    for (const entry of cacheObject?.entries ?? []) {
+        if (entry.name === entryName && typeof entry.value === 'string') {
+            return entry.value;
+        }
+    }
+
+    return null;
+}
+
+function normalizeDirectoryMapKey(filePath: string): string {
+    const normalized = path.normalize(filePath);
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function resolveFileApiPath(basePath: string, relativePath: string): string {
+    if (path.isAbsolute(relativePath)) {
+        return path.normalize(relativePath);
+    }
+
+    // Tests and synthetic workspaces may use file URIs whose Windows fsPath is
+    // rooted but drive-less (for example "\\test-workspace"). Preserve that
+    // anchor instead of letting path.resolve inject the current drive.
+    if (process.platform === 'win32' && /^[\\/](?![\\/])/.test(basePath)) {
+        return path.normalize(path.join(basePath, relativePath));
+    }
+
+    return path.resolve(basePath, relativePath);
+}
+
+function getBuildDirectoriesBySourcePath(
+    codemodelObject: FileApiCodeModelObject | null,
+    sourceRoot: string | null,
+    buildDirectory: string,
+): Record<string, string> {
+    const directoriesBySourcePath: Record<string, string> = {};
+    if (!sourceRoot) {
+        return directoriesBySourcePath;
+    }
+
+    for (const configuration of codemodelObject?.configurations ?? []) {
+        for (const directory of configuration.directories ?? []) {
+            if (typeof directory.source !== 'string' || typeof directory.build !== 'string') {
+                continue;
+            }
+
+            const sourceDirectory = resolveFileApiPath(sourceRoot, directory.source);
+            const binaryDirectory = resolveFileApiPath(buildDirectory, directory.build);
+            directoriesBySourcePath[normalizeDirectoryMapKey(sourceDirectory)] = path.normalize(binaryDirectory);
+        }
+    }
+
+    return directoriesBySourcePath;
 }
 
 function loadTargetSnapshot(codemodelFilePath: string, targetReference: { id: string; name: string; jsonFile?: string }): FileApiTargetSnapshot {
@@ -343,6 +402,8 @@ export function loadFileApiRawSnapshot(buildDirectory: string): FileApiRawSnapsh
     const targets = codemodelFilePath && codemodelObject
         ? getTargets(codemodelFilePath, codemodelObject)
         : { byName: {}, byId: {} };
+    const sourceRoot = getCacheEntryValue(cacheObject, 'CMAKE_HOME_DIRECTORY')
+        ?? getCacheEntryValue(cacheObject, 'CMAKE_SOURCE_DIR');
 
     return {
         replyDirectory,
@@ -354,5 +415,6 @@ export function loadFileApiRawSnapshot(buildDirectory: string): FileApiRawSnapsh
         toolchainsByLanguage: getToolchainsByLanguage(toolchainsObject),
         targetsByName: targets.byName,
         targetsById: targets.byId,
+        buildDirectoriesBySourcePath: getBuildDirectoriesBySourcePath(codemodelObject, sourceRoot, buildDirectory),
     };
 }

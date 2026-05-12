@@ -308,6 +308,88 @@ suite('Definition Integration Tests', () => {
         }
     });
 
+    test('include file argument should resolve binary-directory variables through shared path resolution', async function () {
+        const buildDir = path.join(fixtureDir, 'build-binary-vars');
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+        const rootGeneratedPath = path.join(buildDir, 'generated', 'root-helper.cmake');
+        const currentGeneratedPath = path.join(buildDir, 'src-build', 'generated', 'src-helper.cmake');
+        const uri = fileUri('src/binary-dir-definition.cmake');
+        const diagPromise = waitForDiagnostics(uri);
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.mkdirSync(path.dirname(rootGeneratedPath), { recursive: true });
+        fs.mkdirSync(path.dirname(currentGeneratedPath), { recursive: true });
+        fs.writeFileSync(rootGeneratedPath, '# root generated helper\n', 'utf8');
+        fs.writeFileSync(currentGeneratedPath, '# src generated helper\n', 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+            objects: [
+                {
+                    kind: 'cache',
+                    version: { major: 2, minor: 0 },
+                    jsonFile: 'cache-v2.json',
+                },
+                {
+                    kind: 'codemodel',
+                    version: { major: 2, minor: 8 },
+                    jsonFile: 'codemodel-v2.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'cache-v2.json'), JSON.stringify({
+            entries: [
+                {
+                    name: 'CMAKE_HOME_DIRECTORY',
+                    value: fixtureDir,
+                    type: 'INTERNAL',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'codemodel-v2.json'), JSON.stringify({
+            configurations: [
+                {
+                    directories: [
+                        { source: '.', build: '.' },
+                        { source: 'src', build: 'src-build' },
+                    ],
+                    targets: [],
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            openDocument(uri, 'include(${PROJECT_BINARY_DIR}/generated/root-helper.cmake)\ninclude(${CMAKE_CURRENT_BINARY_DIR}/generated/src-helper.cmake)');
+            await diagPromise;
+
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: fixtureUri,
+                snapshot: {
+                    workspaceFolderUri: fixtureUri,
+                    sourceUri: uri,
+                    projectId: 'definition-binary-dir-vars',
+                    buildDirectory: buildDir,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            const projectBinaryResult = await getDefinition(uri, 0, 'include(${PROJECT_BINARY_DIR}/generated/root'.length);
+            assert(projectBinaryResult !== null, 'PROJECT_BINARY_DIR definition should not be null');
+            const projectBinaryLocs = (Array.isArray(projectBinaryResult) ? projectBinaryResult : [projectBinaryResult]) as Location[];
+            assert.strictEqual(projectBinaryLocs[0].uri, URI.file(rootGeneratedPath).toString());
+            assert.strictEqual(projectBinaryLocs[0].range.start.line, 0);
+
+            const currentBinaryResult = await getDefinition(uri, 1, 'include(${CMAKE_CURRENT_BINARY_DIR}/generated/src'.length);
+            assert(currentBinaryResult !== null, 'CMAKE_CURRENT_BINARY_DIR definition should not be null');
+            const currentBinaryLocs = (Array.isArray(currentBinaryResult) ? currentBinaryResult : [currentBinaryResult]) as Location[];
+            assert.strictEqual(currentBinaryLocs[0].uri, URI.file(currentGeneratedPath).toString());
+            assert.strictEqual(currentBinaryLocs[0].range.start.line, 0);
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
     // ── Cross-file: add_subdirectory() ─────────────────────────
 
     test('root function used in subdirectory file', async function () {

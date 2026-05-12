@@ -258,6 +258,86 @@ suite('Document Link Integration Tests', () => {
         assert(linkTargets.has(fileUri('extra/extra.cpp')), 'target_sources(${CMAKE_SOURCE_DIR}/...) should link the source file');
     });
 
+    test('should link builtin binary-directory variables via shared path resolution', async function () {
+        const buildDir = path.join(fixtureDir, 'build-binary-vars');
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+        const rootGeneratedPath = path.join(buildDir, 'generated', 'root-helper.cmake');
+        const currentGeneratedPath = path.join(buildDir, 'sub-build', 'generated', 'sub-helper.cmake');
+        const uri = fileUri('sub/binary-dir-links.cmake');
+        const diagPromise = waitForDiagnostics(uri);
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.mkdirSync(path.dirname(rootGeneratedPath), { recursive: true });
+        fs.mkdirSync(path.dirname(currentGeneratedPath), { recursive: true });
+        fs.writeFileSync(rootGeneratedPath, '# root generated helper\n', 'utf8');
+        fs.writeFileSync(currentGeneratedPath, '# sub generated helper\n', 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+            objects: [
+                {
+                    kind: 'cache',
+                    version: { major: 2, minor: 0 },
+                    jsonFile: 'cache-v2.json',
+                },
+                {
+                    kind: 'codemodel',
+                    version: { major: 2, minor: 8 },
+                    jsonFile: 'codemodel-v2.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'cache-v2.json'), JSON.stringify({
+            entries: [
+                {
+                    name: 'CMAKE_HOME_DIRECTORY',
+                    value: fixtureDir,
+                    type: 'INTERNAL',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'codemodel-v2.json'), JSON.stringify({
+            configurations: [
+                {
+                    directories: [
+                        { source: '.', build: '.' },
+                        { source: 'sub', build: 'sub-build' },
+                    ],
+                    targets: [],
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            openDocument(uri, 'include(${CMAKE_BINARY_DIR}/generated/root-helper.cmake)\ninclude(${CMAKE_CURRENT_BINARY_DIR}/generated/sub-helper.cmake)');
+            await diagPromise;
+
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: fixtureUri,
+                snapshot: {
+                    workspaceFolderUri: fixtureUri,
+                    sourceUri: uri,
+                    projectId: 'doclink-binary-dir-vars',
+                    buildDirectory: buildDir,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            const links = await connection.sendRequest(DocumentLinkRequest.type, {
+                textDocument: { uri }
+            });
+
+            assert(links !== null && Array.isArray(links), 'Should return a link array');
+
+            const linkTargets = new Set(links.map(link => link.target));
+            assert(linkTargets.has(URI.file(rootGeneratedPath).toString()), 'include(${CMAKE_BINARY_DIR}/...) should link to the build-root file');
+            assert(linkTargets.has(URI.file(currentGeneratedPath).toString()), 'include(${CMAKE_CURRENT_BINARY_DIR}/...) should link to the current directory build file');
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
     test('should link include(module) through File API cmake inputs when the module is not builtin', async function () {
         const buildDir = path.join(fixtureDir, 'build-file-api');
         const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');

@@ -6,9 +6,10 @@ import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocumen
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
 import { CancellationToken, CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
-import { ArgumentSemanticKind, resolveCursorTarget } from './argumentSemantics';
+import { ArgumentSemanticKind, DefinitionSubject, resolveCursorTarget } from './argumentSemantics';
 import { loadBuiltinModuleCommandCatalog, warmBuiltinModuleCaches } from './builtinModuleIndex';
 import { isCancellationError, throwIfCancelled } from './cancellation';
+import { CMakeCacheEntriesByName, getCacheEntryByName, loadCMakeCacheEntries } from './cmakeCache';
 import { BuiltinEntriesLoadStats, ExtensionSettings, ProjectTargetInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
 import Completion, { CMakeCompletionType, CompletionItemType, ProjectTargetInfo, findCommandAtPosition, findRecoveredCommandInfoAtPosition, getCompletionHelpLabel, getCompletionInfoAtCursor, getCompletionItemType, getCompletionWorkspaceKey, inComments } from './completion';
 import { DefinitionResolver } from './definition';
@@ -16,7 +17,7 @@ import SemanticDiagnosticsListener, { CommandCaseChecker, DIAG_CODE_CMD_CASE, Sy
 import { DocumentLinkInfo } from './docLink';
 import { loadFileApiRawSnapshot } from './fileApiLoader';
 import { SymbolListener } from './docSymbols';
-import { FileApiRawSnapshot } from './fileApiSnapshot';
+import { FileApiCacheEntrySnapshot, FileApiRawSnapshot } from './fileApiSnapshot';
 import { FlatCommand } from './flatCommands';
 import { Formatter } from './format';
 import CMakeLexer from './generated/CMakeLexer';
@@ -34,6 +35,7 @@ import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex } from './symbolIndex';
 import { populateIndexTopDown } from './symbolIndexManager';
 import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, CMakeToolsProjectSnapshot, CMakeToolsProjectSnapshotNotificationParams } from './cmakeToolsSnapshot';
+import { PathExpressionResolver } from './pathExpressionResolver';
 import { READY_NOTIFICATION } from './testing';
 import { ParsedCMakeFile, getFileContent, parseCMakeText } from './utils';
 import { WorkspaceSymbolResolver } from './workspaceSymbol';
@@ -49,6 +51,8 @@ type WorkspaceState = {
     symbolIndex: SymbolIndex;
     cmakeToolsProjectSnapshot?: CMakeToolsProjectSnapshot;
     fileApiRawSnapshot?: FileApiRawSnapshot;
+    cmakeCacheEntriesByName?: CMakeCacheEntriesByName;
+    cmakeCacheBuildDirectory?: string;
     projectTargetInfo?: ProjectTargetInfo;
     projectTargetInfoDirty: boolean;
     projectTargetInfoVersion: number;
@@ -348,6 +352,11 @@ export class CMakeLanguageServer {
             }
         }
 
+        workspaceState.cmakeCacheEntriesByName = nextSnapshot?.buildDirectory
+            ? await loadCMakeCacheEntries(nextSnapshot.buildDirectory)
+            : undefined;
+        workspaceState.cmakeCacheBuildDirectory = nextSnapshot?.buildDirectory;
+
         if (this.didFileApiRawSnapshotChange(previousFileApiRawSnapshot, workspaceState.fileApiRawSnapshot)) {
             await this.refreshOpenDocumentDiagnosticsForWorkspace(workspaceFolder);
         }
@@ -400,12 +409,6 @@ export class CMakeLanguageServer {
         const hoveredCommand = findCommandAtPosition(commands, params.position);
         const recoveredCommandInfo = hoveredCommand ? null : findRecoveredCommandInfoAtPosition(tokenStream, params.position);
         const recoveredCommandName = recoveredCommandInfo?.name ?? null;
-        if (hoveredCommand === null && recoveredCommandName === null) {
-            return null;
-        }
-
-        const commandToken: Token | null = hoveredCommand?.ID().symbol ?? null;
-        const commandName = (hoveredCommand?.ID().symbol.text ?? recoveredCommandName ?? '').toLowerCase();
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
             return null;
@@ -415,8 +418,17 @@ export class CMakeLanguageServer {
             return null;
         }
 
+        await this.ensureWorkspaceCacheEntriesLoaded(workspaceState);
+        if (hoveredCommand === null && recoveredCommandName === null) {
+            return this.getCacheVariableHover(workspaceState, word);
+        }
+
+        const commandToken: Token | null = hoveredCommand?.ID().symbol ?? null;
+        const commandName = (hoveredCommand?.ID().symbol.text ?? recoveredCommandName ?? '').toLowerCase();
+
         let arg = '', category = '';
         const systemCache = workspaceState.symbolIndex.getSystemCache();
+        const hoveredVariableName = this.getHoveredVariableName(params, hoveredCommand, word);
         const hoveringCommandToken = commandToken
             ? ((params.position.line + 1 === commandToken.line) && (params.position.character <= commandToken.column + commandToken.text.length))
             : (recoveredCommandInfo?.isOnCommandName ?? false);
@@ -445,13 +457,15 @@ export class CMakeLanguageServer {
                 const stdout = await this.getCMakeHelp(workspaceState, arg, word);
                 throwIfCancelled(token);
                 if (stdout === null) {
-                    return null;
+                    return this.getCacheVariableHover(workspaceState, hoveredVariableName);
                 }
 
                 return {
                     contents: {
                         kind: 'markdown',
-                        value: stdout,
+                        value: category === 'variable'
+                            ? this.appendCacheEntryDetails(stdout, workspaceState, hoveredVariableName)
+                            : stdout,
                     }
                 };
 
@@ -471,18 +485,202 @@ export class CMakeLanguageServer {
                         return {
                             contents: {
                                 kind: 'markdown',
-                                value: modifiedStdout,
+                                value: category === 'variable'
+                                    ? this.appendCacheEntryDetails(modifiedStdout, workspaceState, hoveredVariableName)
+                                    : modifiedStdout,
                             }
                         };
                     }
-                    return null;
+                    return this.getCacheVariableHover(workspaceState, hoveredVariableName);
                 }
 
                 this.logger.debug(`Hover help lookup failed for ${category || 'unknown'} ${word}: ${error instanceof Error ? error.message : String(error)}`);
+                const cacheHover = this.getCacheVariableHover(workspaceState, hoveredVariableName);
+                if (cacheHover) {
+                    return cacheHover;
+                }
+
+                const filePathHover = await this.getResolvedFileHover(params, workspaceState, hoveredCommand, word, token);
+                if (filePathHover) {
+                    return filePathHover;
+                }
+
                 return this.getSnapshotEntityHover(params, workspaceState, hoveredCommand, word);
             }
         }
+
+        const cacheHover = this.getCacheVariableHover(workspaceState, hoveredVariableName);
+        if (cacheHover) {
+            return cacheHover;
+        }
+
+        const filePathHover = await this.getResolvedFileHover(params, workspaceState, hoveredCommand, word, token);
+        if (filePathHover) {
+            return filePathHover;
+        }
+
         return this.getSnapshotEntityHover(params, workspaceState, hoveredCommand, word);
+    }
+
+    private isPathInsideDirectory(parentPath: string, childPath: string): boolean {
+        const relativePath = path.relative(path.normalize(parentPath), path.normalize(childPath));
+        return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+    }
+
+    private async getResolvedFileHover(
+        params: HoverParams,
+        workspaceState: WorkspaceState,
+        hoveredCommand: FlatCommand | null,
+        word: string,
+        token: CancellationToken,
+    ): Promise<Hover | null> {
+        if (!hoveredCommand) {
+            return null;
+        }
+
+        const cursorTarget = resolveCursorTarget(hoveredCommand, word, params.position);
+        if (cursorTarget.semanticKind !== ArgumentSemanticKind.FilePath || !cursorTarget.argumentSpan) {
+            return null;
+        }
+
+        const snapshot = workspaceState.cmakeToolsProjectSnapshot;
+        const resolver = new PathExpressionResolver({
+            symbolIndex: workspaceState.symbolIndex,
+            getFlatCommands: this.getFlatCommandsAsync.bind(this),
+            entryFile: URI.parse(this.getEntryFilePath(params.textDocument.uri)),
+            buildDirectory: snapshot?.buildDirectory,
+            buildDirectoriesBySourcePath: workspaceState.fileApiRawSnapshot?.buildDirectoriesBySourcePath,
+        });
+
+        throwIfCancelled(token);
+        const resolution = await resolver.resolveFileRequestDetailed({
+            commandName: hoveredCommand.commandName,
+            argText: cursorTarget.argumentSpan.text,
+            sourceUri: URI.parse(params.textDocument.uri),
+            maxLine: params.position.line,
+        });
+        throwIfCancelled(token);
+
+        const resolvedUri = resolution.exactCandidates[0];
+        if (!resolvedUri) {
+            return null;
+        }
+
+        const details = [
+            `文件: ${path.basename(resolvedUri.fsPath)}`,
+            '来源: 路径解析',
+            `解析路径: ${resolvedUri.fsPath}`,
+        ];
+        if (snapshot?.buildDirectory && this.isPathInsideDirectory(snapshot.buildDirectory, resolvedUri.fsPath)) {
+            details.push('位于构建目录: 是');
+        }
+
+        return {
+            contents: {
+                kind: 'markdown',
+                value: details.join('  \n'),
+            }
+        };
+    }
+
+    private getHoveredVariableName(
+        params: HoverParams,
+        hoveredCommand: FlatCommand | null,
+        word: string,
+    ): string | null {
+        if (hoveredCommand) {
+            const cursorTarget = resolveCursorTarget(hoveredCommand, word, params.position);
+            if (cursorTarget.subject === DefinitionSubject.Variable && cursorTarget.text.length !== 0) {
+                return cursorTarget.text;
+            }
+        }
+
+        return word.length !== 0 ? word : null;
+    }
+
+    private async ensureWorkspaceCacheEntriesLoaded(workspaceState: WorkspaceState): Promise<void> {
+        const buildDirectory = workspaceState.cmakeToolsProjectSnapshot?.buildDirectory;
+        if (!buildDirectory) {
+            workspaceState.cmakeCacheEntriesByName = undefined;
+            workspaceState.cmakeCacheBuildDirectory = undefined;
+            return;
+        }
+
+        if (workspaceState.cmakeCacheEntriesByName !== undefined && workspaceState.cmakeCacheBuildDirectory === buildDirectory) {
+            return;
+        }
+
+        workspaceState.cmakeCacheEntriesByName = await loadCMakeCacheEntries(buildDirectory);
+        workspaceState.cmakeCacheBuildDirectory = buildDirectory;
+    }
+
+    private getWorkspaceCacheEntry(
+        workspaceState: WorkspaceState,
+        variableName: string | null,
+    ): { entry: FileApiCacheEntrySnapshot; source: string } | null {
+        if (!variableName) {
+            return null;
+        }
+
+        const fileApiEntry = getCacheEntryByName(workspaceState.fileApiRawSnapshot?.cacheEntriesByName, variableName);
+        if (fileApiEntry) {
+            return { entry: fileApiEntry, source: 'File API' };
+        }
+
+        const cmakeCacheEntry = getCacheEntryByName(workspaceState.cmakeCacheEntriesByName, variableName);
+        if (cmakeCacheEntry) {
+            return { entry: cmakeCacheEntry, source: 'CMakeCache.txt' };
+        }
+
+        return null;
+    }
+
+    private getCacheEntryDetails(workspaceState: WorkspaceState, variableName: string | null): string[] {
+        const cacheEntryInfo = this.getWorkspaceCacheEntry(workspaceState, variableName);
+        if (!cacheEntryInfo || !variableName) {
+            return [];
+        }
+
+        const details = [
+            `缓存变量: ${variableName}`,
+            `缓存来源: ${cacheEntryInfo.source}`,
+        ];
+
+        if (cacheEntryInfo.entry.type) {
+            details.push(`缓存类型: ${cacheEntryInfo.entry.type}`);
+        }
+        if (cacheEntryInfo.entry.value !== undefined) {
+            details.push(`缓存值: ${cacheEntryInfo.entry.value}`);
+        }
+        if (cacheEntryInfo.entry.help) {
+            details.push(`缓存说明: ${cacheEntryInfo.entry.help}`);
+        }
+
+        details.push('注: 该值来自 CMake Cache，可能被当前作用域中的普通变量覆盖。');
+        return details;
+    }
+
+    private appendCacheEntryDetails(markdown: string, workspaceState: WorkspaceState, variableName: string | null): string {
+        const details = this.getCacheEntryDetails(workspaceState, variableName);
+        if (details.length === 0) {
+            return markdown;
+        }
+
+        return `${markdown}\n\n---\n\n${details.join('  \n')}`;
+    }
+
+    private getCacheVariableHover(workspaceState: WorkspaceState, variableName: string | null): Hover | null {
+        const details = this.getCacheEntryDetails(workspaceState, variableName);
+        if (details.length === 0) {
+            return null;
+        }
+
+        return {
+            contents: {
+                kind: 'markdown',
+                value: details.join('  \n'),
+            }
+        };
     }
 
     private getSnapshotEntityHover(
@@ -1125,6 +1323,7 @@ export class CMakeLanguageServer {
             sourceUri: URI.parse(document.uri),
             getFlatCommands: this.getFlatCommandsAsync.bind(this),
             fileApiRawSnapshot: workspaceState.fileApiRawSnapshot,
+            buildDirectory: workspaceState.cmakeToolsProjectSnapshot?.buildDirectory,
         });
         const pathDiagnostics = await pathDiagnosticsProvider.getDiagnostics(flatCommands);
 

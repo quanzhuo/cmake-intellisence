@@ -35,6 +35,8 @@ export class DefinitionResolver extends SymbolResolverBase {
                 symbolIndex: this.symbolIndex,
                 getFlatCommands: this.getFlatCommands,
                 entryFile: this.entryFile,
+                buildDirectory: this.buildDirectory,
+                buildDirectoriesBySourcePath: this.fileApiRawSnapshot?.buildDirectoriesBySourcePath,
             });
         }
 

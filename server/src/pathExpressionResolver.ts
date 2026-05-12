@@ -10,6 +10,8 @@ export interface PathExpressionResolverOptions {
     symbolIndex: SymbolIndex;
     getFlatCommands: (uri: string) => Promise<FlatCommand[]>;
     entryFile: URI;
+    buildDirectory?: string;
+    buildDirectoriesBySourcePath?: Record<string, string>;
 }
 
 export interface PathExpressionRequest {
@@ -95,7 +97,7 @@ export class PathExpressionResolver {
     private startsWithAbsolutePathAnchor(argText: string): boolean {
         const normalizedArgText = this.normalizePathArgument(argText);
         return path.isAbsolute(normalizedArgText)
-            || /^\$\{(CMAKE_CURRENT_LIST_DIR|CMAKE_CURRENT_SOURCE_DIR|CMAKE_SOURCE_DIR|PROJECT_SOURCE_DIR)\}/.test(normalizedArgText);
+            || /^\$\{(CMAKE_CURRENT_LIST_DIR|CMAKE_CURRENT_SOURCE_DIR|CMAKE_SOURCE_DIR|PROJECT_SOURCE_DIR|CMAKE_BINARY_DIR|PROJECT_BINARY_DIR|CMAKE_CURRENT_BINARY_DIR)\}/.test(normalizedArgText);
     }
 
     private getMissingVariableResult(variableName: string): ExpandedPathResult {
@@ -104,6 +106,27 @@ export class PathExpressionResolver {
             unresolvedVariables: [variableName],
             reason: 'unresolved-variable',
         };
+    }
+
+    private normalizePathKey(filePath: string): string {
+        const normalized = path.normalize(filePath);
+        return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+    }
+
+    private getCurrentBinaryDirectory(sourceUri: URI): string | null {
+        const currentSourceDir = path.dirname(sourceUri.fsPath);
+        const normalizedCurrentSourceDir = this.normalizePathKey(currentSourceDir);
+        const mappedBuildDirectory = this.options.buildDirectoriesBySourcePath?.[normalizedCurrentSourceDir];
+        if (mappedBuildDirectory) {
+            return mappedBuildDirectory;
+        }
+
+        const rootDir = path.dirname(this.options.entryFile.fsPath);
+        if (this.normalizePathKey(rootDir) === normalizedCurrentSourceDir) {
+            return this.options.buildDirectory ?? null;
+        }
+
+        return null;
     }
 
     private getKnownPathVariableValue(name: string, sourceUri: URI): string | null {
@@ -117,6 +140,11 @@ export class PathExpressionResolver {
             case 'CMAKE_SOURCE_DIR':
             case 'PROJECT_SOURCE_DIR':
                 return rootDir;
+            case 'CMAKE_BINARY_DIR':
+            case 'PROJECT_BINARY_DIR':
+                return this.options.buildDirectory ?? null;
+            case 'CMAKE_CURRENT_BINARY_DIR':
+                return this.getCurrentBinaryDirectory(sourceUri);
             default:
                 return null;
         }

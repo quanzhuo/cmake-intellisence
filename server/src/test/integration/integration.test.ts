@@ -32,6 +32,7 @@ import {
     SignatureHelpRequest,
     createProtocolConnection,
 } from 'vscode-languageserver-protocol/node';
+import { URI } from 'vscode-uri';
 import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION } from '../../cmakeToolsSnapshot';
 import { ExtensionSettings, initializeCMakeEnvironment } from '../../cmakeEnvironment';
 import { SymbolIndex, SymbolKind } from '../../symbolIndex';
@@ -672,6 +673,102 @@ suite('LSP Integration Tests', () => {
         assert.match(hoverContents.value, /Package Preset: linux-debug-package/);
     });
 
+    test('should append cache information to builtin variable hover', async function () {
+        const uri = 'file:///test-workspace/hover-cache-builtin-variable.txt';
+        const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-hover-cache-builtin-'));
+        const content = 'message(STATUS "${CMAKE_BUILD_TYPE}")';
+
+        fs.writeFileSync(path.join(buildDir, 'CMakeCache.txt'), [
+            '//Build type selected for the build.',
+            'CMAKE_BUILD_TYPE:STRING=Debug',
+        ].join('\n'), 'utf8');
+
+        try {
+            openDocument(uri, content);
+            const refreshedDiagnostics = waitForDiagnostics(uri);
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: 'file:///test-workspace',
+                snapshot: {
+                    workspaceFolderUri: 'file:///test-workspace',
+                    sourceUri: uri,
+                    projectId: 'test-project-cache-builtin-hover',
+                    buildDirectory: buildDir,
+                    useCMakePresets: false,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            const result = await connection.sendRequest(HoverRequest.type, {
+                textDocument: { uri },
+                position: { line: 0, character: content.indexOf('CMAKE_BUILD_TYPE') + 2 },
+            });
+
+            assert(result !== null, 'builtin variable hover result should not be null');
+            const hoverContents = result!.contents;
+            assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
+            assert('kind' in hoverContents);
+            assert.strictEqual(hoverContents.kind, 'markdown');
+            assert.match(hoverContents.value, /缓存变量: CMAKE_BUILD_TYPE/);
+            assert.match(hoverContents.value, /缓存来源: CMakeCache\.txt/);
+            assert.match(hoverContents.value, /缓存类型: STRING/);
+            assert.match(hoverContents.value, /缓存值: Debug/);
+            assert.match(hoverContents.value, /可能被当前作用域中的普通变量覆盖/);
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
+    test('should provide hover information for non-builtin cache variables', async function () {
+        const uri = 'file:///test-workspace/hover-cache-custom-variable.txt';
+        const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-hover-cache-custom-'));
+        const content = 'MY_CUSTOM_SDK';
+
+        fs.writeFileSync(path.join(buildDir, 'CMakeCache.txt'), [
+            '//Path to the custom SDK.',
+            'MY_CUSTOM_SDK:PATH=/opt/sdk',
+        ].join('\n'), 'utf8');
+
+        try {
+            openDocument(uri, content);
+            const refreshedDiagnostics = waitForDiagnostics(uri);
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: 'file:///test-workspace',
+                snapshot: {
+                    workspaceFolderUri: 'file:///test-workspace',
+                    sourceUri: uri,
+                    projectId: 'test-project-cache-custom-hover',
+                    buildDirectory: buildDir,
+                    useCMakePresets: false,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+
+            const result = await connection.sendRequest(HoverRequest.type, {
+                textDocument: { uri },
+                position: { line: 0, character: content.indexOf('MY_CUSTOM_SDK') + 2 },
+            });
+
+            assert(result !== null, 'custom cache variable hover result should not be null');
+            const hoverContents = result!.contents;
+            assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
+            assert('kind' in hoverContents);
+            assert.strictEqual(hoverContents.kind, 'markdown');
+            assert.match(hoverContents.value, /缓存变量: MY_CUSTOM_SDK/);
+            assert.match(hoverContents.value, /缓存来源: CMakeCache\.txt/);
+            assert.match(hoverContents.value, /缓存类型: PATH/);
+            assert.match(hoverContents.value, /缓存值: \/opt\/sdk/);
+            assert.match(hoverContents.value, /缓存说明: Path to the custom SDK\./);
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
     test('should enrich snapshot-backed target hover with File API target details', async function () {
         const uri = 'file:///test-workspace/hover-target-file-api.txt';
         const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-hover-file-api-'));
@@ -1077,6 +1174,106 @@ suite('LSP Integration Tests', () => {
             assert.match(hoverContents.value, new RegExp(`模块路径: ${modulePath.replace(/\\/g, '\\\\')}`));
             assert.match(hoverContents.value, /外部输入: 是/);
             assert.match(hoverContents.value, /生成输入: 否/);
+        } finally {
+            fs.rmSync(buildDir, { recursive: true, force: true });
+        }
+    });
+
+    test('should provide hover information for binary-directory file paths', async function () {
+        const uri = 'file:///test-workspace/src/hover-binary-file-path.txt';
+        const sourceRoot = URI.parse('file:///test-workspace').fsPath;
+        const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-hover-binary-file-path-'));
+        const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');
+        const rootGeneratedPath = path.join(buildDir, 'generated', 'root-helper.cmake');
+        const currentGeneratedPath = path.join(buildDir, 'src-build', 'generated', 'src-helper.cmake');
+        const content = 'include(${PROJECT_BINARY_DIR}/generated/root-helper.cmake)\ninclude(${CMAKE_CURRENT_BINARY_DIR}/generated/src-helper.cmake)';
+
+        fs.mkdirSync(replyDir, { recursive: true });
+        fs.mkdirSync(path.dirname(rootGeneratedPath), { recursive: true });
+        fs.mkdirSync(path.dirname(currentGeneratedPath), { recursive: true });
+        fs.writeFileSync(rootGeneratedPath, '# root generated helper\n', 'utf8');
+        fs.writeFileSync(currentGeneratedPath, '# src generated helper\n', 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'index-zzz.json'), JSON.stringify({
+            objects: [
+                {
+                    kind: 'cache',
+                    version: { major: 2, minor: 0 },
+                    jsonFile: 'cache-v2.json',
+                },
+                {
+                    kind: 'codemodel',
+                    version: { major: 2, minor: 8 },
+                    jsonFile: 'codemodel-v2.json',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'cache-v2.json'), JSON.stringify({
+            entries: [
+                {
+                    name: 'CMAKE_HOME_DIRECTORY',
+                    value: sourceRoot,
+                    type: 'INTERNAL',
+                },
+            ],
+        }), 'utf8');
+        fs.writeFileSync(path.join(replyDir, 'codemodel-v2.json'), JSON.stringify({
+            configurations: [
+                {
+                    directories: [
+                        { source: '.', build: '.' },
+                        { source: 'src', build: 'src-build' },
+                    ],
+                    targets: [],
+                },
+            ],
+        }), 'utf8');
+
+        try {
+            openDocument(uri, content);
+            const refreshedDiagnostics = waitForDiagnostics(uri);
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: 'file:///test-workspace',
+                snapshot: {
+                    workspaceFolderUri: 'file:///test-workspace',
+                    sourceUri: uri,
+                    projectId: 'test-project-binary-file-hover',
+                    buildDirectory: buildDir,
+                    useCMakePresets: false,
+                    targetNames: [],
+                    testNames: [],
+                    generation: 1,
+                    sourceKind: 'kylin-cmake-tools',
+                },
+            });
+            await refreshedDiagnostics;
+
+            const projectBinaryResult = await connection.sendRequest(HoverRequest.type, {
+                textDocument: { uri },
+                position: { line: 0, character: content.indexOf('root-helper.cmake') + 4 },
+            });
+
+            assert(projectBinaryResult !== null, 'PROJECT_BINARY_DIR file hover result should not be null');
+            const projectBinaryContents = projectBinaryResult!.contents;
+            assert(!Array.isArray(projectBinaryContents) && typeof projectBinaryContents !== 'string');
+            assert('kind' in projectBinaryContents);
+            assert.strictEqual(projectBinaryContents.kind, 'markdown');
+            assert.match(projectBinaryContents.value, /文件: root-helper\.cmake/);
+            assert.match(projectBinaryContents.value, new RegExp(`解析路径: ${rootGeneratedPath.replace(/\\/g, '\\\\')}`, 'i'));
+            assert.match(projectBinaryContents.value, /位于构建目录: 是/);
+
+            const currentBinaryResult = await connection.sendRequest(HoverRequest.type, {
+                textDocument: { uri },
+                position: { line: 1, character: 'include(${CMAKE_CURRENT_BINARY_DIR}/generated/src-helper'.length },
+            });
+
+            assert(currentBinaryResult !== null, 'CMAKE_CURRENT_BINARY_DIR file hover result should not be null');
+            const currentBinaryContents = currentBinaryResult!.contents;
+            assert(!Array.isArray(currentBinaryContents) && typeof currentBinaryContents !== 'string');
+            assert('kind' in currentBinaryContents);
+            assert.strictEqual(currentBinaryContents.kind, 'markdown');
+            assert.match(currentBinaryContents.value, /文件: src-helper\.cmake/);
+            assert.match(currentBinaryContents.value, new RegExp(`解析路径: ${currentGeneratedPath.replace(/\\/g, '\\\\')}`, 'i'));
+            assert.match(currentBinaryContents.value, /位于构建目录: 是/);
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }

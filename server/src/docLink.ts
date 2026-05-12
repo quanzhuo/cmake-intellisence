@@ -54,6 +54,8 @@ export class DocumentLinkInfo {
                 symbolIndex: this.symbolIndex,
                 getFlatCommands: this.getFlatCommands,
                 entryFile: URI.parse(this.entryFile),
+                buildDirectory: this.buildDirectory,
+                buildDirectoriesBySourcePath: this.fileApiRawSnapshot?.buildDirectoriesBySourcePath,
             });
         }
 

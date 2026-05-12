@@ -58,4 +58,5 @@ export type FileApiRawSnapshot = {
     toolchainsByLanguage: Record<string, FileApiToolchainSnapshot>;
     targetsByName: Record<string, FileApiTargetSnapshot>;
     targetsById: Record<string, FileApiTargetSnapshot>;
+    buildDirectoriesBySourcePath?: Record<string, string>;
 };

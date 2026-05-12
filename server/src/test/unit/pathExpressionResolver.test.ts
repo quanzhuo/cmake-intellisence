@@ -66,6 +66,84 @@ suite('Path Expression Resolver Tests', () => {
         }
     });
 
+    test('expandPathVariables should resolve CMAKE_BINARY_DIR from the active build directory', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-binary-root-'));
+        const buildDir = path.join(workspaceDir, 'out', 'build');
+        const entryFile = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const currentFile = URI.file(path.join(workspaceDir, 'sub', 'CMakeLists.txt'));
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => [],
+            entryFile,
+            buildDirectory: buildDir,
+        });
+
+        try {
+            fs.mkdirSync(path.dirname(currentFile.fsPath), { recursive: true });
+
+            const expanded = await resolver.expandPathVariables('${CMAKE_BINARY_DIR}/generated/config.h', currentFile, 0);
+            assert.strictEqual(
+                normalizeForComparison(expanded),
+                normalizeForComparison(path.join(buildDir, 'generated', 'config.h')),
+            );
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
+
+    test('expandPathVariables should resolve PROJECT_BINARY_DIR from the active build directory', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-project-binary-root-'));
+        const buildDir = path.join(workspaceDir, 'out', 'build');
+        const entryFile = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const currentFile = URI.file(path.join(workspaceDir, 'sub', 'CMakeLists.txt'));
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => [],
+            entryFile,
+            buildDirectory: buildDir,
+        });
+
+        try {
+            fs.mkdirSync(path.dirname(currentFile.fsPath), { recursive: true });
+
+            const expanded = await resolver.expandPathVariables('${PROJECT_BINARY_DIR}/generated/config.h', currentFile, 0);
+            assert.strictEqual(
+                normalizeForComparison(expanded),
+                normalizeForComparison(path.join(buildDir, 'generated', 'config.h')),
+            );
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
+
+    test('expandPathVariables should resolve CMAKE_CURRENT_BINARY_DIR from File API directory mappings', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-current-binary-'));
+        const buildDir = path.join(workspaceDir, 'out', 'build');
+        const entryFile = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const currentFile = URI.file(path.join(workspaceDir, 'sub', 'CMakeLists.txt'));
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => [],
+            entryFile,
+            buildDirectory: buildDir,
+            buildDirectoriesBySourcePath: {
+                [path.join(workspaceDir, 'sub').toLowerCase()]: path.join(buildDir, 'sub-build'),
+            },
+        });
+
+        try {
+            fs.mkdirSync(path.dirname(currentFile.fsPath), { recursive: true });
+
+            const expanded = await resolver.expandPathVariables('${CMAKE_CURRENT_BINARY_DIR}/generated/config.h', currentFile, 0);
+            assert.strictEqual(
+                normalizeForComparison(expanded),
+                normalizeForComparison(path.join(buildDir, 'sub-build', 'generated', 'config.h')),
+            );
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
+
     test('expandPathVariables should resolve chained simple set variables from the same file', async () => {
         const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-vars-'));
         const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
