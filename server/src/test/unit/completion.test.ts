@@ -63,6 +63,50 @@ suite('Completion Tests', () => {
         const duplicates = findDuplicates(symbolIndex.getAllSystemSymbols(SymbolKind.BuiltinCommand));
         assert.strictEqual(duplicates.length, 0, `Duplicate commands found: ${duplicates.join(', ')}`);
     });
+
+    test('command completion should include block snippets for control commands', async () => {
+        const completion = new Completion(
+            new Map(),
+            new Map(),
+            {},
+            'if',
+            new Logger('test', 'off'),
+            symbolIndex,
+        );
+
+        const result = await completion.onCompletion({
+            textDocument: { uri: 'file:///command-snippet.cmake' },
+            position: { line: 0, character: 2 },
+        });
+
+        const items = Array.isArray(result) ? result : (result?.items ?? []);
+        const snippet = items.find(item => item.label === 'if ... endif');
+
+        assert(snippet !== undefined, 'Should suggest if block snippet');
+        assert.strictEqual(snippet?.insertText, 'if(${1:condition})\n\t${0}\nendif()');
+    });
+
+    test('command completion should preserve specialized snippets for builtin commands', async () => {
+        const completion = new Completion(
+            new Map(),
+            new Map(),
+            {},
+            'cmake_mini',
+            new Logger('test', 'off'),
+            symbolIndex,
+        );
+
+        const result = await completion.onCompletion({
+            textDocument: { uri: 'file:///command-specialized-snippet.cmake' },
+            position: { line: 0, character: 10 },
+        });
+
+        const items = Array.isArray(result) ? result : (result?.items ?? []);
+        const snippet = items.find(item => item.label === 'cmake_minimum_required');
+
+        assert(snippet !== undefined, 'Should suggest cmake_minimum_required');
+        assert.strictEqual(snippet?.insertText, 'cmake_minimum_required(VERSION ${1:3.16})');
+    });
 });
 
 suite('Utility Function Tests', () => {
@@ -578,6 +622,114 @@ suite('Condition Completion Tests', () => {
         }
     });
 
+    test('add_subdirectory should suggest filesystem directories for unfinished first arguments', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-add-subdir-open-'));
+        const docPath = path.join(tempDir, 'CMakeLists.txt');
+        const childDir = path.join(tempDir, 'app');
+
+        try {
+            fs.writeFileSync(docPath, 'add_subdirectory(ap', 'utf8');
+            fs.mkdirSync(childDir);
+
+            const parsed = parseCMakeText('add_subdirectory(ap');
+            const uri = URI.file(docPath).toString();
+            const completion = new Completion(
+                new Map([[uri, parsed.flatCommands]]),
+                new Map([[uri, parsed.tokenStream]]),
+                {},
+                'ap',
+                new Logger('test', 'off'),
+                symbolIndex,
+            );
+
+            const result = await completion.onCompletion({
+                textDocument: { uri },
+                position: { line: 0, character: 'add_subdirectory(ap'.length },
+            });
+
+            const items = Array.isArray(result) ? result : (result?.items ?? []);
+            const labels = items.map(item => item.label.toString());
+
+            assert(labels.includes('app'));
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('configure_file should suggest filesystem paths for unfinished input arguments', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-configure-file-open-'));
+        const docPath = path.join(tempDir, 'CMakeLists.txt');
+        const configDir = path.join(tempDir, 'config');
+        const inputPath = path.join(configDir, 'input.in');
+
+        try {
+            fs.mkdirSync(configDir);
+            fs.writeFileSync(docPath, 'configure_file(config/in', 'utf8');
+            fs.writeFileSync(inputPath, 'value=@VALUE@', 'utf8');
+
+            const parsed = parseCMakeText('configure_file(config/in');
+            const uri = URI.file(docPath).toString();
+            const completion = new Completion(
+                new Map([[uri, parsed.flatCommands]]),
+                new Map([[uri, parsed.tokenStream]]),
+                {},
+                'config/in',
+                new Logger('test', 'off'),
+                symbolIndex,
+            );
+
+            const result = await completion.onCompletion({
+                textDocument: { uri },
+                position: { line: 0, character: 'configure_file(config/in'.length },
+            });
+
+            const items = Array.isArray(result) ? result : (result?.items ?? []);
+            const labels = items.map(item => item.label.toString());
+
+            assert(labels.includes('input.in'));
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('configure_file should suggest filesystem paths for unfinished output arguments', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-configure-file-output-open-'));
+        const docPath = path.join(tempDir, 'CMakeLists.txt');
+        const configDir = path.join(tempDir, 'config');
+        const inputPath = path.join(configDir, 'input.in');
+        const outputPath = path.join(tempDir, 'output.txt');
+
+        try {
+            fs.mkdirSync(configDir);
+            fs.writeFileSync(docPath, 'configure_file(config/input.in out', 'utf8');
+            fs.writeFileSync(inputPath, 'value=@VALUE@', 'utf8');
+            fs.writeFileSync(outputPath, 'generated', 'utf8');
+
+            const parsed = parseCMakeText('configure_file(config/input.in out');
+            const uri = URI.file(docPath).toString();
+            const completion = new Completion(
+                new Map([[uri, parsed.flatCommands]]),
+                new Map([[uri, parsed.tokenStream]]),
+                {},
+                'out',
+                new Logger('test', 'off'),
+                symbolIndex,
+            );
+
+            const result = await completion.onCompletion({
+                textDocument: { uri },
+                position: { line: 0, character: 'configure_file(config/input.in out'.length },
+            });
+
+            const items = Array.isArray(result) ? result : (result?.items ?? []);
+            const labels = items.map(item => item.label.toString());
+
+            assert(labels.includes('output.txt'));
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
     test('add_library should suggest filesystem paths for source arguments', async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-add-library-'));
         const docPath = path.join(tempDir, 'CMakeLists.txt');
@@ -668,6 +820,45 @@ suite('Condition Completion Tests', () => {
         assert(labels.includes('MyLib'));
         assert(labels.includes('PRIVATE'));
         assert(labels.includes('INTERFACE'));
+    });
+
+    test('shared target receiver commands should suggest project targets for the first argument', async () => {
+        const commands = [
+            'target_compile_definitions',
+            'target_compile_features',
+            'target_compile_options',
+            'target_link_directories',
+            'target_link_options',
+            'target_precompile_headers',
+            'target_sources',
+        ];
+
+        for (const commandName of commands) {
+            const parsed = parseCMakeText(`${commandName}(My)`);
+            const uri = URI.file(path.resolve(__dirname, `${commandName}-receiver-completion.cmake`)).toString();
+            const completion = new Completion(
+                new Map([[uri, parsed.flatCommands]]),
+                new Map([[uri, parsed.tokenStream]]),
+                {
+                    executables: new Set(['MyExe']),
+                    libraries: new Set(['MyLib']),
+                },
+                'My',
+                new Logger('test', 'off'),
+                symbolIndex,
+            );
+
+            const result = await completion.onCompletion({
+                textDocument: { uri },
+                position: { line: 0, character: `${commandName}(My`.length },
+            });
+
+            const items = Array.isArray(result) ? result : (result?.items ?? []);
+            const labels = items.map(item => item.label.toString());
+
+            assert(labels.includes('MyExe'), `${commandName} should suggest executable targets`);
+            assert(labels.includes('MyLib'), `${commandName} should suggest library targets`);
+        }
     });
 
     test('target completions should include snapshot targets when local target info is empty', async () => {
@@ -783,6 +974,111 @@ suite('Condition Completion Tests', () => {
 
         assert(labels.includes('SmokeSuite'));
         assert(labels.includes('SmokeFast'));
+    });
+
+    test('pkg_check_modules should suggest pkg-config keywords and modules after the prefix argument', async () => {
+        symbolIndex.pkgConfigModules = new Map([
+            ['zlib', 'compression library'],
+            ['openssl', 'TLS library'],
+        ]);
+
+        try {
+            const parsed = parseCMakeText('pkg_check_modules(PREFIX )');
+            const uri = URI.file(path.resolve(__dirname, 'pkg-check-modules-completion.cmake')).toString();
+            const completion = new Completion(
+                new Map([[uri, parsed.flatCommands]]),
+                new Map([[uri, parsed.tokenStream]]),
+                {},
+                '',
+                new Logger('test', 'off'),
+                symbolIndex,
+            );
+
+            const result = await completion.onCompletion({
+                textDocument: { uri },
+                position: { line: 0, character: 'pkg_check_modules(PREFIX '.length },
+            });
+
+            const items = Array.isArray(result) ? result : (result?.items ?? []);
+            const labels = items.map(item => item.label.toString());
+
+            assert(labels.includes('REQUIRED'));
+            assert(labels.includes('zlib'));
+            assert(labels.includes('openssl'));
+        } finally {
+            symbolIndex.pkgConfigModules = new Map();
+        }
+    });
+
+    test('pkg_check_modules should not suggest pkg-config items for the first argument', async () => {
+        symbolIndex.pkgConfigModules = new Map([
+            ['zlib', 'compression library'],
+        ]);
+
+        try {
+            const parsed = parseCMakeText('pkg_check_modules()');
+            const uri = URI.file(path.resolve(__dirname, 'pkg-check-modules-first-arg.cmake')).toString();
+            const completion = new Completion(
+                new Map([[uri, parsed.flatCommands]]),
+                new Map([[uri, parsed.tokenStream]]),
+                {},
+                '',
+                new Logger('test', 'off'),
+                symbolIndex,
+            );
+
+            const result = await completion.onCompletion({
+                textDocument: { uri },
+                position: { line: 0, character: 'pkg_check_modules('.length },
+            });
+
+            const items = Array.isArray(result) ? result : (result?.items ?? []);
+            assert.strictEqual(items.length, 0, 'First pkg_check_modules argument should not suggest pkg-config items');
+        } finally {
+            symbolIndex.pkgConfigModules = new Map();
+        }
+    });
+
+    test('shared property commands should suggest builtin properties at their property slots', async () => {
+        const cases = [
+            { commandName: 'get_property', input: 'get_property(out TARGET my_target PROPERTY posi)', cursor: 'get_property(out TARGET my_target PROPERTY posi'.length, expected: 'POSITION_INDEPENDENT_CODE' },
+            { commandName: 'set_property', input: 'set_property(TARGET my_target PROPERTY posi)', cursor: 'set_property(TARGET my_target PROPERTY posi'.length, expected: 'POSITION_INDEPENDENT_CODE' },
+            { commandName: 'define_property', input: 'define_property(TARGET PROPERTY posi)', cursor: 'define_property(TARGET PROPERTY posi'.length, expected: 'POSITION_INDEPENDENT_CODE' },
+            { commandName: 'get_target_property', input: 'get_target_property(out my_target posi)', cursor: 'get_target_property(out my_target posi'.length, expected: 'POSITION_INDEPENDENT_CODE' },
+            { commandName: 'get_cmake_property', input: 'get_cmake_property(out posi)', cursor: 'get_cmake_property(out posi'.length, expected: 'POSITION_INDEPENDENT_CODE' },
+            { commandName: 'get_test_property', input: 'get_test_property(Smoke time)', cursor: 'get_test_property(Smoke time'.length, expected: 'TIMEOUT' },
+            { commandName: 'set_directory_properties', input: 'set_directory_properties(PROPERTIES posi)', cursor: 'set_directory_properties(PROPERTIES posi'.length, expected: 'POSITION_INDEPENDENT_CODE' },
+            { commandName: 'set_source_files_properties', input: 'set_source_files_properties(main.cpp PROPERTIES posi)', cursor: 'set_source_files_properties(main.cpp PROPERTIES posi'.length, expected: 'POSITION_INDEPENDENT_CODE' },
+            { commandName: 'set_tests_properties', input: 'set_tests_properties(Smoke PROPERTIES time)', cursor: 'set_tests_properties(Smoke PROPERTIES time'.length, expected: 'TIMEOUT' },
+        ];
+
+        for (const testCase of cases) {
+            const parsed = parseCMakeText(testCase.input);
+            const uri = URI.file(path.resolve(__dirname, `${testCase.commandName}-property-completion.cmake`)).toString();
+            const completion = new Completion(
+                new Map([[uri, parsed.flatCommands]]),
+                new Map([[uri, parsed.tokenStream]]),
+                {},
+                testCase.input.slice(0, testCase.cursor).split(/[^A-Za-z0-9_]+/).pop() ?? '',
+                new Logger('test', 'off'),
+                symbolIndex,
+                undefined,
+                undefined,
+                undefined,
+                [],
+                ['SmokeSuite', 'SmokeFast'],
+            );
+
+            const result = await completion.onCompletion({
+                textDocument: { uri },
+                position: { line: 0, character: testCase.cursor },
+            });
+
+            const items = Array.isArray(result) ? result : (result?.items ?? []);
+            const labels = items.map(item => item.label.toString());
+
+            assert(labels.includes(testCase.expected), `${testCase.commandName} should suggest ${testCase.expected}`);
+        }
     });
 
     test('include dependency resolution should ignore directories', () => {

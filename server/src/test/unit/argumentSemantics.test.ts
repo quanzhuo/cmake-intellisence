@@ -167,6 +167,14 @@ suite('Argument Semantics Tests', () => {
         assert(!kinds.has(ArgumentSemanticKind.FilePath));
     });
 
+    test('getArgumentSemanticKinds should expose find-package semantics for an empty find_package slot', () => {
+        const command = parseCMakeText('find_package()\n').flatCommands[0];
+
+        const kinds = getArgumentSemanticKinds(command, 0);
+        assert(kinds.has(ArgumentSemanticKind.FindPackage));
+        assert(!kinds.has(ArgumentSemanticKind.FilePath));
+    });
+
     test('getArgumentSemanticKinds should expose file-path semantics for configure_file input/output', () => {
         const command = parseCMakeText('configure_file(config/input.in config/output.txt)\n').flatCommands[0];
 

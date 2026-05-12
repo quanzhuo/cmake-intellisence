@@ -266,6 +266,24 @@ suite('LSP Integration Tests', () => {
         assert(resolved.documentation !== undefined, 'Resolved completion should include documentation');
     });
 
+    test('should resolve builtin variable completion documentation', async function () {
+        const uri = 'file:///test-workspace/completion-resolve-variable.txt';
+        openDocument(uri, 'message(${CMAKE_SOUR})');
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'message(${CMAKE_SOUR'.length }
+        });
+
+        assert(result !== null);
+        const items = Array.isArray(result) ? result : result!.items;
+        const match = items.find(i => i.label === 'CMAKE_SOURCE_DIR');
+        assert(match !== undefined, 'Should suggest CMAKE_SOURCE_DIR');
+
+        const resolved = await connection.sendRequest(CompletionResolveRequest.type, match!);
+        assert(resolved.documentation !== undefined, 'Resolved builtin variable completion should include documentation');
+    });
+
     test('should suggest builtin include modules case-insensitively', async function () {
         const uri = 'file:///test-workspace/completion-include-module.txt';
         const content = 'include(cmakepri)';
@@ -282,6 +300,78 @@ suite('LSP Integration Tests', () => {
 
         assert(labels.has('CMakePrintHelpers'), 'include() should suggest builtin modules by case-insensitive match');
         assert(!labels.has('Threads'), 'include() should not suggest Find-modules without the Find prefix');
+    });
+
+    test('should suggest builtin include modules inside empty parentheses', async function () {
+        const uri = 'file:///test-workspace/completion-include-empty.txt';
+        const content = 'include()';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'include('.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('CMakePrintHelpers'), 'include() should suggest builtin modules inside empty parentheses');
+        assert(!labels.has('Threads'), 'include() should still exclude Find-modules inside empty parentheses');
+    });
+
+    test('should suggest builtin include modules inside empty quotes', async function () {
+        const uri = 'file:///test-workspace/completion-include-empty-quoted.txt';
+        const content = 'include("")';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'include("'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('CMakePrintHelpers'), 'include("") should suggest builtin modules inside empty quotes');
+        assert(!labels.has('Threads'), 'include("") should still exclude Find-modules inside empty quotes');
+    });
+
+    test('should suggest builtin include modules inside an unfinished empty slot', async function () {
+        const uri = 'file:///test-workspace/completion-include-open.txt';
+        const content = 'include(';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'include('.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('CMakePrintHelpers'), 'include( should suggest builtin modules while typing');
+        assert(!labels.has('Threads'), 'include( should still exclude Find-modules while typing');
+    });
+
+    test('should suggest builtin include modules inside unfinished empty quotes', async function () {
+        const uri = 'file:///test-workspace/completion-include-open-quoted.txt';
+        const content = 'include("';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'include("'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const labels = new Set(items.map(i => i.label));
+
+        assert(labels.has('CMakePrintHelpers'), 'include(" should suggest builtin modules while typing');
+        assert(!labels.has('Threads'), 'include(" should still exclude Find-modules while typing');
     });
 
     test('should suggest find_package modules from Find-modules only and resolve documentation', async function () {
@@ -304,6 +394,82 @@ suite('LSP Integration Tests', () => {
 
         const resolved = await connection.sendRequest(CompletionResolveRequest.type, threadItem!);
         assert(resolved.documentation !== undefined, 'Find-module completion should resolve documentation');
+    });
+
+    test('should suggest builtin find_package modules inside empty parentheses', async function () {
+        const uri = 'file:///test-workspace/completion-find-package-empty.txt';
+        const content = 'find_package()';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'find_package('.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const threadItem = items.find(i => i.label === 'Threads');
+        const cpackItem = items.find(i => i.label === 'CPack');
+
+        assert(threadItem !== undefined, 'find_package() should suggest builtin Find-modules inside empty parentheses');
+        assert(cpackItem === undefined, 'find_package() should still exclude non-Find modules inside empty parentheses');
+    });
+
+    test('should suggest builtin find_package modules inside empty quotes', async function () {
+        const uri = 'file:///test-workspace/completion-find-package-empty-quoted.txt';
+        const content = 'find_package("")';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'find_package("'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const threadItem = items.find(i => i.label === 'Threads');
+        const cpackItem = items.find(i => i.label === 'CPack');
+
+        assert(threadItem !== undefined, 'find_package("") should suggest builtin Find-modules inside empty quotes');
+        assert(cpackItem === undefined, 'find_package("") should still exclude non-Find modules inside empty quotes');
+    });
+
+    test('should suggest builtin find_package modules inside an unfinished empty slot', async function () {
+        const uri = 'file:///test-workspace/completion-find-package-open.txt';
+        const content = 'find_package(';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'find_package('.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const threadItem = items.find(i => i.label === 'Threads');
+        const cpackItem = items.find(i => i.label === 'CPack');
+
+        assert(threadItem !== undefined, 'find_package( should suggest builtin Find-modules while typing');
+        assert(cpackItem === undefined, 'find_package( should still exclude non-Find modules while typing');
+    });
+
+    test('should suggest builtin find_package modules inside unfinished empty quotes', async function () {
+        const uri = 'file:///test-workspace/completion-find-package-open-quoted.txt';
+        const content = 'find_package("';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'find_package("'.length }
+        });
+
+        assert(result !== null, 'Completion result should not be null');
+        const items = Array.isArray(result) ? result : result!.items;
+        const threadItem = items.find(i => i.label === 'Threads');
+        const cpackItem = items.find(i => i.label === 'CPack');
+
+        assert(threadItem !== undefined, 'find_package(" should suggest builtin Find-modules while typing');
+        assert(cpackItem === undefined, 'find_package(" should still exclude non-Find modules while typing');
     });
 
     test('should suggest policies case-insensitively for cmake_policy', async function () {
@@ -341,6 +507,27 @@ suite('LSP Integration Tests', () => {
         const labels = new Set(items.map(i => i.label));
 
         assert(labels.has('POSITION_INDEPENDENT_CODE'), 'set_target_properties() should suggest property names after PROPERTIES');
+    });
+
+    test('should resolve builtin property completion documentation', async function () {
+        const defsUri = 'file:///test-workspace/completion-resolve-property-defs.txt';
+        openDocument(defsUri, 'add_library(my_target INTERFACE)');
+
+        const uri = 'file:///test-workspace/completion-resolve-property.txt';
+        openDocument(uri, 'set_target_properties(my_target PROPERTIES POSI)');
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'set_target_properties(my_target PROPERTIES POSI'.length }
+        });
+
+        assert(result !== null);
+        const items = Array.isArray(result) ? result : result!.items;
+        const match = items.find(i => i.label === 'POSITION_INDEPENDENT_CODE');
+        assert(match !== undefined, 'Should suggest POSITION_INDEPENDENT_CODE');
+
+        const resolved = await connection.sendRequest(CompletionResolveRequest.type, match!);
+        assert(resolved.documentation !== undefined, 'Resolved builtin property completion should include documentation');
     });
 
     test('should suggest source file properties in get_source_file_property', async function () {
@@ -550,6 +737,77 @@ suite('LSP Integration Tests', () => {
             for (const kw of cmdInfo.keyword) {
                 assert(labels.has(kw), `${cmdName}: should suggest keyword '${kw}'`);
             }
+        }
+    });
+
+    test('should return null completion inside line comments', async function () {
+        const uri = 'file:///test-workspace/completion-line-comment.txt';
+        const content = 'message(STATUS ok) # add_sub';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'message(STATUS ok) # ad'.length }
+        });
+
+        assert.strictEqual(result, null, 'Completion inside a line comment should be null');
+    });
+
+    test('should return null completion inside bracket comments', async function () {
+        const uri = 'file:///test-workspace/completion-bracket-comment.txt';
+        const content = '#[[\nadd_sub\n]]\nproject(Test)';
+        openDocument(uri, content);
+
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 1, character: 4 }
+        });
+
+        assert.strictEqual(result, null, 'Completion inside a bracket comment should be null');
+    });
+
+    test('should suggest and resolve pkg_check_modules entries after pkg-config path changes', async function () {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-pkg-config-'));
+        const pkgConfigPath = path.join(tempDir, 'pkg-config.cmd');
+
+        fs.writeFileSync(pkgConfigPath, [
+            '@echo off',
+            'if "%1"=="--list-all" (',
+            '  echo zlib Compression library',
+            '  echo openssl TLS library',
+            ')',
+        ].join('\r\n'), 'utf8');
+
+        try {
+            extSettings.pkgConfigPath = pkgConfigPath;
+            const configPull = waitForConfigurationPull();
+            connection.sendNotification(DidChangeConfigurationNotification.type, { settings: {} });
+            await configPull;
+
+            const uri = 'file:///test-workspace/completion-pkg-check-modules.txt';
+            openDocument(uri, 'pkg_check_modules(PKG )');
+
+            const result = await connection.sendRequest(CompletionRequest.type, {
+                textDocument: { uri },
+                position: { line: 0, character: 'pkg_check_modules(PKG '.length }
+            });
+
+            assert(result !== null, 'Completion result should not be null');
+            const items = Array.isArray(result) ? result : result!.items;
+            const zlibItem = items.find(i => i.label === 'zlib');
+            const requiredItem = items.find(i => i.label === 'REQUIRED');
+
+            assert(zlibItem !== undefined, 'pkg_check_modules() should suggest discovered pkg-config modules');
+            assert(requiredItem !== undefined, 'pkg_check_modules() should still suggest pkg-config keywords');
+
+            const resolved = await connection.sendRequest(CompletionResolveRequest.type, zlibItem!);
+            assert.strictEqual(typeof resolved.documentation === 'string' ? resolved.documentation.trim() : resolved.documentation, 'Compression library');
+        } finally {
+            extSettings.pkgConfigPath = '';
+            const restoreConfigPull = waitForConfigurationPull();
+            connection.sendNotification(DidChangeConfigurationNotification.type, { settings: {} });
+            await restoreConfigPull;
+            fs.rmSync(tempDir, { recursive: true, force: true });
         }
     });
 

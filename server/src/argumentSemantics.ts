@@ -530,20 +530,19 @@ export function getArgumentSemanticKinds(command: FlatCommand, argIndex: number)
     const kinds = new Set<ArgumentSemanticKind>();
     const args = command.argument_list();
     const argText = args[argIndex]?.getText();
-    if (!argText) {
-        return kinds;
-    }
 
-    if (isTargetArgumentIndex(command, argIndex)) {
-        kinds.add(ArgumentSemanticKind.Target);
-    }
+    if (argText) {
+        if (isTargetArgumentIndex(command, argIndex)) {
+            kinds.add(ArgumentSemanticKind.Target);
+        }
 
-    if (isTestArgumentIndex(command, argIndex)) {
-        kinds.add(ArgumentSemanticKind.Test);
-    }
+        if (isTestArgumentIndex(command, argIndex)) {
+            kinds.add(ArgumentSemanticKind.Test);
+        }
 
-    if (isPropertyArgumentIndex(command, argIndex)) {
-        kinds.add(ArgumentSemanticKind.Property);
+        if (isPropertyArgumentIndex(command, argIndex)) {
+            kinds.add(ArgumentSemanticKind.Property);
+        }
     }
 
     const commandName = command.ID().symbol.text.toLowerCase();
@@ -573,7 +572,7 @@ export function getArgumentSemanticKinds(command: FlatCommand, argIndex: number)
         case 'add_executable':
         case 'add_library':
         case 'target_sources':
-            if (isSourceFileArgument(command, argIndex, argText)) {
+            if (argText && isSourceFileArgument(command, argIndex, argText)) {
                 kinds.add(ArgumentSemanticKind.FilePath);
             }
             break;

@@ -149,6 +149,13 @@ export interface ProjectTargetInfo {
     libraries?: Set<string>,
 }
 
+function extractCompletionQuery(argText: string, cursorOffset: number): string {
+    const safeOffset = Math.max(0, Math.min(cursorOffset, argText.length));
+    const left = argText.slice(0, safeOffset);
+    const match = left.match(/[a-zA-Z0-9_\.\/:+-]*$/);
+    return match?.[0] ?? '';
+}
+
 function matchesCompletionQuery(candidate: string, word: string): boolean {
     return candidate.toLowerCase().includes(word.toLowerCase());
 }
@@ -1398,11 +1405,46 @@ export default class Completion {
     }
 
     private getArgumentSemanticKinds(info: CMakeCompletionInfo): Set<ArgumentSemanticKind> | null {
-        if (!info.context || info.index === undefined) {
+        if (info.index === undefined) {
             return null;
         }
 
-        return getArgumentSemanticKinds(info.context, info.index);
+        if (info.context) {
+            return getArgumentSemanticKinds(info.context, info.index);
+        }
+
+        if (!info.command) {
+            return null;
+        }
+
+        const kinds = new Set<ArgumentSemanticKind>();
+        switch (info.command.toLowerCase()) {
+            case 'include':
+                if (info.index === 0) {
+                    kinds.add(ArgumentSemanticKind.IncludeModule);
+                    kinds.add(ArgumentSemanticKind.FilePath);
+                }
+                break;
+            case 'find_package':
+                if (info.index === 0) {
+                    kinds.add(ArgumentSemanticKind.FindPackage);
+                }
+                break;
+            case 'add_subdirectory':
+                if (info.index === 0) {
+                    kinds.add(ArgumentSemanticKind.FilePath);
+                }
+                break;
+            case 'configure_file':
+                if (info.index <= 1) {
+                    kinds.add(ArgumentSemanticKind.FilePath);
+                }
+                break;
+            default:
+                break;
+        }
+
+        return kinds.size > 0 ? kinds : null;
     }
 
     private async getSharedFilePathSuggestions(
@@ -1679,7 +1721,7 @@ export default class Completion {
             return null;
         }
 
-        const currentWord = context.currentSegment || word;
+        const currentWord = context.currentSegment;
         if (context.argumentIndex === -1) {
             return this.getGeneratorExpressionNameSuggestions(currentWord);
         }
@@ -1883,6 +1925,28 @@ export default class Completion {
             });
     }
 
+    private getArgumentCompletionWord(info: CMakeCompletionInfo): string {
+        if (!this.completionParams) {
+            return this.word;
+        }
+
+        if (info.currentArgumentText !== undefined && info.currentArgumentCursorOffset !== undefined) {
+            return extractCompletionQuery(info.currentArgumentText, info.currentArgumentCursorOffset);
+        }
+
+        if (info.context && info.index !== undefined) {
+            const currentArgument = info.context.argument(info.index);
+            if (currentArgument) {
+                const cursorOffset = this.completionParams.position.character - currentArgument.start.column;
+                return extractCompletionQuery(currentArgument.getText(), cursorOffset);
+            }
+
+            return '';
+        }
+
+        return this.word;
+    }
+
     public async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
         this.completionParams = params;
         const tokenStream = this.tokenStreams.get(params.textDocument.uri);
@@ -1904,7 +1968,7 @@ export default class Completion {
         if (info.type === CMakeCompletionType.Command) {
             return this.getCommandSuggestions(this.word);
         } else if (info.type === CMakeCompletionType.Argument) {
-            return this.getArgumentSuggestions(info, this.word);
+            return this.getArgumentSuggestions(info, this.getArgumentCompletionWord(info));
         } else if (info.type === CMakeCompletionType.Variable) {
             return this.getVariableSuggestions(info, this.word);
         }
