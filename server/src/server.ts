@@ -567,12 +567,11 @@ export class CMakeLanguageServer {
         }
 
         const details = [
-            `文件: ${path.basename(resolvedUri.fsPath)}`,
-            '来源: 路径解析',
-            `解析路径: ${resolvedUri.fsPath}`,
+            this.formatHoverLine('hover.file.name', path.basename(resolvedUri.fsPath)),
+            this.formatHoverLine('hover.file.resolvedPath', resolvedUri.fsPath),
         ];
         if (snapshot?.buildDirectory && this.isPathInsideDirectory(snapshot.buildDirectory, resolvedUri.fsPath)) {
-            details.push('位于构建目录: 是');
+            details.push(this.formatHoverBooleanLine('hover.file.inBuildDirectory', true));
         }
 
         return {
@@ -617,70 +616,95 @@ export class CMakeLanguageServer {
     private getWorkspaceCacheEntry(
         workspaceState: WorkspaceState,
         variableName: string | null,
-    ): { entry: FileApiCacheEntrySnapshot; source: string } | null {
+    ): FileApiCacheEntrySnapshot | null {
         if (!variableName) {
             return null;
         }
 
         const fileApiEntry = getCacheEntryByName(workspaceState.fileApiRawSnapshot?.cacheEntriesByName, variableName);
         if (fileApiEntry) {
-            return { entry: fileApiEntry, source: 'File API' };
+            return fileApiEntry;
         }
 
         const cmakeCacheEntry = getCacheEntryByName(workspaceState.cmakeCacheEntriesByName, variableName);
         if (cmakeCacheEntry) {
-            return { entry: cmakeCacheEntry, source: 'CMakeCache.txt' };
+            return cmakeCacheEntry;
         }
 
         return null;
     }
 
-    private getCacheEntryDetails(workspaceState: WorkspaceState, variableName: string | null): string[] {
-        const cacheEntryInfo = this.getWorkspaceCacheEntry(workspaceState, variableName);
-        if (!cacheEntryInfo || !variableName) {
-            return [];
-        }
-
-        const details = [
-            `缓存变量: ${variableName}`,
-            `缓存来源: ${cacheEntryInfo.source}`,
-        ];
-
-        if (cacheEntryInfo.entry.type) {
-            details.push(`缓存类型: ${cacheEntryInfo.entry.type}`);
-        }
-        if (cacheEntryInfo.entry.value !== undefined) {
-            details.push(`缓存值: ${cacheEntryInfo.entry.value}`);
-        }
-        if (cacheEntryInfo.entry.help) {
-            details.push(`缓存说明: ${cacheEntryInfo.entry.help}`);
-        }
-
-        details.push('注: 该值来自 CMake Cache，可能被当前作用域中的普通变量覆盖。');
-        return details;
+    private escapeMarkdownText(value: string): string {
+        return value.replace(/([`*_{}\[\]()#+!|])/g, '\\$1');
     }
 
-    private appendCacheEntryDetails(markdown: string, workspaceState: WorkspaceState, variableName: string | null): string {
-        const details = this.getCacheEntryDetails(workspaceState, variableName);
-        if (details.length === 0) {
-            return markdown;
-        }
-
-        return `${markdown}\n\n---\n\n${details.join('  \n')}`;
+    private formatHoverLine(key: string, value: string | number): string {
+        return localize(key, this.escapeMarkdownText(String(value)));
     }
 
-    private getCacheVariableHover(workspaceState: WorkspaceState, variableName: string | null): Hover | null {
-        const details = this.getCacheEntryDetails(workspaceState, variableName);
-        if (details.length === 0) {
+    private formatHoverBooleanLine(key: string, value: boolean): string {
+        return localize(key, localize(value ? 'common.yes' : 'common.no'));
+    }
+
+    private formatHoverAvailabilityLine(key: string, value: boolean): string {
+        return localize(key, localize(value ? 'common.available' : 'common.unavailable'));
+    }
+
+    private toMarkdownCodeBlock(value: string): string {
+        let fence = '```';
+        while (value.includes(fence)) {
+            fence += '`';
+        }
+
+        return `${fence}text\n${value}\n${fence}`;
+    }
+
+    private renderCacheEntryMarkdown(workspaceState: WorkspaceState, variableName: string | null): string | null {
+        const cacheEntry = this.getWorkspaceCacheEntry(workspaceState, variableName);
+        if (!cacheEntry || !variableName) {
             return null;
         }
 
-        return {
-            contents: {
-                kind: 'markdown',
-                value: details.join('  \n'),
-            }
-        };
+        const metadata: string[] = [];
+
+        if (cacheEntry.type) {
+            metadata.push(this.formatHoverLine('hover.cache.type', cacheEntry.type));
+        }
+        if (cacheEntry.help) {
+            metadata.push(this.formatHoverLine('hover.cache.help', cacheEntry.help));
+        }
+
+        const blocks = [this.formatHoverLine('hover.cache.variable', variableName)];
+
+        if (cacheEntry.value !== undefined) {
+            blocks.push(`${localize('hover.cache.valueHeading')}\n\n${this.toMarkdownCodeBlock(cacheEntry.value)}`);
+        }
+
+        if (metadata.length !== 0) {
+            blocks.push('---');
+            blocks.push(metadata.join('\n'));
+        }
+        blocks.push(localize('hover.cache.note'));
+
+        return blocks.join('\n\n');
+    }
+
+    private appendCacheEntryDetails(markdown: string, workspaceState: WorkspaceState, variableName: string | null): string {
+        const cacheMarkdown = this.renderCacheEntryMarkdown(workspaceState, variableName);
+        if (!cacheMarkdown) {
+            return markdown;
+        }
+
+        return `${markdown}\n\n---\n\n${cacheMarkdown}`;
+    }
+
+    private getCacheVariableHover(workspaceState: WorkspaceState, variableName: string | null): Hover | null {
+        const cacheMarkdown = this.renderCacheEntryMarkdown(workspaceState, variableName);
+        if (!cacheMarkdown) {
+            return null;
+        }
+
+        return { contents: { kind: 'markdown', value: cacheMarkdown } };
     }
 
     private getSnapshotEntityHover(
@@ -706,21 +730,21 @@ export class CMakeLanguageServer {
         let entityLabel: string | null = null;
         let extraDetails: string[] = [];
         if (cursorTarget.semanticKind === ArgumentSemanticKind.Target && snapshot.targetNames.includes(cursorTarget.text)) {
-            entityLabel = `目标: ${cursorTarget.text}`;
+            entityLabel = this.formatHoverLine('hover.entity.target', cursorTarget.text);
         } else if (cursorTarget.semanticKind === ArgumentSemanticKind.Test && snapshot.testNames.includes(cursorTarget.text)) {
-            entityLabel = `测试: ${cursorTarget.text}`;
+            entityLabel = this.formatHoverLine('hover.entity.test', cursorTarget.text);
         } else if (cursorTarget.semanticKind === ArgumentSemanticKind.FindPackage) {
             const cacheEntry = workspaceState.fileApiRawSnapshot?.cacheEntriesByName[`${cursorTarget.text}_DIR`];
             if (cacheEntry) {
-                entityLabel = `包: ${cursorTarget.text}`;
+                entityLabel = this.formatHoverLine('hover.entity.package', cursorTarget.text);
                 if (cacheEntry.type) {
-                    extraDetails.push(`缓存类型: ${cacheEntry.type}`);
+                    extraDetails.push(this.formatHoverLine('hover.entity.cacheType', cacheEntry.type));
                 }
                 if (cacheEntry.value) {
-                    extraDetails.push(`包目录: ${cacheEntry.value}`);
+                    extraDetails.push(this.formatHoverLine('hover.entity.packageDirectory', cacheEntry.value));
                 }
                 if (cacheEntry.help) {
-                    extraDetails.push(`缓存说明: ${cacheEntry.help}`);
+                    extraDetails.push(this.formatHoverLine('hover.entity.cacheHelp', cacheEntry.help));
                 }
             }
         } else if (cursorTarget.semanticKind === ArgumentSemanticKind.IncludeModule) {
@@ -731,13 +755,13 @@ export class CMakeLanguageServer {
                     && path.basename(input.path).toLowerCase() === moduleFileName;
             });
             if (matchedInput) {
-                entityLabel = `模块: ${cursorTarget.text}`;
-                extraDetails.push(`模块路径: ${matchedInput.path}`);
+                entityLabel = this.formatHoverLine('hover.entity.module', cursorTarget.text);
+                extraDetails.push(this.formatHoverLine('hover.entity.modulePath', matchedInput.path));
                 if (matchedInput.isExternal !== undefined) {
-                    extraDetails.push(`外部输入: ${matchedInput.isExternal ? '是' : '否'}`);
+                    extraDetails.push(this.formatHoverBooleanLine('hover.entity.externalInput', matchedInput.isExternal));
                 }
                 if (matchedInput.isGenerated !== undefined) {
-                    extraDetails.push(`生成输入: ${matchedInput.isGenerated ? '是' : '否'}`);
+                    extraDetails.push(this.formatHoverBooleanLine('hover.entity.generatedInput', matchedInput.isGenerated));
                 }
             }
         }
@@ -746,7 +770,7 @@ export class CMakeLanguageServer {
             return null;
         }
 
-        const details = [entityLabel, `来源: ${snapshot.sourceKind}`, ...extraDetails];
+        const details = [entityLabel, ...extraDetails];
         if (cursorTarget.semanticKind === ArgumentSemanticKind.Target) {
             const targetSnapshot = workspaceState.fileApiRawSnapshot?.targetsByName[cursorTarget.text];
             const toolchainSnapshot = workspaceState.fileApiRawSnapshot
@@ -756,7 +780,7 @@ export class CMakeLanguageServer {
                 : undefined;
             const targetFlags: string[] = [];
             if (targetSnapshot?.type) {
-                details.push(`File API 类型: ${targetSnapshot.type}`);
+                details.push(this.formatHoverLine('hover.entity.fileApiType', targetSnapshot.type));
             }
             if (targetSnapshot?.imported) {
                 targetFlags.push('IMPORTED');
@@ -771,80 +795,80 @@ export class CMakeLanguageServer {
                 targetFlags.push('GENERATOR_PROVIDED');
             }
             if (targetFlags.length) {
-                details.push(`目标属性: ${targetFlags.join(', ')}`);
+                details.push(this.formatHoverLine('hover.entity.targetProperties', targetFlags.join(', ')));
             }
             if (targetSnapshot?.folderName) {
-                details.push(`目录分组: ${targetSnapshot.folderName}`);
+                details.push(this.formatHoverLine('hover.entity.folderGroup', targetSnapshot.folderName));
             }
             if (targetSnapshot?.nameOnDisk) {
-                details.push(`磁盘名: ${targetSnapshot.nameOnDisk}`);
+                details.push(this.formatHoverLine('hover.entity.onDiskName', targetSnapshot.nameOnDisk));
             }
             if (targetSnapshot?.generatedSourcePaths?.length) {
-                details.push(`生成源: ${targetSnapshot.generatedSourcePaths.length}`);
+                details.push(this.formatHoverLine('hover.entity.generatedSources', targetSnapshot.generatedSourcePaths.length));
             }
             if (targetSnapshot?.includeDirectories?.length) {
-                details.push(`包含目录: ${targetSnapshot.includeDirectories.join(', ')}`);
+                details.push(this.formatHoverLine('hover.entity.includeDirectories', targetSnapshot.includeDirectories.join(', ')));
             }
             if (targetSnapshot?.artifactPaths?.length) {
-                details.push(`产物: ${targetSnapshot.artifactPaths.join(', ')}`);
+                details.push(this.formatHoverLine('hover.entity.artifacts', targetSnapshot.artifactPaths.join(', ')));
             }
             if (targetSnapshot?.compileDefinitions?.length) {
-                details.push(`编译定义: ${targetSnapshot.compileDefinitions.join(', ')}`);
+                details.push(this.formatHoverLine('hover.entity.compileDefinitions', targetSnapshot.compileDefinitions.join(', ')));
             }
             if (targetSnapshot?.backtraceFiles?.length) {
-                details.push(`回溯文件: ${targetSnapshot.backtraceFiles.join(', ')}`);
+                details.push(this.formatHoverLine('hover.entity.backtraceFiles', targetSnapshot.backtraceFiles.join(', ')));
             }
             if (targetSnapshot?.backtraceCommands?.length) {
-                details.push(`回溯命令: ${targetSnapshot.backtraceCommands.join(', ')}`);
+                details.push(this.formatHoverLine('hover.entity.backtraceCommands', targetSnapshot.backtraceCommands.join(', ')));
             }
             if (targetSnapshot?.dependencyIds?.length) {
-                details.push(`依赖数量: ${targetSnapshot.dependencyIds.length}`);
+                details.push(this.formatHoverLine('hover.entity.dependencyCount', targetSnapshot.dependencyIds.length));
             }
             if (toolchainSnapshot?.compilerId || toolchainSnapshot?.compilerVersion) {
-                details.push(`工具链: ${toolchainSnapshot.language} ${toolchainSnapshot.compilerId ?? 'unknown'} ${toolchainSnapshot.compilerVersion ?? ''}`.trim());
+                details.push(this.formatHoverLine('hover.entity.toolchain', `${toolchainSnapshot.language} ${toolchainSnapshot.compilerId ?? localize('common.unknown')} ${toolchainSnapshot.compilerVersion ?? ''}`.trim()));
             }
             if (toolchainSnapshot?.compilerCommandFragment) {
-                details.push(`编译器参数: ${toolchainSnapshot.compilerCommandFragment}`);
+                details.push(this.formatHoverLine('hover.entity.compilerArgs', toolchainSnapshot.compilerCommandFragment));
             }
             if (toolchainSnapshot?.implicitIncludeDirectories?.length) {
-                details.push(`隐式包含目录: ${toolchainSnapshot.implicitIncludeDirectories.join(', ')}`);
+                details.push(this.formatHoverLine('hover.entity.implicitIncludeDirectories', toolchainSnapshot.implicitIncludeDirectories.join(', ')));
             }
             if (toolchainSnapshot?.implicitLinkDirectories?.length) {
-                details.push(`隐式链接目录: ${toolchainSnapshot.implicitLinkDirectories.join(', ')}`);
+                details.push(this.formatHoverLine('hover.entity.implicitLinkDirectories', toolchainSnapshot.implicitLinkDirectories.join(', ')));
             }
             if (toolchainSnapshot?.implicitLinkLibraries?.length) {
-                details.push(`隐式链接库: ${toolchainSnapshot.implicitLinkLibraries.join(', ')}`);
+                details.push(this.formatHoverLine('hover.entity.implicitLinkLibraries', toolchainSnapshot.implicitLinkLibraries.join(', ')));
             }
         }
 
-        details.push(`使用 CMake Presets: ${snapshot.useCMakePresets ? '是' : '否'}`);
+        details.push(this.formatHoverBooleanLine('hover.entity.usePresets', snapshot.useCMakePresets));
 
         if (snapshot.codeModelSummary) {
-            details.push(`Code Model: ${snapshot.codeModelSummary.hasCodeModel ? '可用' : '不可用'}`);
+            details.push(this.formatHoverAvailabilityLine('hover.entity.codeModel', snapshot.codeModelSummary.hasCodeModel));
         }
 
         if (snapshot.activeBuildType) {
-            details.push(`构建类型: ${snapshot.activeBuildType}`);
+            details.push(this.formatHoverLine('hover.entity.buildType', snapshot.activeBuildType));
         }
 
         if (snapshot.buildDirectory) {
-            details.push(`构建目录: ${snapshot.buildDirectory}`);
+            details.push(this.formatHoverLine('hover.entity.buildDirectory', snapshot.buildDirectory));
         }
 
         if (snapshot.configurePresetName) {
-            details.push(`Configure Preset: ${snapshot.configurePresetName}`);
+            details.push(this.formatHoverLine('hover.entity.configurePreset', snapshot.configurePresetName));
         }
 
         if (snapshot.buildPresetName) {
-            details.push(`Build Preset: ${snapshot.buildPresetName}`);
+            details.push(this.formatHoverLine('hover.entity.buildPreset', snapshot.buildPresetName));
         }
 
         if (snapshot.testPresetName) {
-            details.push(`Test Preset: ${snapshot.testPresetName}`);
+            details.push(this.formatHoverLine('hover.entity.testPreset', snapshot.testPresetName));
         }
 
         if (snapshot.packagePresetName) {
-            details.push(`Package Preset: ${snapshot.packagePresetName}`);
+            details.push(this.formatHoverLine('hover.entity.packagePreset', snapshot.packagePresetName));
         }
 
         return {

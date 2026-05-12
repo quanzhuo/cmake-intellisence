@@ -622,11 +622,10 @@ suite('LSP Integration Tests', () => {
         assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
         assert('kind' in hoverContents);
         assert.strictEqual(hoverContents.kind, 'markdown');
-        assert.match(hoverContents.value, /目标: ExtCore/);
-        assert.match(hoverContents.value, /来源: kylin-cmake-tools/);
-        assert.match(hoverContents.value, /使用 CMake Presets: 是/);
-        assert.match(hoverContents.value, /Code Model: 可用/);
-        assert.match(hoverContents.value, /构建类型: Debug/);
+        assert.match(hoverContents.value, /Target: ExtCore/);
+        assert.match(hoverContents.value, /Use CMake Presets: Yes/);
+        assert.match(hoverContents.value, /Code Model: Available/);
+        assert.match(hoverContents.value, /Build Type: Debug/);
         assert.match(hoverContents.value, /Configure Preset: linux-debug/);
         assert.match(hoverContents.value, /Build Preset: linux-debug-build/);
     });
@@ -664,11 +663,10 @@ suite('LSP Integration Tests', () => {
         assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
         assert('kind' in hoverContents);
         assert.strictEqual(hoverContents.kind, 'markdown');
-        assert.match(hoverContents.value, /测试: SmokeSuite/);
-        assert.match(hoverContents.value, /来源: kylin-cmake-tools/);
-        assert.match(hoverContents.value, /使用 CMake Presets: 是/);
-        assert.match(hoverContents.value, /Code Model: 不可用/);
-        assert.match(hoverContents.value, /构建类型: Debug/);
+        assert.match(hoverContents.value, /Test: SmokeSuite/);
+        assert.match(hoverContents.value, /Use CMake Presets: Yes/);
+        assert.match(hoverContents.value, /Code Model: Unavailable/);
+        assert.match(hoverContents.value, /Build Type: Debug/);
         assert.match(hoverContents.value, /Test Preset: linux-debug-test/);
         assert.match(hoverContents.value, /Package Preset: linux-debug-package/);
     });
@@ -711,11 +709,12 @@ suite('LSP Integration Tests', () => {
             assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
             assert('kind' in hoverContents);
             assert.strictEqual(hoverContents.kind, 'markdown');
-            assert.match(hoverContents.value, /缓存变量: CMAKE_BUILD_TYPE/);
-            assert.match(hoverContents.value, /缓存来源: CMakeCache\.txt/);
-            assert.match(hoverContents.value, /缓存类型: STRING/);
-            assert.match(hoverContents.value, /缓存值: Debug/);
-            assert.match(hoverContents.value, /可能被当前作用域中的普通变量覆盖/);
+            assert(hoverContents.value.includes('**Cache Variable**: CMAKE\\_BUILD\\_TYPE'));
+            assert.match(hoverContents.value, /Cache Type: STRING/);
+            assert.match(hoverContents.value, /\*\*Cache Value\*\*[\s\S]*```text\nDebug\n```/);
+            assert(hoverContents.value.includes('\n\n---\n\n- Cache Type: STRING'), 'cache metadata should be separated from the value block');
+            assert(hoverContents.value.indexOf('```text\nDebug\n```') < hoverContents.value.indexOf('- Cache Type: STRING'), 'cache value should be shown before cache metadata');
+            assert.match(hoverContents.value, /can be shadowed by a normal variable in the current scope/);
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }
@@ -759,11 +758,12 @@ suite('LSP Integration Tests', () => {
             assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
             assert('kind' in hoverContents);
             assert.strictEqual(hoverContents.kind, 'markdown');
-            assert.match(hoverContents.value, /缓存变量: MY_CUSTOM_SDK/);
-            assert.match(hoverContents.value, /缓存来源: CMakeCache\.txt/);
-            assert.match(hoverContents.value, /缓存类型: PATH/);
-            assert.match(hoverContents.value, /缓存值: \/opt\/sdk/);
-            assert.match(hoverContents.value, /缓存说明: Path to the custom SDK\./);
+            assert(hoverContents.value.includes('**Cache Variable**: MY\\_CUSTOM\\_SDK'));
+            assert.match(hoverContents.value, /Cache Type: PATH/);
+            assert.match(hoverContents.value, /\*\*Cache Value\*\*[\s\S]*```text\n\/opt\/sdk\n```/);
+            assert(hoverContents.value.includes('\n\n---\n\n- Cache Type: PATH'), 'custom cache metadata should be separated from the value block');
+            assert(hoverContents.value.indexOf('```text\n/opt/sdk\n```') < hoverContents.value.indexOf('- Cache Type: PATH'), 'custom cache value should be shown before cache metadata');
+            assert.match(hoverContents.value, /Cache Help: Path to the custom SDK\./);
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }
@@ -898,23 +898,23 @@ suite('LSP Integration Tests', () => {
             assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
             assert('kind' in hoverContents);
             assert.strictEqual(hoverContents.kind, 'markdown');
-            assert.match(hoverContents.value, /目标: ExtCore/);
-            assert.match(hoverContents.value, /File API 类型: STATIC_LIBRARY/);
-            assert.match(hoverContents.value, /目标属性: IMPORTED, SYMBOLIC, GENERATOR_PROVIDED/);
-            assert.match(hoverContents.value, /目录分组: libs/);
-            assert.match(hoverContents.value, /磁盘名: ExtCore\.a/);
-            assert.match(hoverContents.value, /生成源: 1/);
-            assert.match(hoverContents.value, /包含目录: include, generated\/include/);
-            assert.match(hoverContents.value, /产物: lib\/ExtCore\.a/);
-            assert.match(hoverContents.value, /编译定义: EXTCORE_EXPORTS/);
-            assert.match(hoverContents.value, /回溯文件: CMakeLists\.txt, cmake\/ExtCore\.cmake/);
-            assert.match(hoverContents.value, /回溯命令: add_library, target_link_libraries/);
-            assert.match(hoverContents.value, /依赖数量: 2/);
-            assert.match(hoverContents.value, /工具链: CXX GNU 13\.2\.0/);
-            assert.match(hoverContents.value, /编译器参数: --target x86_64-linux-gnu/);
-            assert.match(hoverContents.value, /隐式包含目录: \/usr\/include\/c\+\+\/13, \/usr\/local\/include/);
-            assert.match(hoverContents.value, /隐式链接目录: \/usr\/lib\/gcc/);
-            assert.match(hoverContents.value, /隐式链接库: stdc\+\+, m/);
+            assert(hoverContents.value.includes('Target: ExtCore'));
+            assert(hoverContents.value.includes('File API Type: STATIC\\_LIBRARY'));
+            assert(hoverContents.value.includes('Target Properties: IMPORTED, SYMBOLIC, GENERATOR\\_PROVIDED'));
+            assert(hoverContents.value.includes('Folder Group: libs'));
+            assert(hoverContents.value.includes('On-Disk Name: ExtCore.a'));
+            assert(hoverContents.value.includes('Generated Sources: 1'));
+            assert(hoverContents.value.includes('Include Directories: include, generated/include'));
+            assert(hoverContents.value.includes('Artifacts: lib/ExtCore.a'));
+            assert(hoverContents.value.includes('Compile Definitions: EXTCORE\\_EXPORTS'));
+            assert(hoverContents.value.includes('Backtrace Files: CMakeLists.txt, cmake/ExtCore.cmake'));
+            assert(hoverContents.value.includes('Backtrace Commands: add\\_library, target\\_link\\_libraries'));
+            assert(hoverContents.value.includes('Dependency Count: 2'));
+            assert(hoverContents.value.includes('Toolchain: CXX GNU 13.2.0'));
+            assert(hoverContents.value.includes('Compiler Arguments: --target x86\\_64-linux-gnu'));
+            assert(hoverContents.value.includes('Implicit Include Directories: /usr/include/c\\+\\+/13, /usr/local/include'));
+            assert(hoverContents.value.includes('Implicit Link Directories: /usr/lib/gcc'));
+            assert(hoverContents.value.includes('Implicit Link Libraries: stdc\\+\\+, m'));
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }
@@ -975,10 +975,10 @@ suite('LSP Integration Tests', () => {
             assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
             assert('kind' in hoverContents);
             assert.strictEqual(hoverContents.kind, 'markdown');
-            assert.match(hoverContents.value, /包: Example/);
-            assert.match(hoverContents.value, /缓存类型: PATH/);
-            assert.match(hoverContents.value, /包目录: \/opt\/example\/lib\/cmake\/Example/);
-            assert.match(hoverContents.value, /缓存说明: Directory containing ExampleConfig\.cmake/);
+            assert.match(hoverContents.value, /Package: Example/);
+            assert.match(hoverContents.value, /Cache Type: PATH/);
+            assert.match(hoverContents.value, /Package Directory: \/opt\/example\/lib\/cmake\/Example/);
+            assert.match(hoverContents.value, /Cache Help: Directory containing ExampleConfig\.cmake/);
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }
@@ -1042,10 +1042,10 @@ suite('LSP Integration Tests', () => {
             assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
             assert('kind' in hoverContents);
             assert.strictEqual(hoverContents.kind, 'markdown');
-            assert.match(hoverContents.value, /包: Example/);
-            assert.match(hoverContents.value, /缓存类型: PATH/);
-            assert.match(hoverContents.value, /包目录: \/opt\/example\/lib\/cmake\/Example/);
-            assert.match(hoverContents.value, /缓存说明: Directory containing ExampleConfig\.cmake/);
+            assert.match(hoverContents.value, /Package: Example/);
+            assert.match(hoverContents.value, /Cache Type: PATH/);
+            assert.match(hoverContents.value, /Package Directory: \/opt\/example\/lib\/cmake\/Example/);
+            assert.match(hoverContents.value, /Cache Help: Directory containing ExampleConfig\.cmake/);
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }
@@ -1106,10 +1106,10 @@ suite('LSP Integration Tests', () => {
             assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
             assert('kind' in hoverContents);
             assert.strictEqual(hoverContents.kind, 'markdown');
-            assert.match(hoverContents.value, /模块: ExternalHelpers/);
-            assert.match(hoverContents.value, new RegExp(`模块路径: ${modulePath.replace(/\\/g, '\\\\')}`));
-            assert.match(hoverContents.value, /外部输入: 是/);
-            assert.match(hoverContents.value, /生成输入: 否/);
+            assert.match(hoverContents.value, /Module: ExternalHelpers/);
+            assert.match(hoverContents.value, new RegExp(`Module Path: ${modulePath.replace(/\\/g, '\\\\')}`));
+            assert.match(hoverContents.value, /External Input: Yes/);
+            assert.match(hoverContents.value, /Generated Input: No/);
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }
@@ -1170,10 +1170,10 @@ suite('LSP Integration Tests', () => {
             assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string');
             assert('kind' in hoverContents);
             assert.strictEqual(hoverContents.kind, 'markdown');
-            assert.match(hoverContents.value, /模块: ExternalHelpers/);
-            assert.match(hoverContents.value, new RegExp(`模块路径: ${modulePath.replace(/\\/g, '\\\\')}`));
-            assert.match(hoverContents.value, /外部输入: 是/);
-            assert.match(hoverContents.value, /生成输入: 否/);
+            assert.match(hoverContents.value, /Module: ExternalHelpers/);
+            assert.match(hoverContents.value, new RegExp(`Module Path: ${modulePath.replace(/\\/g, '\\\\')}`));
+            assert.match(hoverContents.value, /External Input: Yes/);
+            assert.match(hoverContents.value, /Generated Input: No/);
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }
@@ -1257,9 +1257,9 @@ suite('LSP Integration Tests', () => {
             assert(!Array.isArray(projectBinaryContents) && typeof projectBinaryContents !== 'string');
             assert('kind' in projectBinaryContents);
             assert.strictEqual(projectBinaryContents.kind, 'markdown');
-            assert.match(projectBinaryContents.value, /文件: root-helper\.cmake/);
-            assert.match(projectBinaryContents.value, new RegExp(`解析路径: ${rootGeneratedPath.replace(/\\/g, '\\\\')}`, 'i'));
-            assert.match(projectBinaryContents.value, /位于构建目录: 是/);
+            assert.match(projectBinaryContents.value, /File: root-helper\.cmake/);
+            assert.match(projectBinaryContents.value, new RegExp(`Resolved Path: ${rootGeneratedPath.replace(/\\/g, '\\\\')}`, 'i'));
+            assert.match(projectBinaryContents.value, /In Build Directory: Yes/);
 
             const currentBinaryResult = await connection.sendRequest(HoverRequest.type, {
                 textDocument: { uri },
@@ -1271,9 +1271,9 @@ suite('LSP Integration Tests', () => {
             assert(!Array.isArray(currentBinaryContents) && typeof currentBinaryContents !== 'string');
             assert('kind' in currentBinaryContents);
             assert.strictEqual(currentBinaryContents.kind, 'markdown');
-            assert.match(currentBinaryContents.value, /文件: src-helper\.cmake/);
-            assert.match(currentBinaryContents.value, new RegExp(`解析路径: ${currentGeneratedPath.replace(/\\/g, '\\\\')}`, 'i'));
-            assert.match(currentBinaryContents.value, /位于构建目录: 是/);
+            assert.match(currentBinaryContents.value, /File: src-helper\.cmake/);
+            assert.match(currentBinaryContents.value, new RegExp(`Resolved Path: ${currentGeneratedPath.replace(/\\/g, '\\\\')}`, 'i'));
+            assert.match(currentBinaryContents.value, /In Build Directory: Yes/);
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }
