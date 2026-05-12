@@ -114,6 +114,7 @@ export class CMakeLanguageServer {
     private tokenStreams: Map<string, CommonTokenStream> = new Map();
     private flatCommandsMap: Map<string, FlatCommand[]> = new Map();
     private commentsMap: Map<string, Token[]> = new Map();
+    private parsedFileRequestsByUri: Map<string, Promise<ParsedCMakeFile>> = new Map();
     private parsedDocumentVersionsByUri: Map<string, number> = new Map();
     private workspaceStates: Map<string, WorkspaceState> = new Map();
     private logger: Logger = createLogger('cmake-intelli', 'off');
@@ -312,6 +313,7 @@ export class CMakeLanguageServer {
     private async onInitialized(params: InitializedParams) {
         this.connection.client.register(DidChangeConfigurationNotification.type, undefined);
         const workspaceFolders = this.getWorkspaceFolders();
+        const initializationStart = Date.now();
         const initializationResults = await Promise.allSettled(workspaceFolders.map(folder => this.ensureEnvironmentInitialized(folder)));
         const failedWorkspaceFolders: string[] = [];
         initializationResults.forEach((result, index) => {
@@ -329,11 +331,16 @@ export class CMakeLanguageServer {
             this.connection.window.showWarningMessage(`CMake environment initialization failed for ${failedWorkspaceFolders.length} workspace folder(s). Check output logs for details.`);
         }
 
+        this.logger.debug(`Initial environment initialization finished in ${Date.now() - initializationStart}ms for ${workspaceFolders.length} workspace folder(s)`);
+
+        const workspaceIndexStart = Date.now();
         await this.ensureAllWorkspaceFoldersIndexed();
+        this.logger.debug(`Initial workspace indexing finished in ${Date.now() - workspaceIndexStart}ms`);
         this.connection.sendNotification(READY_NOTIFICATION);
     }
 
     private async onCMakeToolsProjectSnapshotChanged(params: CMakeToolsProjectSnapshotNotificationParams): Promise<void> {
+        const startedAt = Date.now();
         const workspaceFolder = URI.parse(params.workspaceFolderUri);
         const workspaceState = this.getWorkspaceState(workspaceFolder);
         const previousSnapshot = workspaceState.cmakeToolsProjectSnapshot;
@@ -345,23 +352,30 @@ export class CMakeLanguageServer {
         }
 
         if (nextSnapshot?.buildDirectory) {
+            const fileApiLoadStart = Date.now();
             try {
                 workspaceState.fileApiRawSnapshot = loadFileApiRawSnapshot(nextSnapshot.buildDirectory) ?? undefined;
+                this.logger.debug(`Loaded File API snapshot for ${workspaceFolder.fsPath} in ${Date.now() - fileApiLoadStart}ms`);
             } catch (error) {
                 workspaceState.fileApiRawSnapshot = undefined;
                 this.logger.debug(`Failed to load File API snapshot for ${workspaceFolder.fsPath}: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
 
+        const cmakeCacheLoadStart = Date.now();
         workspaceState.cmakeCacheEntriesByName = nextSnapshot?.buildDirectory
             ? await loadCMakeCacheEntries(nextSnapshot.buildDirectory)
             : undefined;
         workspaceState.cmakeCacheBuildDirectory = nextSnapshot?.buildDirectory;
+        this.logger.debug(`Loaded CMake cache snapshot for ${workspaceFolder.fsPath} in ${Date.now() - cmakeCacheLoadStart}ms`);
 
         if (this.didFileApiRawSnapshotChange(previousFileApiRawSnapshot, workspaceState.fileApiRawSnapshot)) {
+            const diagnosticsRefreshStart = Date.now();
             await this.refreshOpenDocumentDiagnosticsForWorkspace(workspaceFolder);
+            this.logger.debug(`Refreshed open-document diagnostics for ${workspaceFolder.fsPath} in ${Date.now() - diagnosticsRefreshStart}ms after snapshot change`);
         }
 
+        this.logger.debug(`Processed CMake Tools snapshot update for ${workspaceFolder.fsPath} in ${Date.now() - startedAt}ms`);
         this.logger.debug(`Updated CMake Tools snapshot for ${workspaceFolder.fsPath}`, JSON.stringify(params.snapshot));
     }
 
@@ -1328,7 +1342,9 @@ export class CMakeLanguageServer {
         }
 
         const workspaceState = this.getWorkspaceStateForUri(document.uri);
+    const ensureEnvironmentStart = Date.now();
         await this.ensureEnvironmentInitialized(document.uri);
+    this.logger.debug(`Diagnostics environment check finished for ${document.uri} in ${Date.now() - ensureEnvironmentStart}ms`);
 
         const syntaxErrorListener = new SyntaxErrorListener();
         const parsedFile = this.parseCMakeFile(document, 'document change', parser => {
@@ -1350,7 +1366,9 @@ export class CMakeLanguageServer {
             fileApiRawSnapshot: workspaceState.fileApiRawSnapshot,
             buildDirectory: workspaceState.cmakeToolsProjectSnapshot?.buildDirectory,
         });
+        const pathDiagnosticsStart = Date.now();
         const pathDiagnostics = await pathDiagnosticsProvider.getDiagnostics(flatCommands);
+        this.logger.debug(`Path diagnostics finished for ${document.uri} in ${Date.now() - pathDiagnosticsStart}ms with ${pathDiagnostics.length} item(s)`);
 
         const diagnostics = {
             uri: document.uri,
@@ -1398,6 +1416,8 @@ export class CMakeLanguageServer {
     }
 
     private async refreshOpenDocumentDiagnosticsForWorkspace(workspaceFolder: URI): Promise<void> {
+        const startedAt = Date.now();
+        let refreshedCount = 0;
         for (const document of this.documents.all()) {
             if (document.languageId !== 'cmake') {
                 continue;
@@ -1407,7 +1427,10 @@ export class CMakeLanguageServer {
             }
 
             await this.publishDiagnosticsForDocument(document);
+            refreshedCount++;
         }
+
+        this.logger.debug(`Refreshed diagnostics for ${refreshedCount} open CMake document(s) in ${Date.now() - startedAt}ms for ${workspaceFolder.fsPath}`);
     }
 
     private async onDocumentLinks(params: DocumentLinkParams, token: CancellationToken): Promise<DocumentLink[] | null> {
@@ -1609,10 +1632,12 @@ export class CMakeLanguageServer {
     private async indexWorkspaceFolder(workspaceFolder: URI, generation: number): Promise<void> {
         const start = Date.now();
         const workspaceState = this.getWorkspaceState(workspaceFolder);
+        const collectStart = Date.now();
         const files = await this.collectWorkspaceCMakeFiles(
             workspaceFolder.fsPath,
             this.getWorkspaceIgnoreDirectories(workspaceState.extSettings),
         );
+        this.logger.debug(`Collected ${files.length} workspace CMake files in ${Date.now() - collectStart}ms for ${workspaceFolder.fsPath}`);
         for (const filePath of files) {
             if (!this.isEnvironmentGenerationCurrent(workspaceFolder, generation)) {
                 return;
@@ -1732,24 +1757,39 @@ export class CMakeLanguageServer {
         return parsedFile;
     }
 
-    private async ensureParsedFile(uri: string): Promise<void> {
+    private hasCurrentParsedSnapshot(uri: string): boolean {
         const hasCachedSnapshot = this.fileContexts.has(uri)
             && this.tokenStreams.has(uri)
             && this.flatCommandsMap.has(uri)
             && this.commentsMap.has(uri);
-        if (hasCachedSnapshot) {
-            const openDocument = this.documents.get(uri);
-            if (!openDocument) {
-                return;
-            }
-
-            const parsedVersion = this.parsedDocumentVersionsByUri.get(uri);
-            if (parsedVersion === openDocument.version) {
-                return;
-            }
+        if (!hasCachedSnapshot) {
+            return false;
         }
 
-        await this.parseAndStoreFileAsync(uri);
+        const openDocument = this.documents.get(uri);
+        if (!openDocument) {
+            return true;
+        }
+
+        const parsedVersion = this.parsedDocumentVersionsByUri.get(uri);
+        return parsedVersion === openDocument.version;
+    }
+
+    private async ensureParsedFile(uri: string): Promise<void> {
+        while (!this.hasCurrentParsedSnapshot(uri)) {
+            let request = this.parsedFileRequestsByUri.get(uri);
+            if (!request) {
+                request = this.parseAndStoreFileAsync(uri)
+                    .finally(() => {
+                        if (this.parsedFileRequestsByUri.get(uri) === request) {
+                            this.parsedFileRequestsByUri.delete(uri);
+                        }
+                    });
+                this.parsedFileRequestsByUri.set(uri, request);
+            }
+
+            await request;
+        }
     }
 
     private async populateIndexTopDownAsync(uri: string, visited: Set<string>, token?: CancellationToken): Promise<void> {
@@ -1895,10 +1935,13 @@ export class CMakeLanguageServer {
     }
 
     private async initializeEnvironment(workspaceFolder: URI, settings?: ExtensionSettings): Promise<void> {
+        const initializeStart = Date.now();
         const workspaceState = this.getWorkspaceState(workspaceFolder);
         const generation = ++workspaceState.environmentGeneration;
         workspaceState.environmentReady = false;
+        const settingsStart = Date.now();
         workspaceState.extSettings = settings ?? await this.getExtSettings(workspaceFolder.toString());
+        this.logger.debug(`Loaded extension settings for ${workspaceFolder.fsPath} in ${Date.now() - settingsStart}ms`);
         this.logger.setLevel(workspaceState.extSettings.loggingLevel);
         workspaceState.workspaceIndexing = undefined;
         workspaceState.workspaceIndexingGeneration = undefined;
@@ -1910,22 +1953,28 @@ export class CMakeLanguageServer {
         }
         workspaceState.symbolIndex.clearBuiltinModuleCommandCatalog();
         try {
+            const environmentSetupStart = Date.now();
             await initializeCMakeEnvironment(
                 workspaceState.extSettings,
                 workspaceState.symbolIndex,
                 (stats: BuiltinEntriesLoadStats) => {
                     this.logger.debug(`Loaded cmake builtin help entries from ${stats.source} in ${stats.durationMs}ms`);
                 },
+                (stats) => {
+                    this.logger.debug(`Environment phase ${stats.phase} finished in ${stats.durationMs}ms${stats.detail ? ` (${stats.detail})` : ''}`);
+                },
             );
+            this.logger.debug(`CMake environment core initialization finished in ${Date.now() - environmentSetupStart}ms for ${workspaceFolder.fsPath}`);
             if (workspaceState.symbolIndex.cmakeModulePath) {
+                const catalogStart = Date.now();
                 const catalog = await loadBuiltinModuleCommandCatalog({
                     symbolIndex: workspaceState.symbolIndex,
                     cmakePath: workspaceState.symbolIndex.cmakePath,
-                    cmakeVersion: workspaceState.symbolIndex.cmakeVersion,
+                    cmakeFingerprint: workspaceState.symbolIndex.cmakeFingerprint,
                     cmakeModulePath: workspaceState.symbolIndex.cmakeModulePath,
                 });
                 if (catalog.length > 0) {
-                    this.logger.debug(`Loaded builtin module command catalog: commands=${catalog.length}`);
+                    this.logger.debug(`Loaded builtin module command catalog in ${Date.now() - catalogStart}ms: commands=${catalog.length}`);
                 }
             }
             if (generation === workspaceState.environmentGeneration) {
@@ -1937,6 +1986,8 @@ export class CMakeLanguageServer {
             workspaceState.environmentReady = false;
         }
 
+        this.logger.debug(`Environment initialization finished in ${Date.now() - initializeStart}ms for ${workspaceFolder.fsPath} (generation=${generation}, ready=${workspaceState.environmentReady})`);
+
         void this.warmBuiltinModuleCachesInBackground(workspaceState, generation);
     }
 
@@ -1947,10 +1998,11 @@ export class CMakeLanguageServer {
         }
 
         try {
+            this.logger.debug(`Starting standard library warmup for ${cmakeModulePath}`);
             const result = await warmBuiltinModuleCaches({
                 symbolIndex: workspaceState.symbolIndex,
                 cmakePath: workspaceState.symbolIndex.cmakePath,
-                cmakeVersion: workspaceState.symbolIndex.cmakeVersion,
+                cmakeFingerprint: workspaceState.symbolIndex.cmakeFingerprint,
                 cmakeModulePath,
                 shouldCancel: () => generation !== workspaceState.environmentGeneration,
             });

@@ -7,7 +7,7 @@ import { extractSymbols } from './symbolExtractor';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
 import { parseCMakeText } from './utils';
 
-const BUILTIN_MODULE_CACHE_VERSION = 1;
+const BUILTIN_MODULE_CACHE_VERSION = 2;
 const BUILTIN_MODULE_YIELD_INTERVAL = 8;
 
 type SerializedSymbol = {
@@ -37,16 +37,14 @@ type PersistedBuiltinModuleEntry = {
 
 type PersistedBuiltinModuleIndex = {
     cacheVersion: number;
-    cmakePath: string;
-    cmakeVersion: string;
+    cmakeFingerprint: string;
     cmakeModulePath: string;
     entries: Record<string, PersistedBuiltinModuleEntry>;
 };
 
 type PersistedBuiltinModuleCommandCatalog = {
     cacheVersion: number;
-    cmakePath: string;
-    cmakeVersion: string;
+    cmakeFingerprint: string;
     cmakeModulePath: string;
     commands: string[];
 };
@@ -62,7 +60,7 @@ export type BuiltinModuleWarmupResult = {
 export interface BuiltinModuleWarmupOptions {
     symbolIndex: SymbolIndex;
     cmakePath: string;
-    cmakeVersion: string;
+    cmakeFingerprint: string;
     cmakeModulePath: string;
     shouldCancel?: () => boolean;
 }
@@ -116,26 +114,26 @@ export function deserializeFileSymbolCache(serialized: SerializedFileSymbolCache
     return cache;
 }
 
-function getBuiltinModuleCacheFilePath(cmakePath: string, cmakeVersion: string, cmakeModulePath: string): string {
+function getBuiltinModuleCacheFilePath(cmakePath: string, cmakeFingerprint: string, cmakeModulePath: string): string {
     const hash = crypto
         .createHash('sha256')
-        .update(`${cmakePath}\0${cmakeVersion}\0${cmakeModulePath}`)
+        .update(`${cmakePath}\0${cmakeFingerprint}\0${cmakeModulePath}`)
         .digest('hex')
         .slice(0, 16);
     return path.join(paths.dataDir, 'builtin-module-cache', `${hash}.json`);
 }
 
-function getBuiltinModuleCommandCatalogFilePath(cmakePath: string, cmakeVersion: string, cmakeModulePath: string): string {
+function getBuiltinModuleCommandCatalogFilePath(cmakePath: string, cmakeFingerprint: string, cmakeModulePath: string): string {
     const hash = crypto
         .createHash('sha256')
-        .update(`${cmakePath}\0${cmakeVersion}\0${cmakeModulePath}`)
+        .update(`${cmakePath}\0${cmakeFingerprint}\0${cmakeModulePath}`)
         .digest('hex')
         .slice(0, 16);
     return path.join(paths.dataDir, 'builtin-module-cache', `${hash}.commands.json`);
 }
 
 async function readBuiltinModuleCache(options: BuiltinModuleWarmupOptions): Promise<PersistedBuiltinModuleIndex | null> {
-    const filePath = getBuiltinModuleCacheFilePath(options.cmakePath, options.cmakeVersion, options.cmakeModulePath);
+    const filePath = getBuiltinModuleCacheFilePath(options.cmakePath, options.cmakeFingerprint, options.cmakeModulePath);
     const existing = builtinModuleCacheFileMemo.get(filePath);
     if (existing) {
         return existing;
@@ -147,8 +145,7 @@ async function readBuiltinModuleCache(options: BuiltinModuleWarmupOptions): Prom
             const parsed = JSON.parse(content) as PersistedBuiltinModuleIndex;
             if (
                 parsed.cacheVersion !== BUILTIN_MODULE_CACHE_VERSION
-                || parsed.cmakePath !== options.cmakePath
-                || parsed.cmakeVersion !== options.cmakeVersion
+                || parsed.cmakeFingerprint !== options.cmakeFingerprint
                 || parsed.cmakeModulePath !== options.cmakeModulePath
             ) {
                 return null;
@@ -169,12 +166,11 @@ async function readBuiltinModuleCache(options: BuiltinModuleWarmupOptions): Prom
 }
 
 async function writeBuiltinModuleCache(options: BuiltinModuleWarmupOptions, entries: Record<string, PersistedBuiltinModuleEntry>): Promise<void> {
-    const filePath = getBuiltinModuleCacheFilePath(options.cmakePath, options.cmakeVersion, options.cmakeModulePath);
+    const filePath = getBuiltinModuleCacheFilePath(options.cmakePath, options.cmakeFingerprint, options.cmakeModulePath);
     await mkdir_p(path.dirname(filePath));
     const payload: PersistedBuiltinModuleIndex = {
         cacheVersion: BUILTIN_MODULE_CACHE_VERSION,
-        cmakePath: options.cmakePath,
-        cmakeVersion: options.cmakeVersion,
+        cmakeFingerprint: options.cmakeFingerprint,
         cmakeModulePath: options.cmakeModulePath,
         entries,
     };
@@ -183,7 +179,7 @@ async function writeBuiltinModuleCache(options: BuiltinModuleWarmupOptions, entr
 }
 
 async function readBuiltinModuleCommandCatalog(options: BuiltinModuleWarmupOptions): Promise<PersistedBuiltinModuleCommandCatalog | null> {
-    const filePath = getBuiltinModuleCommandCatalogFilePath(options.cmakePath, options.cmakeVersion, options.cmakeModulePath);
+    const filePath = getBuiltinModuleCommandCatalogFilePath(options.cmakePath, options.cmakeFingerprint, options.cmakeModulePath);
     const existing = builtinModuleCommandCatalogFileMemo.get(filePath);
     if (existing) {
         return existing;
@@ -195,8 +191,7 @@ async function readBuiltinModuleCommandCatalog(options: BuiltinModuleWarmupOptio
             const parsed = JSON.parse(content) as PersistedBuiltinModuleCommandCatalog;
             if (
                 parsed.cacheVersion !== BUILTIN_MODULE_CACHE_VERSION
-                || parsed.cmakePath !== options.cmakePath
-                || parsed.cmakeVersion !== options.cmakeVersion
+                || parsed.cmakeFingerprint !== options.cmakeFingerprint
                 || parsed.cmakeModulePath !== options.cmakeModulePath
             ) {
                 return null;
@@ -217,12 +212,11 @@ async function readBuiltinModuleCommandCatalog(options: BuiltinModuleWarmupOptio
 }
 
 async function writeBuiltinModuleCommandCatalog(options: BuiltinModuleWarmupOptions, commands: string[]): Promise<void> {
-    const filePath = getBuiltinModuleCommandCatalogFilePath(options.cmakePath, options.cmakeVersion, options.cmakeModulePath);
+    const filePath = getBuiltinModuleCommandCatalogFilePath(options.cmakePath, options.cmakeFingerprint, options.cmakeModulePath);
     await mkdir_p(path.dirname(filePath));
     const payload: PersistedBuiltinModuleCommandCatalog = {
         cacheVersion: BUILTIN_MODULE_CACHE_VERSION,
-        cmakePath: options.cmakePath,
-        cmakeVersion: options.cmakeVersion,
+        cmakeFingerprint: options.cmakeFingerprint,
         cmakeModulePath: options.cmakeModulePath,
         commands,
     };

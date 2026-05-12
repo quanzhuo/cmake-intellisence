@@ -3,10 +3,6 @@
  * copy from vscode-cmake-tools
  */
 
-import * as node_fs from 'fs';
-import * as path from 'path';
-import paths, { mkdir_p, exists } from './paths';
-
 /** Logging levels */
 export enum LogLevel {
     Debug,
@@ -65,31 +61,10 @@ export interface Stringable {
     toLocaleString(): string;
 }
 
-let _LOGGER: NodeJS.WritableStream;
-
-export function logFilePath(): string {
-    return path.join(paths.dataDir, 'log.txt');
-}
-
-async function _openLogFile() {
-    if (!_LOGGER) {
-        const fpath = logFilePath();
-        await mkdir_p(path.dirname(fpath));
-        if (await exists(fpath)) {
-            _LOGGER = node_fs.createWriteStream(fpath, { flags: 'r+' });
-        } else {
-            _LOGGER = node_fs.createWriteStream(fpath, { flags: 'w' });
-        }
-    }
-    return _LOGGER;
-}
-
 /**
  * Manages and controls logging
  */
 class SingletonLogger {
-    private readonly _logStream = _openLogFile();
-
     private _log(level: LogLevel, ...args: Stringable[]) {
 
         if (!levelEnabled(level)) {
@@ -115,10 +90,6 @@ class SingletonLogger {
                 console.error(raw_message);
                 break;
         }
-        // Write to the logfile asynchronously.
-        this._logStream.then(strm => strm.write(raw_message + '\n')).catch(e => {
-            console.error('Unhandled error while writing cmake-intellisense log file', e);
-        });
     }
 
     debug(...args: Stringable[]) {

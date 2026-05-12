@@ -20,14 +20,12 @@ export interface ExtensionSettings {
     workspaceIgnoreDirectories?: string[];
 }
 
-const BUILTIN_ENTRIES_CACHE_VERSION = 1;
+const CMAKE_CACHE_FINGERPRINT_SCHEMA_VERSION = 1;
 const builtinEntriesMemo = new Map<string, Promise<[Set<string>, Set<string>, Set<string>, Set<string>, Set<string>]>>();
+const cmakeRootMemo = new Map<string, Promise<string | null>>();
 
 type PersistedBuiltinEntries = {
-    cacheVersion: number;
-    cmakePath: string;
-    cmakeExecutableSize: number;
-    cmakeExecutableMtimeMs: number;
+    cmakeFingerprint: string;
     modules: string[];
     policies: string[];
     variables: string[];
@@ -35,9 +33,14 @@ type PersistedBuiltinEntries = {
     commands: string[];
 };
 
-type CMakeExecutableFingerprint = {
-    size: number;
-    mtimeMs: number;
+type PersistedCMakeRoot = {
+    cmakeFingerprint: string;
+    cmakeRoot: string;
+};
+
+type CMakeCacheFingerprint = {
+    memoKey: string;
+    value: string;
 };
 
 type BuiltinEntries = [Set<string>, Set<string>, Set<string>, Set<string>, Set<string>];
@@ -53,6 +56,33 @@ type BuiltinEntriesLoadResult = {
     entries: BuiltinEntries;
     stats: BuiltinEntriesLoadStats;
 };
+
+export interface CMakeEnvironmentPhaseStats {
+    phase: string;
+    durationMs: number;
+    detail?: string;
+}
+
+type TimedResult<T> = {
+    value: T;
+    durationMs: number;
+};
+
+function timeSync<T>(callback: () => T): TimedResult<T> {
+    const startedAt = Date.now();
+    return {
+        value: callback(),
+        durationMs: Date.now() - startedAt,
+    };
+}
+
+async function timeAsync<T>(callback: () => Promise<T>): Promise<TimedResult<T>> {
+    const startedAt = Date.now();
+    return {
+        value: await callback(),
+        durationMs: Date.now() - startedAt,
+    };
+}
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -79,12 +109,34 @@ export async function initializeCMakeEnvironment(
     extSettings: ExtensionSettings,
     symbolIndex: SymbolIndex,
     onBuiltinEntriesLoaded?: (stats: BuiltinEntriesLoadStats) => void,
+    onPhaseTimed?: (stats: CMakeEnvironmentPhaseStats) => void,
 ): Promise<void> {
-    const cmakePath = resolveExecutablePath(extSettings.cmakePath, 'cmake');
-    const [version, builtinEntriesResult, pkgConfigModules] = await Promise.all([
-        getCMakeVersion(cmakePath),
-        getBuiltinEntries(cmakePath),
-        getPkgConfigModules(extSettings.pkgConfigPath),
+    const resolvedCMakePath = timeSync(() => resolveExecutablePath(extSettings.cmakePath, 'cmake'));
+    const cmakePath = resolvedCMakePath.value;
+    const cacheFingerprint = await getCMakeCacheFingerprint(cmakePath);
+    onPhaseTimed?.({
+        phase: 'resolve-cmake-path',
+        durationMs: resolvedCMakePath.durationMs,
+        detail: cmakePath,
+    });
+
+    const [builtinEntriesResult, pkgConfigModules] = await Promise.all([
+        timeAsync(() => getBuiltinEntries(cmakePath, cacheFingerprint)).then(result => {
+            onPhaseTimed?.({
+                phase: 'get-builtin-entries',
+                durationMs: result.durationMs,
+                detail: result.value.stats.source,
+            });
+            return result.value;
+        }),
+        timeAsync(() => getPkgConfigModules(extSettings.pkgConfigPath)).then(result => {
+            onPhaseTimed?.({
+                phase: 'get-pkg-config-modules',
+                durationMs: result.durationMs,
+                detail: `count=${result.value.size}`,
+            });
+            return result.value;
+        }),
     ]);
     onBuiltinEntriesLoaded?.(builtinEntriesResult.stats);
     const builtinEntries = builtinEntriesResult.entries;
@@ -109,10 +161,16 @@ export async function initializeCMakeEnvironment(
     }
 
     symbolIndex.cmakePath = cmakePath;
-    symbolIndex.cmakeVersion = version[0];
+    symbolIndex.cmakeFingerprint = cacheFingerprint.value;
     symbolIndex.pkgConfigPath = extSettings.pkgConfigPath;
     symbolIndex.pkgConfigModules = pkgConfigModules;
-    symbolIndex.cmakeModulePath = await getCMakeModulePath(cmakePath, version[1], version[2]);
+    const modulePathResult = await timeAsync(() => getCMakeModulePath(cmakePath, cacheFingerprint));
+    symbolIndex.cmakeModulePath = modulePathResult.value;
+    onPhaseTimed?.({
+        phase: 'get-cmake-module-path',
+        durationMs: modulePathResult.durationMs,
+        detail: modulePathResult.value ?? 'not-found',
+    });
     symbolIndex.setSystemCache(systemCache);
 }
 
@@ -201,8 +259,8 @@ function expandProperties(properties: Set<string>): Set<string> {
     return expandedProperties;
 }
 
-async function getCMakeModulePath(cmakePath: string, major: number, minor: number): Promise<string | undefined> {
-    const cmakeRoot = await getCMakeRoot(cmakePath, major, minor);
+async function getCMakeModulePath(cmakePath: string, cacheFingerprint: CMakeCacheFingerprint): Promise<string | undefined> {
+    const cmakeRoot = await getCMakeRoot(cmakePath, cacheFingerprint);
     return cmakeRoot ? path.join(cmakeRoot, 'Modules') : undefined;
 }
 
@@ -221,7 +279,49 @@ function extractCMakeRoot(output: string): string | null {
     return null;
 }
 
-async function getCMakeRoot(cmakePath: string, major: number, minor: number): Promise<string | null> {
+async function getCMakeRoot(cmakePath: string, cacheFingerprint: CMakeCacheFingerprint): Promise<string | null> {
+    const memoized = cmakeRootMemo.get(cacheFingerprint.memoKey);
+    if (memoized) {
+        return memoized;
+    }
+
+    const request = (async (): Promise<string | null> => {
+        const persisted = await readCMakeRootCache(cmakePath);
+        if (hasMatchingCMakeCacheFingerprint(persisted?.cmakeFingerprint, cacheFingerprint.value)) {
+            return persisted!.cmakeRoot;
+        }
+
+        const detectedRoot = await detectCMakeRoot(cmakePath);
+        if (detectedRoot) {
+            await writeCMakeRootCache(cmakePath, cacheFingerprint.value, detectedRoot);
+        }
+        return detectedRoot;
+    })();
+
+    cmakeRootMemo.set(cacheFingerprint.memoKey, request);
+    try {
+        return await request;
+    } catch (error) {
+        cmakeRootMemo.delete(cacheFingerprint.memoKey);
+        throw error;
+    }
+}
+
+function detectBundledCMakeRoot(cmakePath: string): string | null {
+    const shareDir = path.join(path.dirname(cmakePath), '..', 'share');
+    try {
+        const candidates = fs.readdirSync(shareDir, { withFileTypes: true })
+            .filter(entry => entry.isDirectory() && (entry.name === 'cmake' || entry.name.startsWith('cmake-')))
+            .map(entry => path.join(shareDir, entry.name))
+            .filter(candidate => fs.existsSync(path.join(candidate, 'Modules')))
+            .sort((left, right) => right.localeCompare(left, undefined, { numeric: true, sensitivity: 'base' }));
+        return candidates[0] ? path.normalize(candidates[0]) : null;
+    } catch {
+        return null;
+    }
+}
+
+async function detectCMakeRoot(cmakePath: string): Promise<string | null> {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisense-'));
     try {
         const { stdout } = await execFilePromise(cmakePath, ['--system-information'], { cwd: tmpDir });
@@ -238,11 +338,9 @@ async function getCMakeRoot(cmakePath: string, major: number, minor: number): Pr
         }
 
         if (process.platform === 'win32') {
-            for (const dir of ['cmake', `cmake-${major}.${minor}`]) {
-                const cmakeRoot = path.join(path.dirname(cmakePath), '..', 'share', dir);
-                if (fs.existsSync(cmakeRoot)) {
-                    return path.normalize(cmakeRoot);
-                }
+            const bundledRoot = detectBundledCMakeRoot(cmakePath);
+            if (bundledRoot) {
+                return bundledRoot;
             }
         }
         // Could not determine CMAKE_ROOT; return null so the caller can proceed without it.
@@ -252,25 +350,8 @@ async function getCMakeRoot(cmakePath: string, major: number, minor: number): Pr
     }
 }
 
-async function getCMakeVersion(cmakePath: string): Promise<[string, number, number, number]> {
-    const { stdout } = await execFilePromise(cmakePath, ['--version']);
-    const regexp: RegExp = /(\d+)\.(\d+)\.(\d+)/;
-    const res = stdout.match(regexp);
-    if (!res) {
-        throw new Error(`Failed to parse cmake version from: ${stdout}`);
-    }
-    return [
-        res[0],
-        parseInt(res[1]),
-        parseInt(res[2]),
-        parseInt(res[3])
-    ];
-}
-
-async function getBuiltinEntries(cmakePath: string): Promise<BuiltinEntriesLoadResult> {
-    const fingerprint = await getCMakeExecutableFingerprint(cmakePath);
-    const memoKey = `${cmakePath}\0${fingerprint?.size ?? -1}\0${fingerprint?.mtimeMs ?? -1}`;
-    const memoized = builtinEntriesMemo.get(memoKey);
+async function getBuiltinEntries(cmakePath: string, cacheFingerprint: CMakeCacheFingerprint): Promise<BuiltinEntriesLoadResult> {
+    const memoized = builtinEntriesMemo.get(cacheFingerprint.memoKey);
     if (memoized) {
         const startedAt = Date.now();
         const entries = await memoized;
@@ -286,9 +367,10 @@ async function getBuiltinEntries(cmakePath: string): Promise<BuiltinEntriesLoadR
     const request = (async (): Promise<BuiltinEntriesLoadResult> => {
         const startedAt = Date.now();
         const persisted = await readBuiltinEntriesCache(cmakePath);
-        if (isPersistedBuiltinEntriesFresh(persisted, cmakePath, fingerprint)) {
+        if (hasMatchingCMakeCacheFingerprint(persisted?.cmakeFingerprint, cacheFingerprint.value)) {
+            const cachedEntries = deserializeBuiltinEntries(persisted!);
             return {
-                entries: deserializeBuiltinEntries(persisted),
+                entries: cachedEntries,
                 stats: {
                     source: 'disk',
                     durationMs: Date.now() - startedAt,
@@ -297,9 +379,7 @@ async function getBuiltinEntries(cmakePath: string): Promise<BuiltinEntriesLoadR
         }
 
         const fresh = await fetchBuiltinEntriesFromCMake(cmakePath);
-        if (fingerprint) {
-            await writeBuiltinEntriesCache(cmakePath, fingerprint, fresh);
-        }
+        await writeBuiltinEntriesCache(cmakePath, cacheFingerprint.value, fresh);
         return {
             entries: fresh,
             stats: {
@@ -310,11 +390,11 @@ async function getBuiltinEntries(cmakePath: string): Promise<BuiltinEntriesLoadR
     })();
 
     const memoRequest = request.then(result => result.entries);
-    builtinEntriesMemo.set(memoKey, memoRequest);
+    builtinEntriesMemo.set(cacheFingerprint.memoKey, memoRequest);
     try {
         return await request;
     } catch (error) {
-        builtinEntriesMemo.delete(memoKey);
+        builtinEntriesMemo.delete(cacheFingerprint.memoKey);
         throw error;
     }
 }
@@ -324,32 +404,47 @@ function getBuiltinEntriesCacheFilePath(cmakePath: string): string {
     return path.join(paths.dataDir, 'builtin-help-cache', `${hash}.json`);
 }
 
-async function getCMakeExecutableFingerprint(cmakePath: string): Promise<CMakeExecutableFingerprint | null> {
+function getCMakeRootCacheFilePath(cmakePath: string): string {
+    const hash = crypto.createHash('sha256').update(cmakePath).digest('hex').slice(0, 16);
+    return path.join(paths.dataDir, 'cmake-root-cache', `${hash}.json`);
+}
+
+async function getCMakeCacheFingerprint(cmakePath: string): Promise<CMakeCacheFingerprint> {
+    let size = -1;
+    let mtimeMs = -1;
     try {
         const stats = await fs.promises.stat(cmakePath);
         if (!stats.isFile()) {
-            return null;
+            const raw = [
+                CMAKE_CACHE_FINGERPRINT_SCHEMA_VERSION.toString(),
+                cmakePath,
+                size.toString(),
+                mtimeMs.toString(),
+            ].join('\0');
+            return {
+                memoKey: raw,
+                value: crypto.createHash('sha256').update(raw).digest('hex'),
+            };
         }
-        return {
-            size: stats.size,
-            mtimeMs: stats.mtimeMs,
-        };
+        size = stats.size;
+        mtimeMs = stats.mtimeMs;
     } catch {
-        return null;
     }
+
+    const raw = [
+        CMAKE_CACHE_FINGERPRINT_SCHEMA_VERSION.toString(),
+        cmakePath,
+        size.toString(),
+        mtimeMs.toString(),
+    ].join('\0');
+    return {
+        memoKey: raw,
+        value: crypto.createHash('sha256').update(raw).digest('hex'),
+    };
 }
 
-function isPersistedBuiltinEntriesFresh(
-    persisted: PersistedBuiltinEntries | null,
-    cmakePath: string,
-    fingerprint: CMakeExecutableFingerprint | null,
-): persisted is PersistedBuiltinEntries {
-    return !!persisted
-        && persisted.cacheVersion === BUILTIN_ENTRIES_CACHE_VERSION
-        && persisted.cmakePath === cmakePath
-        && !!fingerprint
-        && persisted.cmakeExecutableSize === fingerprint.size
-        && persisted.cmakeExecutableMtimeMs === fingerprint.mtimeMs;
+function hasMatchingCMakeCacheFingerprint(persistedFingerprint: string | undefined, currentFingerprint: string): boolean {
+    return !!persistedFingerprint && persistedFingerprint === currentFingerprint;
 }
 
 async function readBuiltinEntriesCache(cmakePath: string): Promise<PersistedBuiltinEntries | null> {
@@ -357,6 +452,17 @@ async function readBuiltinEntriesCache(cmakePath: string): Promise<PersistedBuil
     try {
         const content = await fs.promises.readFile(filePath, 'utf8');
         const parsed = JSON.parse(content) as PersistedBuiltinEntries;
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+async function readCMakeRootCache(cmakePath: string): Promise<PersistedCMakeRoot | null> {
+    const filePath = getCMakeRootCacheFilePath(cmakePath);
+    try {
+        const content = await fs.promises.readFile(filePath, 'utf8');
+        const parsed = JSON.parse(content) as PersistedCMakeRoot;
         return parsed;
     } catch {
         return null;
@@ -377,20 +483,42 @@ function deserializeBuiltinEntries(
 
 async function writeBuiltinEntriesCache(
     cmakePath: string,
-    fingerprint: CMakeExecutableFingerprint,
+    cmakeFingerprint: string,
     entries: BuiltinEntries,
 ): Promise<void> {
     const filePath = getBuiltinEntriesCacheFilePath(cmakePath);
     const payload: PersistedBuiltinEntries = {
-        cacheVersion: BUILTIN_ENTRIES_CACHE_VERSION,
-        cmakePath,
-        cmakeExecutableSize: fingerprint.size,
-        cmakeExecutableMtimeMs: fingerprint.mtimeMs,
+        cmakeFingerprint,
         modules: [...entries[0]],
         policies: [...entries[1]],
         variables: [...entries[2]],
         properties: [...entries[3]],
         commands: [...entries[4]],
+    };
+
+    let tmpFile: string | undefined;
+    try {
+        await mkdir_p(path.dirname(filePath));
+        tmpFile = `${filePath}.${process.pid}.tmp`;
+        await fs.promises.writeFile(tmpFile, JSON.stringify(payload), 'utf8');
+        await fs.promises.rename(tmpFile, filePath);
+    } catch {
+        if (tmpFile) {
+            await fs.promises.rm(tmpFile, { force: true }).catch(() => undefined);
+        }
+        // Cache write failures should never block environment initialization.
+    }
+}
+
+async function writeCMakeRootCache(
+    cmakePath: string,
+    cmakeFingerprint: string,
+    cmakeRoot: string,
+): Promise<void> {
+    const filePath = getCMakeRootCacheFilePath(cmakePath);
+    const payload: PersistedCMakeRoot = {
+        cmakeFingerprint,
+        cmakeRoot,
     };
 
     let tmpFile: string | undefined;

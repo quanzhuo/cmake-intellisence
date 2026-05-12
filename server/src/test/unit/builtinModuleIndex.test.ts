@@ -7,6 +7,8 @@ import { deserializeFileSymbolCache, hydrateBuiltinModuleCacheEntry, loadBuiltin
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from '../../symbolIndex';
 
 suite('Builtin Module Index Tests', () => {
+    const cmakeFingerprint = 'cmake-fingerprint-v1';
+
     test('serializeFileSymbolCache should round-trip symbols and dependencies', () => {
         const uri = 'file:///tmp/Test.cmake';
         const cache = new FileSymbolCache(uri);
@@ -38,7 +40,7 @@ suite('Builtin Module Index Tests', () => {
             const firstResult = await warmBuiltinModuleCaches({
                 symbolIndex: firstIndex,
                 cmakePath: 'cmake',
-                cmakeVersion: '3.29.0',
+                cmakeFingerprint,
                 cmakeModulePath: moduleDir,
             });
 
@@ -50,7 +52,7 @@ suite('Builtin Module Index Tests', () => {
             const secondResult = await warmBuiltinModuleCaches({
                 symbolIndex: secondIndex,
                 cmakePath: 'cmake',
-                cmakeVersion: '3.29.0',
+                cmakeFingerprint,
                 cmakeModulePath: moduleDir,
             });
 
@@ -85,7 +87,7 @@ suite('Builtin Module Index Tests', () => {
             await warmBuiltinModuleCaches({
                 symbolIndex: warmIndex,
                 cmakePath: 'cmake',
-                cmakeVersion: '3.29.0',
+                cmakeFingerprint,
                 cmakeModulePath: moduleDir,
             });
 
@@ -94,7 +96,7 @@ suite('Builtin Module Index Tests', () => {
             const hydrated = await hydrateBuiltinModuleCacheEntry({
                 symbolIndex: coldIndex,
                 cmakePath: 'cmake',
-                cmakeVersion: '3.29.0',
+                cmakeFingerprint,
                 cmakeModulePath: moduleDir,
             }, fooUri);
 
@@ -128,7 +130,7 @@ suite('Builtin Module Index Tests', () => {
             await warmBuiltinModuleCaches({
                 symbolIndex,
                 cmakePath: 'cmake',
-                cmakeVersion: '3.29.0',
+                cmakeFingerprint,
                 cmakeModulePath: moduleDir,
             });
 
@@ -167,7 +169,7 @@ suite('Builtin Module Index Tests', () => {
             await warmBuiltinModuleCaches({
                 symbolIndex: warmIndex,
                 cmakePath: 'cmake',
-                cmakeVersion: '3.29.0',
+                cmakeFingerprint,
                 cmakeModulePath: moduleDir,
             });
 
@@ -177,7 +179,7 @@ suite('Builtin Module Index Tests', () => {
             const catalog = await loadBuiltinModuleCommandCatalog({
                 symbolIndex: coldIndex,
                 cmakePath: 'cmake',
-                cmakeVersion: '3.29.0',
+                cmakeFingerprint,
                 cmakeModulePath: moduleDir,
             });
 
@@ -188,7 +190,7 @@ suite('Builtin Module Index Tests', () => {
             const warmResult = await warmBuiltinModuleCaches({
                 symbolIndex: coldIndex,
                 cmakePath: 'cmake',
-                cmakeVersion: '3.29.0',
+                cmakeFingerprint,
                 cmakeModulePath: moduleDir,
             });
 
@@ -224,7 +226,7 @@ suite('Builtin Module Index Tests', () => {
             await warmBuiltinModuleCaches({
                 symbolIndex,
                 cmakePath: 'cmake',
-                cmakeVersion: '3.29.0',
+                cmakeFingerprint,
                 cmakeModulePath: moduleDir,
                 shouldCancel: () => {
                     callCount++;

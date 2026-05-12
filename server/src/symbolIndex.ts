@@ -139,7 +139,7 @@ export class FileSymbolCache {
  */
 export class SymbolIndex {
     public cmakePath: string = '';
-    public cmakeVersion: string = '';
+    public cmakeFingerprint: string = '';
     public cmakeModulePath: string | undefined;
     public pkgConfigPath: string = '';
     public pkgConfigModules: Map<string, string> = new Map();

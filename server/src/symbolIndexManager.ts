@@ -28,7 +28,7 @@ export async function ensureSymbolIndexCache(
         hydrated = await hydrateBuiltinModuleCacheEntry({
             symbolIndex,
             cmakePath: symbolIndex.cmakePath,
-            cmakeVersion: symbolIndex.cmakeVersion,
+            cmakeFingerprint: symbolIndex.cmakeFingerprint,
             cmakeModulePath: symbolIndex.cmakeModulePath,
         }, uri);
     }
