@@ -109,6 +109,7 @@ export class CMakeLanguageServer {
     private tokenStreams: Map<string, CommonTokenStream> = new Map();
     private flatCommandsMap: Map<string, FlatCommand[]> = new Map();
     private commentsMap: Map<string, Token[]> = new Map();
+    private parsedDocumentVersionsByUri: Map<string, number> = new Map();
     private workspaceStates: Map<string, WorkspaceState> = new Map();
     private logger: Logger = createLogger('cmake-intelli', 'off');
     private diagnosticsTimerByUri: Map<string, ReturnType<typeof setTimeout>> = new Map();
@@ -1218,6 +1219,7 @@ export class CMakeLanguageServer {
         this.fileContexts.delete(uri);
         this.tokenStreams.delete(uri);
         this.commentsMap.delete(uri);
+        this.parsedDocumentVersionsByUri.delete(uri);
         const docUri = URI.parse(uri);
         const workspaceFolderUri = this.getWorkspaceFolderForUri(uri);
         const isPersistedWorkspaceFile = this.isUriInsideWorkspace(docUri, workspaceFolderUri) && fs.existsSync(docUri.fsPath);
@@ -1329,6 +1331,12 @@ export class CMakeLanguageServer {
         for (const uri of [...this.commentsMap.keys()]) {
             if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
                 this.commentsMap.delete(uri);
+            }
+        }
+
+        for (const uri of [...this.parsedDocumentVersionsByUri.keys()]) {
+            if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
+                this.parsedDocumentVersionsByUri.delete(uri);
             }
         }
 
@@ -1464,6 +1472,13 @@ export class CMakeLanguageServer {
 
         const commentsChannel = CMakeLexer.channelNames.indexOf("COMMENTS");
         this.commentsMap.set(uri, parsedFile.tokenStream.tokens.filter(token => token.channel === commentsChannel));
+
+        const openDocument = this.documents.get(uri);
+        if (openDocument) {
+            this.parsedDocumentVersionsByUri.set(uri, openDocument.version);
+        } else {
+            this.parsedDocumentVersionsByUri.delete(uri);
+        }
     }
 
     private parseCMakeFile(
@@ -1494,8 +1509,20 @@ export class CMakeLanguageServer {
     }
 
     private async ensureParsedFile(uri: string): Promise<void> {
-        if (this.fileContexts.has(uri) && this.tokenStreams.has(uri) && this.flatCommandsMap.has(uri) && this.commentsMap.has(uri)) {
-            return;
+        const hasCachedSnapshot = this.fileContexts.has(uri)
+            && this.tokenStreams.has(uri)
+            && this.flatCommandsMap.has(uri)
+            && this.commentsMap.has(uri);
+        if (hasCachedSnapshot) {
+            const openDocument = this.documents.get(uri);
+            if (!openDocument) {
+                return;
+            }
+
+            const parsedVersion = this.parsedDocumentVersionsByUri.get(uri);
+            if (parsedVersion === openDocument.version) {
+                return;
+            }
         }
 
         await this.parseAndStoreFileAsync(uri);
