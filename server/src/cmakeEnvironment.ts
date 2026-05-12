@@ -222,7 +222,7 @@ function extractCMakeRoot(output: string): string | null {
 }
 
 async function getCMakeRoot(cmakePath: string, major: number, minor: number): Promise<string | null> {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisense-'));
     try {
         const { stdout } = await execFilePromise(cmakePath, ['--system-information'], { cwd: tmpDir });
         return extractCMakeRoot(stdout);

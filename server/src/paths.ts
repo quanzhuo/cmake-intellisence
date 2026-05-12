@@ -145,7 +145,7 @@ class Paths {
      * data.
      */
     get dataDir(): string {
-        return path.join(this.userLocalDir, 'cmake-intellisence');
+        return path.join(this.userLocalDir, 'cmake-intellisense');
     }
 
     /**
@@ -153,7 +153,7 @@ class Paths {
      * data.
      */
     get roamingDataDir(): string {
-        return path.join(this.userRoamingDir, 'cmake-intellisence');
+        return path.join(this.userRoamingDir, 'cmake-intellisense');
     }
 
     /**

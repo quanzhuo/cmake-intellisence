@@ -1,7 +1,7 @@
 {
   "name": "cmake-intellisence-client",
   "version": "1.0.0",
-  "description": "Language Client for CMake IntelliSence extension",
+  "description": "Language Client for CMake IntelliSense extension",
   "author": "quanzhuo",
   "license": "MIT",
   "publisher": "KylinIdeTeam",

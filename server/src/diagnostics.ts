@@ -33,7 +33,7 @@ export class SyntaxErrorListener extends ErrorListener<Token> {
                 }
             },
             severity: DiagnosticSeverity.Error,
-            source: 'cmake-intellisence',
+            source: 'cmake-intellisense',
             message: msg
         });
     }
@@ -79,7 +79,7 @@ export default class SemanticDiagnosticsListener extends CMakeListener {
                 }
             },
             severity: DiagnosticSeverity.Error,
-            source: 'cmake-intellisence',
+            source: 'cmake-intellisense',
             message: localize('diagnostics.breakContinue', token.text),
         });
     }
@@ -130,7 +130,7 @@ export class CommandCaseChecker {
                         }
                     },
                     severity: DiagnosticSeverity.Information,
-                    source: 'cmake-intellisence',
+                    source: 'cmake-intellisense',
                     message: localize('diagnostics.cmdCase'),
                     code: DIAG_CODE_CMD_CASE,
                 });

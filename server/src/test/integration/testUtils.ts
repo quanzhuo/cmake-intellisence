@@ -1,4 +1,5 @@
 import { ProtocolConnection } from 'vscode-languageserver-protocol/node';
+import { ExtensionSettings } from '../../cmakeEnvironment';
 import { READY_NOTIFICATION } from '../../testing';
 
 export function waitForServerReady(connection: ProtocolConnection, timeout = 30000): Promise<void> {
@@ -14,4 +15,16 @@ export function waitForServerReady(connection: ProtocolConnection, timeout = 300
             resolve();
         });
     });
+}
+
+export function createCompatibleConfigurationResponse(extSettings: ExtensionSettings): [Record<string, unknown>, Record<string, unknown>] {
+    const response = {
+        cmakePath: extSettings.cmakePath,
+        loggingLevel: extSettings.loggingLevel,
+        cmdCaseDiagnostics: extSettings.cmdCaseDiagnostics,
+        pkgConfigPath: extSettings.pkgConfigPath,
+        workspaceIgnoreDirectories: extSettings.workspaceIgnoreDirectories,
+    };
+
+    return [response, response];
 }

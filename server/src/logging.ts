@@ -117,7 +117,7 @@ class SingletonLogger {
         }
         // Write to the logfile asynchronously.
         this._logStream.then(strm => strm.write(raw_message + '\n')).catch(e => {
-            console.error('Unhandled error while writing cmake-intellisence log file', e);
+            console.error('Unhandled error while writing cmake-intellisense log file', e);
         });
     }
 

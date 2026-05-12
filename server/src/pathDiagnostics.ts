@@ -75,7 +75,7 @@ export class PathDiagnosticsProvider {
         return {
             range: Range.create(argCtx.start.line - 1, argCtx.start.column, endLine, endCharacter),
             severity,
-            source: 'cmake-intellisence',
+            source: 'cmake-intellisense',
             message,
             code,
         };

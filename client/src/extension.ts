@@ -1,29 +1,34 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
+import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, TransportKind } from 'vscode-languageclient/node';
 import { CMakeToolsSnapshotBridge } from './cmakeToolsBridge';
 import * as which from 'which';
+import { affectsCompatibleConfiguration, CONFIGURATION_SECTION, getCompatibleSetting } from './config';
 import { getConfigLogLevel, Logger } from './logging';
 
-export const SERVER_ID = 'cmakeIntelliSence';
+export const SERVER_ID = CONFIGURATION_SECTION;
 export const SERVER_NAME = 'CMake Language Server';
 
 let client: LanguageClient | undefined;
 let cmakeToolsSnapshotBridge: CMakeToolsSnapshotBridge | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
-    const channel = vscode.window.createOutputChannel('CMake IntelliSence');
+    const channel = vscode.window.createOutputChannel('CMake IntelliSense');
     context.subscriptions.push(channel);
 
     const logger = new Logger(channel);
-    logger.setLogLevel(getConfigLogLevel(vscode.workspace.getConfiguration(SERVER_ID)));
+    logger.setLogLevel(getConfigLogLevel());
 
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async (e) => {
-        if (e.affectsConfiguration(`${SERVER_ID}.loggingLevel`)) {
-            logger.setLogLevel(getConfigLogLevel(vscode.workspace.getConfiguration(SERVER_ID)));
+        if (affectsCompatibleConfiguration(e, 'loggingLevel')) {
+            logger.setLogLevel(getConfigLogLevel());
         }
 
-        if (e.affectsConfiguration(`${SERVER_ID}.cmakePath`)) {
+        if (affectsCompatibleConfiguration(e, 'trace.server')) {
+            await applyTraceConfiguration();
+        }
+
+        if (affectsCompatibleConfiguration(e, 'cmakePath')) {
             cmakeToolsSnapshotBridge?.dispose();
             cmakeToolsSnapshotBridge = undefined;
             if (client && client.isRunning()) {
@@ -39,18 +44,18 @@ export async function activate(context: vscode.ExtensionContext) {
     async function checkAndStart(cmakePath: string | null) {
         if (cmakePath) {
             const serverModule = context.asAbsolutePath(path.join('dist', 'server.js'));
-            startLanguageServer(cmakePath, serverModule, channel, logger);
+            await startLanguageServer(cmakePath, serverModule, channel, logger);
         } else {
             const selected = await vscode.window.showErrorMessage<string>(vscode.l10n.t('cmakeNotFound'), vscode.l10n.t('settings'));
             if (selected) {
-                vscode.commands.executeCommand('workbench.action.openSettings', `${SERVER_ID}.cmakePath`);
+                vscode.commands.executeCommand('workbench.action.openSettings', `${CONFIGURATION_SECTION}.cmakePath`);
             }
         }
     }
 }
 
 async function getCMakePath(): Promise<string | null> {
-    let cmakePath: string | null = vscode.workspace.getConfiguration(SERVER_ID).get<string>('cmakePath', 'cmake');
+    let cmakePath: string | null = getCompatibleSetting('cmakePath', 'cmake');
     cmakePath = await which(cmakePath, { nothrow: true });
     if (cmakePath) {
         return cmakePath;
@@ -58,7 +63,7 @@ async function getCMakePath(): Promise<string | null> {
     return null;
 }
 
-function startLanguageServer(cmakePath: string, serverModule: string, channel: vscode.OutputChannel, logger: Logger) {
+async function startLanguageServer(cmakePath: string, serverModule: string, channel: vscode.OutputChannel, logger: Logger) {
     // The debug options for the server
     // --inspect-brk=6009: runs the server in Node's Inspector mode so VS Code can attach to the server for debugging
     // 该参数会让 Node.js 在执行 Server 入口文件（即你的 server.js）的第一行代码前挂起，直到有外部调试器（VS Code）连接进来才会继续执行。
@@ -93,7 +98,16 @@ function startLanguageServer(cmakePath: string, serverModule: string, channel: v
 
     // start the client. This will also launch the server
     logger.info(`Start ${SERVER_NAME} ...`);
-    client.start();
+    await client.start();
+    await applyTraceConfiguration();
+}
+
+async function applyTraceConfiguration(): Promise<void> {
+    if (!client) {
+        return;
+    }
+
+    await client.setTrace(Trace.fromString(getCompatibleSetting('trace.server', 'off')));
 }
 
 

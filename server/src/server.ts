@@ -11,6 +11,7 @@ import { loadBuiltinModuleCommandCatalog, warmBuiltinModuleCaches } from './buil
 import { isCancellationError, throwIfCancelled } from './cancellation';
 import { CMakeCacheEntriesByName, getCacheEntryByName, loadCMakeCacheEntries } from './cmakeCache';
 import { BuiltinEntriesLoadStats, ExtensionSettings, ProjectTargetInfoListener, initializeCMakeEnvironment } from './cmakeEnvironment';
+import { CONFIGURATION_SECTION, LEGACY_CONFIGURATION_SECTION, resolveExtensionSettings } from './config';
 import Completion, { CMakeCompletionType, CompletionItemType, ProjectTargetInfo, findCommandAtPosition, findRecoveredCommandInfoAtPosition, getCompletionHelpLabel, getCompletionInfoAtCursor, getCompletionItemType, getCompletionWorkspaceKey, inComments } from './completion';
 import { DefinitionResolver } from './definition';
 import SemanticDiagnosticsListener, { CommandCaseChecker, DIAG_CODE_CMD_CASE, SyntaxErrorListener } from './diagnostics';
@@ -1885,34 +1886,12 @@ export class CMakeLanguageServer {
     }
 
     private async getExtSettings(scopeUri?: string): Promise<ExtensionSettings> {
-        const [
-            cmakePath,
-            loggingLevel,
-            cmdCaseDiagnostics,
-            pkgConfigPath,
-            workspaceIgnoreDirectories,
-        ] = await this.connection.workspace.getConfiguration([
-            { section: 'cmakeIntelliSence.cmakePath', scopeUri },
-            { section: 'cmakeIntelliSence.loggingLevel', scopeUri },
-            { section: 'cmakeIntelliSence.cmdCaseDiagnostics', scopeUri },
-            { section: 'cmakeIntelliSence.pkgConfigPath', scopeUri },
-            { section: 'cmakeIntelliSence.workspaceIgnoreDirectories', scopeUri },
+        const [currentSettings, legacySettings] = await this.connection.workspace.getConfiguration([
+            { section: CONFIGURATION_SECTION, scopeUri },
+            { section: LEGACY_CONFIGURATION_SECTION, scopeUri },
         ]);
 
-        const normalizedWorkspaceIgnoreDirectories = Array.isArray(workspaceIgnoreDirectories)
-            ? workspaceIgnoreDirectories
-                .filter((entry): entry is string => typeof entry === 'string')
-                .map(entry => entry.trim())
-                .filter(Boolean)
-            : this.defaultExtSettings.workspaceIgnoreDirectories;
-
-        return {
-            cmakePath,
-            loggingLevel,
-            cmdCaseDiagnostics,
-            pkgConfigPath,
-            workspaceIgnoreDirectories: normalizedWorkspaceIgnoreDirectories,
-        };
+        return resolveExtensionSettings(currentSettings, legacySettings, this.defaultExtSettings);
     }
 
     private async initializeEnvironment(workspaceFolder: URI, settings?: ExtensionSettings): Promise<void> {

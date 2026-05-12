@@ -36,7 +36,7 @@ import { URI } from 'vscode-uri';
 import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION } from '../../cmakeToolsSnapshot';
 import { ExtensionSettings, initializeCMakeEnvironment } from '../../cmakeEnvironment';
 import { SymbolIndex, SymbolKind } from '../../symbolIndex';
-import { waitForServerReady } from './testUtils';
+import { createCompatibleConfigurationResponse, waitForServerReady } from './testUtils';
 
 suite('LSP Integration Tests', () => {
     let connection: ProtocolConnection;
@@ -80,13 +80,7 @@ suite('LSP Integration Tests', () => {
         connection.onRequest('workspace/configuration', () => {
             configurationRequested();
             configurationPullWaiters.shift()?.();
-            return [
-                extSettings.cmakePath,
-                extSettings.loggingLevel,
-                extSettings.cmdCaseDiagnostics,
-                extSettings.pkgConfigPath,
-                extSettings.workspaceIgnoreDirectories,
-            ];
+            return createCompatibleConfigurationResponse(extSettings);
         });
 
         // Collect diagnostics via EventEmitter so each test can wait independently
@@ -1434,7 +1428,7 @@ suite('LSP Integration Tests', () => {
         const result = await diagPromise;
         assert(result !== undefined);
         // DIAG_CODE_CMD_CASE = 0
-        const caseDiags = result.diagnostics.filter(d => d.code === 0 && d.source === 'cmake-intellisence');
+        const caseDiags = result.diagnostics.filter(d => d.code === 0 && d.source === 'cmake-intellisense');
         assert(caseDiags.length > 0, 'Should report command case diagnostic for uppercase "PROJECT"');
     });
 
@@ -1483,7 +1477,7 @@ suite('LSP Integration Tests', () => {
         openDocument(uri, 'PROJECT(MyProject)');
 
         const result = await diagPromise;
-        const caseDiags = result.diagnostics.filter(d => d.code === 0 && d.source === 'cmake-intellisence');
+        const caseDiags = result.diagnostics.filter(d => d.code === 0 && d.source === 'cmake-intellisense');
         assert.strictEqual(caseDiags.length, 0, 'Command case diagnostics should respect updated configuration');
 
         extSettings.cmdCaseDiagnostics = true;

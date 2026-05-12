@@ -22,7 +22,7 @@ import {
 import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION } from '../../cmakeToolsSnapshot';
 import { URI } from 'vscode-uri';
 import { ExtensionSettings } from '../../cmakeEnvironment';
-import { waitForServerReady } from './testUtils';
+import { createCompatibleConfigurationResponse, waitForServerReady } from './testUtils';
 
 /**
  * Integration tests for document links (textDocument/documentLink).
@@ -107,12 +107,7 @@ suite('Document Link Integration Tests', () => {
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest('workspace/configuration', () => {
             configurationRequested();
-            return [
-                extSettings.cmakePath,
-                extSettings.loggingLevel,
-                extSettings.cmdCaseDiagnostics,
-                extSettings.pkgConfigPath,
-            ];
+            return createCompatibleConfigurationResponse(extSettings);
         });
         connection.onNotification(PublishDiagnosticsNotification.type, params => {
             diagnosticEmitter.emit(params.uri, params);

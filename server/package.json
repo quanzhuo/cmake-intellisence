@@ -1,7 +1,7 @@
 {
   "name": "cmake-intellisence-server",
   "version": "1.0.0",
-  "description": "Language Server for CMake IntelliSence extension",
+  "description": "Language Server for CMake IntelliSense extension",
   "author": "quanzhuo",
   "license": "MIT",
   "engines": {

@@ -24,7 +24,7 @@ import {
 } from "vscode-languageserver-protocol/node";
 import { URI } from "vscode-uri";
 import { ExtensionSettings } from "../../cmakeEnvironment";
-import { waitForServerReady } from './testUtils';
+import { createCompatibleConfigurationResponse, waitForServerReady } from './testUtils';
 
 suite("Workspace Symbol Integration Tests", () => {
     let connection: ProtocolConnection;
@@ -107,12 +107,7 @@ suite("Workspace Symbol Integration Tests", () => {
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest("workspace/configuration", () => {
             configurationRequested();
-            return [
-                extSettings.cmakePath,
-                extSettings.loggingLevel,
-                extSettings.cmdCaseDiagnostics,
-                extSettings.pkgConfigPath
-            ];
+            return createCompatibleConfigurationResponse(extSettings);
         });
         connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
             diagnosticEmitter.emit(params.uri, params);

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */
-import { OutputChannel, workspace, WorkspaceConfiguration } from 'vscode';
-import { SERVER_ID } from './extension';
+import { OutputChannel } from 'vscode';
+import { getCompatibleSetting } from './config';
 
 export enum LogLevel {
     DEBUG = 0,
@@ -97,8 +97,6 @@ export class Logger {
  * @param config workspace configuration object
  * @returns `LogLevel` enum value
  */
-export function getConfigLogLevel(
-    config: WorkspaceConfiguration = workspace.getConfiguration(SERVER_ID)
-): LogLevel {
-    return LogLevel[(config.get<string>('loggingLevel') as string).toUpperCase() as keyof typeof LogLevel];
+export function getConfigLogLevel(): LogLevel {
+    return LogLevel[getCompatibleSetting('loggingLevel', 'off').toUpperCase() as keyof typeof LogLevel];
 }
