@@ -440,4 +440,38 @@ suite('Document Link Integration Tests', () => {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }
     });
+
+    test('should link find_package to workspace Find-modules without File API', async function () {
+        const moduleDir = path.join(fixtureDir, 'CMake', 'Modules');
+        const modulePath = path.join(moduleDir, 'FindHarfBuzz.cmake');
+        const uri = fileUri('workspace-find-package.cmake');
+        const diagPromise = waitForDiagnostics(uri);
+
+        fs.mkdirSync(moduleDir, { recursive: true });
+        fs.writeFileSync(modulePath, '# workspace find module\n', 'utf8');
+
+        try {
+            connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+                workspaceFolderUri: fixtureUri,
+                snapshot: null,
+            });
+
+            openDocument(uri, 'find_package(HarfBuzz REQUIRED)');
+            await diagPromise;
+
+            const links = await connection.sendRequest(DocumentLinkRequest.type, {
+                textDocument: { uri }
+            });
+
+            assert(links !== null && Array.isArray(links), 'Should return a link array');
+            const targetPaths = links
+                .map(link => link.target)
+                .filter((target): target is string => typeof target === 'string')
+                .map(target => path.normalize(URI.parse(target).fsPath).toLowerCase());
+
+            assert(targetPaths.includes(path.normalize(modulePath).toLowerCase()), 'find_package() should link to workspace Find-modules without File API');
+        } finally {
+            fs.rmSync(path.join(fixtureDir, 'CMake'), { recursive: true, force: true });
+        }
+    });
 });

@@ -196,7 +196,7 @@ suite('Utils Tests', () => {
             fs.writeFileSync(configPath, '# config\n', 'utf8');
             fs.writeFileSync(path.join(buildDir, 'CMakeCache.txt'), `Example_DIR:PATH=${packageDir}\n`, 'utf8');
 
-            const result = await getFindPackageUri(symbolIndex, tempDir, 'Example', undefined, buildDir);
+            const result = await getFindPackageUri(symbolIndex, tempDir, 'Example', { buildDirectory: buildDir });
             assert.strictEqual(result?.toString(), URI.file(configPath).toString());
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });
@@ -230,7 +230,7 @@ suite('Utils Tests', () => {
             fs.mkdirSync(packageDir, { recursive: true });
             fs.writeFileSync(configPath, '# config\n', 'utf8');
 
-            const result = await getFindPackageUri(symbolIndex, tempDir, 'Example', fileApiRawSnapshot);
+            const result = await getFindPackageUri(symbolIndex, tempDir, 'Example', { fileApiRawSnapshot });
             assert.strictEqual(result?.toString(), URI.file(configPath).toString());
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });
@@ -262,8 +262,100 @@ suite('Utils Tests', () => {
             fs.mkdirSync(path.dirname(findModulePath), { recursive: true });
             fs.writeFileSync(findModulePath, '# external find module\n', 'utf8');
 
-            const result = await getFindPackageUri(symbolIndex, tempDir, 'Example', fileApiRawSnapshot);
+            const result = await getFindPackageUri(symbolIndex, tempDir, 'Example', { fileApiRawSnapshot });
             assert.strictEqual(result?.toString(), URI.file(findModulePath).toString());
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('getFindPackageUri should resolve config packages from case-insensitive cache keys and file names', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-find-package-case-insensitive-'));
+        const packageDir = path.join(tempDir, 'packages', 'harfbuzz');
+        const configPath = path.join(packageDir, 'harfbuzzConfig.cmake');
+        const symbolIndex = new SymbolIndex();
+        const fileApiRawSnapshot: FileApiRawSnapshot = {
+            replyDirectory: path.join(tempDir, '.cmake', 'api', 'v1', 'reply'),
+            indexFile: 'index-test.json',
+            indexMtimeMs: 1,
+            cacheEntriesByName: {
+                harfbuzz_DIR: {
+                    name: 'harfbuzz_DIR',
+                    type: 'PATH',
+                    value: packageDir,
+                },
+            },
+            cmakeInputs: [],
+            globDependencies: [],
+            toolchainsByLanguage: {},
+            targetsByName: {},
+            targetsById: {},
+        };
+
+        try {
+            fs.mkdirSync(packageDir, { recursive: true });
+            fs.writeFileSync(configPath, '# config\n', 'utf8');
+
+            const result = await getFindPackageUri(symbolIndex, tempDir, 'HarfBuzz', { fileApiRawSnapshot });
+            assert.strictEqual(result?.toString(), URI.file(configPath).toString());
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('getFindPackageUri should resolve workspace Find-modules without File API', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-find-package-workspace-module-'));
+        const sourceDir = path.join(tempDir, 'cmake');
+        const sourceFile = path.join(sourceDir, 'Dependencies.cmake');
+        const findModulePath = path.join(tempDir, 'CMake', 'Modules', 'FindHarfBuzz.cmake');
+        const symbolIndex = new SymbolIndex();
+
+        try {
+            fs.mkdirSync(path.dirname(findModulePath), { recursive: true });
+            fs.mkdirSync(sourceDir, { recursive: true });
+            fs.writeFileSync(findModulePath, '# workspace find module\n', 'utf8');
+            fs.writeFileSync(sourceFile, 'find_package(HarfBuzz)\n', 'utf8');
+
+            const result = await getFindPackageUri(symbolIndex, tempDir, 'HarfBuzz', {
+                sourceUri: URI.file(sourceFile),
+            });
+            assert.strictEqual(
+                path.normalize(result?.fsPath ?? '').toLowerCase(),
+                path.normalize(findModulePath).toLowerCase(),
+            );
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
+    test('getFindPackageUri should resolve config packages directly from File API cmake inputs', async () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-find-package-input-config-'));
+        const packageDir = path.join(tempDir, 'packages', 'rlottie');
+        const configPath = path.join(packageDir, 'rlottieConfig.cmake');
+        const symbolIndex = new SymbolIndex();
+        const fileApiRawSnapshot: FileApiRawSnapshot = {
+            replyDirectory: path.join(tempDir, '.cmake', 'api', 'v1', 'reply'),
+            indexFile: 'index-test.json',
+            indexMtimeMs: 1,
+            cacheEntriesByName: {},
+            cmakeInputs: [
+                {
+                    path: configPath,
+                    isExternal: true,
+                },
+            ],
+            globDependencies: [],
+            toolchainsByLanguage: {},
+            targetsByName: {},
+            targetsById: {},
+        };
+
+        try {
+            fs.mkdirSync(packageDir, { recursive: true });
+            fs.writeFileSync(configPath, '# config\n', 'utf8');
+
+            const result = await getFindPackageUri(symbolIndex, tempDir, 'rlottie', { fileApiRawSnapshot });
+            assert.strictEqual(result?.toString(), URI.file(configPath).toString());
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });
         }

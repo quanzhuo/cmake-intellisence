@@ -253,7 +253,12 @@ export class DocumentLinkInfo {
             return [];
         }
 
-        const targetUri = await getFindPackageUri(this.symbolIndex, this.workspaceFolder, resolved.text, this.fileApiRawSnapshot, this.buildDirectory);
+        const targetUri = await getFindPackageUri(this.symbolIndex, this.workspaceFolder, resolved.text, {
+            fileApiRawSnapshot: this.fileApiRawSnapshot,
+            buildDirectory: this.buildDirectory,
+            command: cmd,
+            sourceUri: this.getCurrentDocumentUri(),
+        });
         return targetUri ? [this.createLink(firstArg, targetUri)] : [];
     }
 

@@ -124,73 +124,308 @@ export function getIncludeModuleUri(symbolIndex: SymbolIndex, includeFileName: s
     return getIncludeModuleUriFromFileApiSnapshot(fileApiRawSnapshot, normalizedIncludeFileName);
 }
 
+export interface FindPackageUriOptions {
+    fileApiRawSnapshot?: FileApiRawSnapshot;
+    buildDirectory?: string;
+    command?: FlatCommand;
+    sourceUri?: URI;
+}
+
+type FindPackageMode = 'module-preferred' | 'module-only' | 'config-only';
+
+function getFindPackageMode(command?: FlatCommand): FindPackageMode {
+    if (!command || command.commandName.toLowerCase() !== 'find_package') {
+        return 'module-preferred';
+    }
+
+    const normalizedArgs = command.argument_list()
+        .slice(1)
+        .map((arg) => normalizeQuotedArgument(arg.getText()).toUpperCase());
+
+    if (normalizedArgs.includes('MODULE')) {
+        return 'module-only';
+    }
+
+    if (normalizedArgs.includes('CONFIG') || normalizedArgs.includes('NO_MODULE')) {
+        return 'config-only';
+    }
+
+    return 'module-preferred';
+}
+
+function resolveWorkspaceInputPath(workspaceFolder: string, inputPath: string): string {
+    return path.isAbsolute(inputPath)
+        ? path.normalize(inputPath)
+        : path.resolve(workspaceFolder, inputPath);
+}
+
+function findMatchingInputUri(
+    fileApiRawSnapshot: FileApiRawSnapshot | undefined,
+    workspaceFolder: string,
+    matcher: (fileNameLower: string) => boolean,
+): URI | null {
+    if (!fileApiRawSnapshot) {
+        return null;
+    }
+
+    for (const input of fileApiRawSnapshot.cmakeInputs) {
+        const resolvedPath = resolveWorkspaceInputPath(workspaceFolder, input.path);
+        if (path.extname(resolvedPath).toLowerCase() !== '.cmake') {
+            continue;
+        }
+
+        if (!matcher(path.basename(resolvedPath).toLowerCase())) {
+            continue;
+        }
+
+        return URI.file(resolvedPath);
+    }
+
+    return null;
+}
+
+function findPackageInputNames(packageName: string): Set<string> {
+    const normalizedPackageName = normalizeQuotedArgument(packageName);
+    const lowerPackageName = normalizedPackageName.toLowerCase();
+    return new Set([
+        `${lowerPackageName}config.cmake`,
+        `${lowerPackageName}-config.cmake`,
+    ]);
+}
+
+function getFindModuleUriFromFileApiSnapshot(
+    workspaceFolder: string,
+    packageName: string,
+    fileApiRawSnapshot?: FileApiRawSnapshot,
+): URI | null {
+    const expectedFileName = `find${normalizeQuotedArgument(packageName).toLowerCase()}.cmake`;
+    return findMatchingInputUri(fileApiRawSnapshot, workspaceFolder, (fileNameLower) => fileNameLower === expectedFileName);
+}
+
+function getConfigPackageUriFromFileApiSnapshot(
+    workspaceFolder: string,
+    packageName: string,
+    fileApiRawSnapshot?: FileApiRawSnapshot,
+): URI | null {
+    const candidateNames = findPackageInputNames(packageName);
+    return findMatchingInputUri(fileApiRawSnapshot, workspaceFolder, (fileNameLower) => candidateNames.has(fileNameLower));
+}
+
 function getPackageDirFromFileApiSnapshot(fileApiRawSnapshot: FileApiRawSnapshot | undefined, packageName: string): string | null {
     if (!fileApiRawSnapshot) {
         return null;
     }
 
     const normalizedPackageName = normalizeQuotedArgument(packageName);
-    const cacheEntry = fileApiRawSnapshot.cacheEntriesByName[`${normalizedPackageName}_DIR`];
-    if (!cacheEntry?.value) {
+    const expectedKey = `${normalizedPackageName}_dir`.toLowerCase();
+    const exactMatch = fileApiRawSnapshot.cacheEntriesByName[`${normalizedPackageName}_DIR`];
+    if (exactMatch?.value) {
+        return exactMatch.value;
+    }
+
+    for (const [name, entry] of Object.entries(fileApiRawSnapshot.cacheEntriesByName)) {
+        if (name.toLowerCase() === expectedKey && entry.value) {
+            return entry.value;
+        }
+    }
+
+    return null;
+}
+
+async function getPackageDirFromCMakeCache(cmakeCacheFile: string, packageName: string): Promise<string | null> {
+    let content: string;
+    try {
+        const cacheStats = await fsPromises.stat(cmakeCacheFile);
+        if (!cacheStats.isFile()) {
+            return null;
+        }
+
+        content = await fsPromises.readFile(cmakeCacheFile, 'utf-8');
+    } catch {
         return null;
     }
 
-    return cacheEntry.value;
+    const escapedName = normalizeQuotedArgument(packageName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`^${escapedName}_DIR(?::[^=]+)?=(.*)$`, 'mi');
+    const match = content.match(regex);
+    return match ? match[1] : null;
+}
+
+async function findCaseInsensitiveFileInDirectory(directoryPath: string, matcher: (fileNameLower: string) => boolean): Promise<URI | null> {
+    try {
+        const entries = await fsPromises.readdir(directoryPath, { withFileTypes: true });
+        for (const entry of entries) {
+            if (!entry.isFile()) {
+                continue;
+            }
+
+            if (!matcher(entry.name.toLowerCase())) {
+                continue;
+            }
+
+            return URI.file(path.join(directoryPath, entry.name));
+        }
+    } catch {
+        return null;
+    }
+
+    return null;
+}
+
+async function getConfigPackageUriFromPackageDir(packageDir: string, packageName: string): Promise<URI | null> {
+    const candidateNames = findPackageInputNames(packageName);
+    const directMatch = await findCaseInsensitiveFileInDirectory(packageDir, (fileNameLower) => candidateNames.has(fileNameLower));
+    if (directMatch) {
+        return directMatch;
+    }
+
+    const normalizedPackageName = normalizeQuotedArgument(packageName);
+    const fallbackCandidates = [
+        path.join(packageDir, 'lib', 'cmake', normalizedPackageName),
+        path.join(packageDir, 'cmake'),
+    ];
+
+    for (const candidateDir of fallbackCandidates) {
+        const nestedMatch = await findCaseInsensitiveFileInDirectory(candidateDir, (fileNameLower) => candidateNames.has(fileNameLower));
+        if (nestedMatch) {
+            return nestedMatch;
+        }
+    }
+
+    return null;
+}
+
+function getWorkspaceFindModuleSearchDirs(workspaceFolder: string, sourceUri?: URI): string[] {
+    const dirs: string[] = [];
+    const workspaceRoot = path.normalize(workspaceFolder);
+    const pushIfMissing = (candidate: string) => {
+        const normalized = path.normalize(candidate);
+        if (!dirs.includes(normalized)) {
+            dirs.push(normalized);
+        }
+    };
+
+    const roots: string[] = [];
+    if (sourceUri?.scheme === 'file') {
+        let currentDir = path.dirname(sourceUri.fsPath);
+        while (true) {
+            roots.push(currentDir);
+            if (currentDir === workspaceRoot) {
+                break;
+            }
+
+            const parentDir = path.dirname(currentDir);
+            if (parentDir === currentDir || !currentDir.startsWith(workspaceRoot)) {
+                break;
+            }
+
+            currentDir = parentDir;
+        }
+    }
+
+    if (!roots.includes(workspaceRoot)) {
+        roots.push(workspaceRoot);
+    }
+
+    for (const root of roots) {
+        pushIfMissing(root);
+        pushIfMissing(path.join(root, 'Modules'));
+    }
+
+    pushIfMissing(path.join(workspaceRoot, 'CMake', 'Modules'));
+    pushIfMissing(path.join(workspaceRoot, 'cmake', 'Modules'));
+    pushIfMissing(path.join(workspaceRoot, 'cmake', 'modules'));
+
+    return dirs;
+}
+
+async function getWorkspaceFindModuleUri(workspaceFolder: string, packageName: string, sourceUri?: URI): Promise<URI | null> {
+    const expectedFileName = `find${normalizeQuotedArgument(packageName).toLowerCase()}.cmake`;
+    const searchDirs = getWorkspaceFindModuleSearchDirs(workspaceFolder, sourceUri);
+
+    for (const directoryPath of searchDirs) {
+        const match = await findCaseInsensitiveFileInDirectory(directoryPath, (fileNameLower) => fileNameLower === expectedFileName);
+        if (match) {
+            return match;
+        }
+    }
+
+    return null;
+}
+
+async function resolveFindModuleUri(
+    symbolIndex: SymbolIndex,
+    workspaceFolder: string,
+    packageName: string,
+    fileApiRawSnapshot?: FileApiRawSnapshot,
+    sourceUri?: URI,
+): Promise<URI | null> {
+    const builtinModuleUri = getIncludeModuleUri(symbolIndex, `Find${normalizeQuotedArgument(packageName)}`);
+    if (builtinModuleUri) {
+        return builtinModuleUri;
+    }
+
+    const workspaceModuleUri = await getWorkspaceFindModuleUri(workspaceFolder, packageName, sourceUri);
+    if (workspaceModuleUri) {
+        return workspaceModuleUri;
+    }
+
+    return getFindModuleUriFromFileApiSnapshot(workspaceFolder, packageName, fileApiRawSnapshot);
+}
+
+async function resolveConfigPackageUri(
+    workspaceFolder: string,
+    packageName: string,
+    fileApiRawSnapshot?: FileApiRawSnapshot,
+    buildDirectory?: string,
+): Promise<URI | null> {
+    const directInputUri = getConfigPackageUriFromFileApiSnapshot(workspaceFolder, packageName, fileApiRawSnapshot);
+    if (directInputUri) {
+        return directInputUri;
+    }
+
+    let packageDir = getPackageDirFromFileApiSnapshot(fileApiRawSnapshot, packageName);
+    if (!packageDir) {
+        packageDir = await getPackageDirFromCMakeCache(path.join(buildDirectory ?? path.join(workspaceFolder, 'build'), 'CMakeCache.txt'), packageName);
+    }
+
+    if (!packageDir) {
+        return null;
+    }
+
+    return getConfigPackageUriFromPackageDir(packageDir, packageName);
 }
 
 export async function getFindPackageUri(
     symbolIndex: SymbolIndex,
     workspaceFolder: string,
     packageName: string,
-    fileApiRawSnapshot?: FileApiRawSnapshot,
-    buildDirectory?: string,
+    options: FindPackageUriOptions = {},
 ): Promise<URI | null> {
-    const normalizedPackageName = normalizeQuotedArgument(packageName);
-    const findModuleUri = getIncludeModuleUri(symbolIndex, `Find${normalizedPackageName}`, fileApiRawSnapshot);
-    if (findModuleUri) {
-        return findModuleUri;
-    }
+    const mode = getFindPackageMode(options.command);
 
-    let packageDir = getPackageDirFromFileApiSnapshot(fileApiRawSnapshot, normalizedPackageName);
-    if (!packageDir) {
-        const cmakeCacheFile = path.join(buildDirectory ?? path.join(workspaceFolder, 'build'), 'CMakeCache.txt');
-        try {
-            const cacheStats = await fsPromises.stat(cmakeCacheFile);
-            if (!cacheStats.isFile()) {
-                return null;
-            }
-        } catch {
-            return null;
+    if (mode !== 'config-only') {
+        const moduleUri = await resolveFindModuleUri(
+            symbolIndex,
+            workspaceFolder,
+            packageName,
+            options.fileApiRawSnapshot,
+            options.sourceUri,
+        );
+        if (moduleUri) {
+            return moduleUri;
         }
-
-        const content = await fsPromises.readFile(cmakeCacheFile, 'utf-8');
-        const escapedName = normalizedPackageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`^${escapedName}_DIR:PATH=(.*)$`, 'm');
-        const match = content.match(regex);
-        packageDir = match ? match[1] : null;
     }
 
-    if (!packageDir) {
-        return null;
-    }
-
-    const alternatives = [
-        path.join(packageDir, 'lib', 'cmake', normalizedPackageName, `${normalizedPackageName}Config.cmake`),
-        path.join(packageDir, 'lib', 'cmake', normalizedPackageName, `${normalizedPackageName.toLowerCase()}-config.cmake`),
-        path.join(packageDir, `${normalizedPackageName}Config.cmake`),
-        path.join(packageDir, `${normalizedPackageName.toLowerCase()}-config.cmake`),
-    ];
-
-    for (const candidate of alternatives) {
-        try {
-            const stats = await fsPromises.stat(candidate);
-            if (!stats.isFile()) {
-                continue;
-            }
-
-            return URI.file(candidate);
-        } catch {
-            continue;
+    if (mode !== 'module-only') {
+        const configUri = await resolveConfigPackageUri(
+            workspaceFolder,
+            packageName,
+            options.fileApiRawSnapshot,
+            options.buildDirectory,
+        );
+        if (configUri) {
+            return configUri;
         }
     }
 

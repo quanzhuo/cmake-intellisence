@@ -510,7 +510,10 @@ export class ProjectTargetInfoListener {
         }
 
         const packageName = args[0].getText();
-        const targetCMakeUri = await getFindPackageUri(this.symbolIndex, this.workspaceFolder, packageName);
+        const targetCMakeUri = await getFindPackageUri(this.symbolIndex, this.workspaceFolder, packageName, {
+            command: ctx,
+            sourceUri: URI.parse(this.currentCMake),
+        });
         if (!targetCMakeUri) {
             return;
         }

@@ -124,7 +124,12 @@ export class DefinitionResolver extends SymbolResolverBase {
                 return this.resolveSourceFileArgument(argIndex, argText, new Set(['INTERFACE', 'PUBLIC', 'PRIVATE', 'FILE_SET', 'TYPE', 'BASE_DIRS', 'FILES']), sourceUri, position.line);
             case 'find_package':
                 return argIndex === 0
-                    ? getFindPackageUri(this.symbolIndex, path.dirname(this.entryFile.fsPath), argText, this.fileApiRawSnapshot, this.buildDirectory)
+                    ? getFindPackageUri(this.symbolIndex, this.workspaceFolder, argText, {
+                        fileApiRawSnapshot: this.fileApiRawSnapshot,
+                        buildDirectory: this.buildDirectory,
+                        command,
+                        sourceUri,
+                    })
                     : null;
             default:
                 return null;
