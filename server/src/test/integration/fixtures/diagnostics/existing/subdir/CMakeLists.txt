@@ -1,0 +1,1 @@
+add_library(quoted_diag_fixture INTERFACE)

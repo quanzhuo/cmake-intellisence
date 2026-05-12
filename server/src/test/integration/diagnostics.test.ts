@@ -157,6 +157,12 @@ suite('Diagnostics Integration Tests', () => {
         assert.strictEqual(diagnostics.length, 0, 'Unresolved variable-backed paths should not emit diagnostics');
     });
 
+    test('should not publish warnings for quoted paths that exist on disk', async function () {
+        const diagnostics = (await openFixture('quoted-valid-paths.cmake')).diagnostics;
+
+        assert.strictEqual(diagnostics.length, 0, 'Quoted existing paths should not emit diagnostics');
+    });
+
     test('should suppress include missing-file diagnostics for File API known inputs', async function () {
         const buildDir = path.join(fixtureDir, 'build-file-api');
         const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');

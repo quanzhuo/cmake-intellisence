@@ -93,8 +93,9 @@ export class PathExpressionResolver {
     }
 
     private startsWithAbsolutePathAnchor(argText: string): boolean {
-        return path.isAbsolute(argText)
-            || /^\$\{(CMAKE_CURRENT_LIST_DIR|CMAKE_CURRENT_SOURCE_DIR|CMAKE_SOURCE_DIR|PROJECT_SOURCE_DIR)\}/.test(argText);
+        const normalizedArgText = this.normalizePathArgument(argText);
+        return path.isAbsolute(normalizedArgText)
+            || /^\$\{(CMAKE_CURRENT_LIST_DIR|CMAKE_CURRENT_SOURCE_DIR|CMAKE_SOURCE_DIR|PROJECT_SOURCE_DIR)\}/.test(normalizedArgText);
     }
 
     private getMissingVariableResult(variableName: string): ExpandedPathResult {
@@ -122,6 +123,15 @@ export class PathExpressionResolver {
     }
 
     private normalizeSetValue(argText: string): string {
+        if ((argText.startsWith('"') && argText.endsWith('"')) ||
+            (argText.startsWith("'") && argText.endsWith("'"))) {
+            return argText.slice(1, -1);
+        }
+
+        return argText;
+    }
+
+    private normalizePathArgument(argText: string): string {
         if ((argText.startsWith('"') && argText.endsWith('"')) ||
             (argText.startsWith("'") && argText.endsWith("'"))) {
             return argText.slice(1, -1);
@@ -259,6 +269,7 @@ export class PathExpressionResolver {
         seen: Set<string> = new Set(),
         depth = 0,
     ): Promise<ExpandedPathResult> {
+        const normalizedArgText = this.normalizePathArgument(argText);
         if (depth > 8) {
             return {
                 expandedPath: null,
@@ -267,16 +278,16 @@ export class PathExpressionResolver {
             };
         }
 
-        const matches = Array.from(argText.matchAll(/\$\{([^}]+)\}/g));
+        const matches = Array.from(normalizedArgText.matchAll(/\$\{([^}]+)\}/g));
         if (matches.length === 0) {
             return {
-                expandedPath: path.normalize(argText),
+                expandedPath: path.normalize(normalizedArgText),
                 unresolvedVariables: [],
                 reason: 'resolved',
             };
         }
 
-        let expanded = argText;
+        let expanded = normalizedArgText;
         for (const match of matches) {
             const placeholder = match[0];
             const variableName = match[1];
@@ -338,16 +349,17 @@ export class PathExpressionResolver {
         depth = 0,
         originalArgText: string = argText,
     ): Promise<string | null> {
+        const normalizedArgText = this.normalizePathArgument(argText);
         if (depth > 8) {
             return null;
         }
 
-        const matches = Array.from(argText.matchAll(/\$\{([^}]+)\}/g));
+        const matches = Array.from(normalizedArgText.matchAll(/\$\{([^}]+)\}/g));
         if (matches.length === 0) {
-            return this.sanitizeBestEffortPath(argText, originalArgText);
+            return this.sanitizeBestEffortPath(normalizedArgText, originalArgText);
         }
 
-        let expanded = argText;
+        let expanded = normalizedArgText;
         for (const match of matches) {
             const placeholder = match[0];
             const variableName = match[1];
@@ -371,9 +383,10 @@ export class PathExpressionResolver {
     }
 
     private toCandidateUri(argText: string, sourceUri: URI): URI {
-        return path.isAbsolute(argText)
-            ? URI.file(path.normalize(argText))
-            : URI.file(path.resolve(path.dirname(sourceUri.fsPath), argText));
+        const normalizedArgText = this.normalizePathArgument(argText);
+        return path.isAbsolute(normalizedArgText)
+            ? URI.file(path.normalize(normalizedArgText))
+            : URI.file(path.resolve(path.dirname(sourceUri.fsPath), normalizedArgText));
     }
 
     public resolveExpandedFile(argText: string, sourceUri: URI): URI | null {

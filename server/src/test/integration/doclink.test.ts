@@ -225,6 +225,22 @@ suite('Document Link Integration Tests', () => {
         assert(linkTargets.has(fileUri('extra/extra.cpp')), 'target_sources(... ${VAR}) should link the expanded source file');
     });
 
+    test('should link quoted file and directory arguments via shared path resolution', async function () {
+        const uri = await openFixture('quoted-links.cmake');
+
+        const links = await connection.sendRequest(DocumentLinkRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(links !== null && Array.isArray(links), 'Should return a link array');
+
+        const linkTargets = new Set(links.map(link => link.target));
+        assert(linkTargets.has(fileUri('local/include-local.cmake')), 'include("...") should link to the local include file');
+        assert(linkTargets.has(fileUri('config/input.in')), 'configure_file("...", ...) should link the input file');
+        assert(linkTargets.has(fileUri('config/output.txt')), 'configure_file(..., "...") should link the output file when it exists');
+        assert(linkTargets.has(fileUri('app/CMakeLists.txt')), 'add_subdirectory("...") should link to the quoted subdirectory CMakeLists.txt');
+    });
+
     test('should link builtin source-directory variables via shared path resolution', async function () {
         const uri = await openFixture('builtin-source-links.cmake');
 

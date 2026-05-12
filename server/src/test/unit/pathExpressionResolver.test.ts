@@ -119,6 +119,51 @@ suite('Path Expression Resolver Tests', () => {
         }
     });
 
+    test('resolveFileExpression should resolve an existing file when the path argument is quoted', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-file-quoted-'));
+        const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const includeDir = path.join(workspaceDir, 'include');
+        const includeFile = path.join(includeDir, 'helpers.cmake');
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => [],
+            entryFile: fileUri,
+        });
+
+        try {
+            fs.mkdirSync(includeDir, { recursive: true });
+            fs.writeFileSync(includeFile, '# helper', 'utf8');
+
+            const resolved = await resolver.resolveFileExpression('"include/helpers.cmake"', fileUri, 0);
+            assert.strictEqual(resolved?.toString(), URI.file(includeFile).toString());
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
+
+    test('expandPathExpression should normalize quoted directory arguments', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-dir-quoted-'));
+        const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const resolver = new PathExpressionResolver({
+            symbolIndex: new SymbolIndex(),
+            getFlatCommands: async () => [],
+            entryFile: fileUri,
+        });
+
+        try {
+            const expanded = await resolver.expandPathExpression({
+                commandName: 'add_subdirectory',
+                argText: '"subdir"',
+                sourceUri: fileUri,
+                maxLine: 0,
+            });
+
+            assert.strictEqual(expanded, path.normalize('subdir'));
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
+
     test('expandPathVariablesDetailed should report unresolved variables', async () => {
         const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-unresolved-'));
         const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));

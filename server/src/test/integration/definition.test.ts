@@ -698,6 +698,30 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].range.start.line, 0);
     });
 
+    test('quoted include, add_subdirectory, and configure_file arguments should resolve to existing paths', async function () {
+        const relativePath = 'quoted-paths.cmake';
+        const uri = await openFixture(relativePath);
+        const lines = fs.readFileSync(path.join(fixtureDir, relativePath), 'utf8').split(/\r?\n/);
+
+        const includeResult = await getDefinition(uri, 0, lines[0].indexOf('include/helpers.cmake') + 2);
+        assert(includeResult !== null, 'Quoted include path definition should not be null');
+        const includeLocs = (Array.isArray(includeResult) ? includeResult : [includeResult]) as Location[];
+        assert.strictEqual(includeLocs[0].uri, fileUri('include/helpers.cmake'));
+        assert.strictEqual(includeLocs[0].range.start.line, 0);
+
+        const subdirResult = await getDefinition(uri, 1, lines[1].indexOf('src') + 2);
+        assert(subdirResult !== null, 'Quoted add_subdirectory path definition should not be null');
+        const subdirLocs = (Array.isArray(subdirResult) ? subdirResult : [subdirResult]) as Location[];
+        assert.strictEqual(subdirLocs[0].uri, fileUri('src/CMakeLists.txt'));
+        assert.strictEqual(subdirLocs[0].range.start.line, 0);
+
+        const configureInputResult = await getDefinition(uri, 2, lines[2].indexOf('config/input.in') + 2);
+        assert(configureInputResult !== null, 'Quoted configure_file input definition should not be null');
+        const configureInputLocs = (Array.isArray(configureInputResult) ? configureInputResult : [configureInputResult]) as Location[];
+        assert.strictEqual(configureInputLocs[0].uri, fileUri('config/input.in'));
+        assert.strictEqual(configureInputLocs[0].range.start.line, 0);
+    });
+
     test('target_sources file argument using chained set variables should resolve to the referenced file', async function () {
         const uri = await openFixture('variable-paths.cmake');
         const result = await getDefinition(uri, 10, 35);
