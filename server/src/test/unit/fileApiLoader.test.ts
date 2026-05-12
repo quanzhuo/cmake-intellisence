@@ -5,6 +5,11 @@ import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { findLatestFileApiIndexFile, getFileApiReplyDirectory, loadFileApiRawSnapshot } from '../../fileApiLoader';
 
+function normalizeDirectoryMapKeyForTest(filePath: string): string {
+    const normalized = path.normalize(filePath);
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
 suite('File API Loader Tests', () => {
     test('should load the latest reply index and referenced objects', () => {
         const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-file-api-'));
@@ -138,8 +143,14 @@ suite('File API Loader Tests', () => {
             assert.strictEqual(snapshot!.targetsByName.app.nameOnDisk, 'app.exe');
             assert.ok(snapshot!.targetsByName.app.backtraceFiles?.includes('CMakeLists.txt'));
             assert.ok(snapshot!.targetsByName.app.backtraceCommands?.includes('add_executable'));
-            assert.strictEqual(snapshot!.buildDirectoriesBySourcePath?.[path.normalize(buildDir).toLowerCase()], path.normalize(buildDir));
-            assert.strictEqual(snapshot!.buildDirectoriesBySourcePath?.[path.join(buildDir, 'src').toLowerCase()], path.join(buildDir, 'build-src'));
+            assert.strictEqual(
+                snapshot!.buildDirectoriesBySourcePath?.[normalizeDirectoryMapKeyForTest(buildDir)],
+                path.normalize(buildDir),
+            );
+            assert.strictEqual(
+                snapshot!.buildDirectoriesBySourcePath?.[normalizeDirectoryMapKeyForTest(path.join(buildDir, 'src'))],
+                path.join(buildDir, 'build-src'),
+            );
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }

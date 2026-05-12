@@ -768,15 +768,25 @@ suite('LSP Integration Tests', () => {
 
     test('should suggest and resolve pkg_check_modules entries after pkg-config path changes', async function () {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-pkg-config-'));
-        const pkgConfigPath = path.join(tempDir, 'pkg-config.cmd');
+        const pkgConfigPath = path.join(tempDir, process.platform === 'win32' ? 'pkg-config.cmd' : 'pkg-config');
 
-        fs.writeFileSync(pkgConfigPath, [
-            '@echo off',
-            'if "%1"=="--list-all" (',
-            '  echo zlib Compression library',
-            '  echo openssl TLS library',
-            ')',
-        ].join('\r\n'), 'utf8');
+        if (process.platform === 'win32') {
+            fs.writeFileSync(pkgConfigPath, [
+                '@echo off',
+                'if "%1"=="--list-all" (',
+                '  echo zlib Compression library',
+                '  echo openssl TLS library',
+                ')',
+            ].join('\r\n'), 'utf8');
+        } else {
+            fs.writeFileSync(pkgConfigPath, [
+                '#!/bin/sh',
+                'if [ "$1" = "--list-all" ]; then',
+                '  printf "%s\\n" "zlib Compression library" "openssl TLS library"',
+                'fi',
+            ].join('\n'), 'utf8');
+            fs.chmodSync(pkgConfigPath, 0o755);
+        }
 
         try {
             extSettings.pkgConfigPath = pkgConfigPath;

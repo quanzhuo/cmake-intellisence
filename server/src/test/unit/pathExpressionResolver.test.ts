@@ -7,6 +7,11 @@ import { PathExpressionResolver } from '../../pathExpressionResolver';
 import { SymbolIndex } from '../../symbolIndex';
 import { parseCMakeText } from '../../utils';
 
+function normalizeDirectoryMapKeyForTest(filePath: string): string {
+    const normalized = path.normalize(filePath);
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
 suite('Path Expression Resolver Tests', () => {
     const normalizeForComparison = (value: string | null) => path.normalize(value ?? '').toLowerCase();
 
@@ -127,7 +132,7 @@ suite('Path Expression Resolver Tests', () => {
             entryFile,
             buildDirectory: buildDir,
             buildDirectoriesBySourcePath: {
-                [path.join(workspaceDir, 'sub').toLowerCase()]: path.join(buildDir, 'sub-build'),
+                [normalizeDirectoryMapKeyForTest(path.join(workspaceDir, 'sub'))]: path.join(buildDir, 'sub-build'),
             },
         });
 
