@@ -131,6 +131,14 @@ export interface FindPackageUriOptions {
     sourceUri?: URI;
 }
 
+function getWorkspaceFolderFsPath(workspaceFolder: string): string {
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(workspaceFolder)) {
+        return URI.parse(workspaceFolder).fsPath;
+    }
+
+    return workspaceFolder;
+}
+
 type FindPackageMode = 'module-preferred' | 'module-only' | 'config-only';
 
 function getFindPackageMode(command?: FlatCommand): FindPackageMode {
@@ -154,9 +162,10 @@ function getFindPackageMode(command?: FlatCommand): FindPackageMode {
 }
 
 function resolveWorkspaceInputPath(workspaceFolder: string, inputPath: string): string {
+    const workspaceFolderFsPath = getWorkspaceFolderFsPath(workspaceFolder);
     return path.isAbsolute(inputPath)
         ? path.normalize(inputPath)
-        : path.resolve(workspaceFolder, inputPath);
+        : path.resolve(workspaceFolderFsPath, inputPath);
 }
 
 function findMatchingInputUri(
@@ -297,7 +306,7 @@ async function getConfigPackageUriFromPackageDir(packageDir: string, packageName
 
 function getWorkspaceFindModuleSearchDirs(workspaceFolder: string, sourceUri?: URI): string[] {
     const dirs: string[] = [];
-    const workspaceRoot = path.normalize(workspaceFolder);
+    const workspaceRoot = path.normalize(getWorkspaceFolderFsPath(workspaceFolder));
     const pushIfMissing = (candidate: string) => {
         const normalized = path.normalize(candidate);
         if (!dirs.includes(normalized)) {
@@ -386,7 +395,8 @@ async function resolveConfigPackageUri(
 
     let packageDir = getPackageDirFromFileApiSnapshot(fileApiRawSnapshot, packageName);
     if (!packageDir) {
-        packageDir = await getPackageDirFromCMakeCache(path.join(buildDirectory ?? path.join(workspaceFolder, 'build'), 'CMakeCache.txt'), packageName);
+        const workspaceFolderFsPath = getWorkspaceFolderFsPath(workspaceFolder);
+        packageDir = await getPackageDirFromCMakeCache(path.join(buildDirectory ?? path.join(workspaceFolderFsPath, 'build'), 'CMakeCache.txt'), packageName);
     }
 
     if (!packageDir) {
