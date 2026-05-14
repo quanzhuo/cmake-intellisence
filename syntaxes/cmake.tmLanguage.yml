@@ -48,7 +48,7 @@ patterns:
         match: \\.
   # bracket argument
   - name: meta.function.variable.parameter.cmake
-    begin: \s+\[(=*)\[
+    begin: \[(=*)\[
     end: \]\1\]
   # variable reference
   - include: "#variable-reference"
