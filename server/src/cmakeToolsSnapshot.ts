@@ -1,4 +1,5 @@
-export const CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION = 'cmakeIntelliSence/cmakeToolsProjectSnapshotChanged';
+export const READY_NOTIFICATION = 'cmakeIntelliSense/serverReady';
+export const CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION = 'cmakeIntelliSense/cmakeToolsProjectSnapshotChanged';
 
 export type CMakeToolsProjectSnapshot = {
     workspaceFolderUri: string;

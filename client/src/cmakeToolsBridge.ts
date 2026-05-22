@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 import { LanguageClient } from 'vscode-languageclient/node';
 import { Logger } from './logging';
 
-export const READY_NOTIFICATION = 'cmakeIntelliSence/testing/ready';
-export const CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION = 'cmakeIntelliSence/cmakeToolsProjectSnapshotChanged';
+export const READY_NOTIFICATION = 'cmakeIntelliSense/serverReady';
+export const CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION = 'cmakeIntelliSense/cmakeToolsProjectSnapshotChanged';
 
 const KYLIN_CMAKE_TOOLS_EXTENSION_ID = 'KylinIdeTeam.kylin-cmake-tools';
 const MICROSOFT_CMAKE_TOOLS_EXTENSION_ID = 'ms-vscode.cmake-tools';
@@ -83,19 +83,8 @@ export class CMakeToolsSnapshotBridge implements vscode.Disposable {
         });
 
         this.disposables.push(
-            vscode.window.onDidChangeActiveTextEditor(() => {
-                void this.refreshCurrentWorkspace('active-editor-changed');
-            }),
-            vscode.workspace.onDidOpenTextDocument(document => {
-                if (document.languageId === 'cmake') {
-                    void this.refreshWorkspaceForUri(document.uri, 'document-opened');
-                }
-            }),
             vscode.workspace.onDidChangeWorkspaceFolders(() => {
                 void this.ensureAttachedAndRefresh('workspace-folders-changed');
-            }),
-            vscode.extensions.onDidChange(() => {
-                void this.ensureAttachedAndRefresh('extensions-changed');
             }),
         );
     }
@@ -190,24 +179,6 @@ export class CMakeToolsSnapshotBridge implements vscode.Disposable {
         for (const workspaceFolder of workspaceFolders) {
             await this.publishWorkspaceSnapshot(workspaceFolder, this.getPreferredUriForWorkspace(workspaceFolder), reason);
         }
-    }
-
-    private async refreshCurrentWorkspace(reason: string): Promise<void> {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            return;
-        }
-
-        await this.refreshWorkspaceForUri(editor.document.uri, reason);
-    }
-
-    private async refreshWorkspaceForUri(uri: vscode.Uri, reason: string): Promise<void> {
-        const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
-        if (!workspaceFolder) {
-            return;
-        }
-
-        await this.publishWorkspaceSnapshot(workspaceFolder, uri, reason);
     }
 
     private getPreferredUriForWorkspace(workspaceFolder: vscode.WorkspaceFolder): vscode.Uri {

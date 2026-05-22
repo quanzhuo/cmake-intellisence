@@ -1,6 +1,6 @@
 import { ProtocolConnection } from 'vscode-languageserver-protocol/node';
 import { ExtensionSettings } from '../../cmakeEnvironment';
-import { READY_NOTIFICATION } from '../../testing';
+import { READY_NOTIFICATION } from '../../cmakeToolsSnapshot';
 
 export function waitForServerReady(connection: ProtocolConnection, timeout = 30000): Promise<void> {
     return new Promise((resolve, reject) => {
