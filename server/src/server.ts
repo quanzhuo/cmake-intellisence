@@ -333,10 +333,20 @@ export class CMakeLanguageServer {
 
         this.logger.debug(`Initial environment initialization finished in ${Date.now() - initializationStart}ms for ${workspaceFolders.length} workspace folder(s)`);
 
-        const workspaceIndexStart = Date.now();
-        await this.ensureAllWorkspaceFoldersIndexed();
-        this.logger.debug(`Initial workspace indexing finished in ${Date.now() - workspaceIndexStart}ms`);
+        // The server is ready to handle requests as soon as the CMake environment is
+        // initialized. Workspace file indexing is kicked off in the background; individual
+        // LSP request handlers (hover, completion, …) will wait for it via
+        // ensureWorkspaceIndexedForUri when they first need the workspace symbol index.
         this.connection.sendNotification(READY_NOTIFICATION);
+
+        const workspaceIndexStart = Date.now();
+        void this.ensureAllWorkspaceFoldersIndexed()
+            .then(() => {
+                this.logger.debug(`Initial workspace indexing finished in ${Date.now() - workspaceIndexStart}ms`);
+            })
+            .catch((error: unknown) => {
+                this.logger.error('Initial workspace indexing failed', error instanceof Error ? error : new Error(String(error)));
+            });
     }
 
     private async onCMakeToolsProjectSnapshotChanged(params: CMakeToolsProjectSnapshotNotificationParams): Promise<void> {
@@ -409,8 +419,6 @@ export class CMakeLanguageServer {
         const workspaceState = this.getWorkspaceStateForUri(params.textDocument.uri);
         throwIfCancelled(token);
         await this.ensureEnvironmentInitialized(params.textDocument.uri);
-        throwIfCancelled(token);
-        await this.ensureWorkspaceIndexedForUri(params.textDocument.uri);
         throwIfCancelled(token);
         await this.ensureParsedFile(params.textDocument.uri);
         throwIfCancelled(token);
@@ -918,8 +926,10 @@ export class CMakeLanguageServer {
         throwIfCancelled(token);
         await this.ensureEnvironmentInitialized(params.textDocument.uri);
         throwIfCancelled(token);
-        await this.ensureWorkspaceIndexedForUri(params.textDocument.uri);
-        throwIfCancelled(token);
+        // Do NOT await full workspace indexing here. The symbolIndex is populated
+        // incrementally as background indexing progresses, so completions become
+        // richer over time without blocking on the full workspace scan.
+        // Per-file dependency graph is still resolved below via populateIndexTopDownAsync.
 
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
@@ -1656,22 +1666,30 @@ export class CMakeLanguageServer {
             this.getWorkspaceIgnoreDirectories(workspaceState.extSettings),
         );
         this.logger.debug(`Collected ${files.length} workspace CMake files in ${Date.now() - collectStart}ms for ${workspaceFolder.fsPath}`);
-        for (const filePath of files) {
+
+        const progress = await this.connection.window.createWorkDoneProgress();
+        progress.begin('CMake: Indexing workspace', 0, `0 / ${files.length}`);
+        try {
+            for (let i = 0; i < files.length; i++) {
+                if (!this.isEnvironmentGenerationCurrent(workspaceFolder, generation)) {
+                    return false;
+                }
+                await this.indexWorkspaceFile(URI.file(files[i]).toString(), generation);
+                progress.report(Math.round(((i + 1) / files.length) * 100), `${i + 1} / ${files.length}`);
+            }
+
             if (!this.isEnvironmentGenerationCurrent(workspaceFolder, generation)) {
                 return false;
             }
-            await this.indexWorkspaceFile(URI.file(filePath).toString(), generation);
-        }
 
-        if (!this.isEnvironmentGenerationCurrent(workspaceFolder, generation)) {
-            return false;
+            const elapsedMs = Date.now() - start;
+            this.logger.info(
+                `Finished parsing workspace CMake files: ${files.length} files in ${elapsedMs}ms (${workspaceFolder.fsPath})`
+            );
+            return true;
+        } finally {
+            progress.done();
         }
-
-        const elapsedMs = Date.now() - start;
-        this.logger.info(
-            `Finished parsing workspace CMake files: ${files.length} files in ${elapsedMs}ms (${workspaceFolder.fsPath})`
-        );
-        return true;
     }
 
     private isEnvironmentGenerationCurrent(workspaceFolder: URI, generation: number): boolean {
