@@ -932,10 +932,13 @@ export class CMakeLanguageServer {
         // has re-parsed the file.
         await this.ensureParsedFile(params.textDocument.uri);
         throwIfCancelled(token);
-        // Do NOT await full workspace indexing here. The symbolIndex is populated
-        // incrementally as background indexing progresses, so completions become
-        // richer over time without blocking on the full workspace scan.
-        // Per-file dependency graph is still resolved below via populateIndexTopDownAsync.
+        // Do NOT await full workspace indexing or dependency-graph resolution here.
+        // Built-in symbols (commands, variables, modules, etc.) are always available
+        // from the system cache, so completions work immediately. Workspace-level
+        // symbols (user-defined variables, targets) are populated progressively by
+        // background workspace indexing — no need for a separate fire-and-forget
+        // dependency walk that would compete with the indexer and re-parse files
+        // that diagnostics already cached without symbols.
 
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
@@ -943,8 +946,6 @@ export class CMakeLanguageServer {
         }
 
         const entryFileSource = this.getEntryFilePath(params.textDocument.uri);
-        await this.populateIndexTopDownAsync(entryFileSource, new Set(), token);
-        throwIfCancelled(token);
 
         const word = getWordAtPosition(document, params.position).text;
         const targetInfo = this.getProjectTargetInfoForCompletion(params.textDocument.uri, entryFileSource);
@@ -964,7 +965,15 @@ export class CMakeLanguageServer {
             snapshotTargetNames,
             snapshotTestNames,
         );
-        return completion.onCompletion(params);
+        const startCompletion = Date.now();
+        const result = await completion.onCompletion(params);
+        const elapsed = Date.now() - startCompletion;
+        const itemCount = Array.isArray(result) ? result.length : result?.items?.length ?? 0;
+        const isIncomplete = !Array.isArray(result) && result?.isIncomplete ? ' (incomplete)' : '';
+        this.logger.debug(
+            `Completion returned ${itemCount} item(s)${isIncomplete} in ${elapsed}ms for ${params.textDocument.uri} (word="${word}", line=${params.position.line}, col=${params.position.character})`
+        );
+        return result;
     }
 
     private onCompletionResolve(item: CompletionItem): Promise<CompletionItem> {
@@ -1369,7 +1378,10 @@ export class CMakeLanguageServer {
         });
         const { fileContext, flatCommands } = parsedFile;
         this.updateTargetInfoStructureFingerprint(document.uri, flatCommands, true);
-        await this.storeParsedFileSnapshot(document.uri, parsedFile);
+        // Store parsed snapshot but skip recursive symbol extraction so that
+        // diagnostics return quickly. The symbolIndex is populated by background
+        // workspace indexing and does not need to block syntax/semantic checking.
+        await this.storeParsedFileSnapshot(document.uri, parsedFile, undefined, true);
 
         const semanticListener = new SemanticDiagnosticsListener();
         ParseTreeWalker.DEFAULT.walk(semanticListener, fileContext);
@@ -1739,7 +1751,7 @@ export class CMakeLanguageServer {
         await this.storeParsedFileSnapshot(uri, parsedFile, generation);
     }
 
-    private async storeParsedFileSnapshot(uri: string, parsedFile: ParsedCMakeFile, generation?: number) {
+    private async storeParsedFileSnapshot(uri: string, parsedFile: ParsedCMakeFile, generation?: number, skipSymbolExtraction?: boolean) {
         const workspaceState = this.getWorkspaceStateForUri(uri);
         if (generation !== undefined && workspaceState.environmentGeneration !== generation) {
             return;
@@ -1748,6 +1760,26 @@ export class CMakeLanguageServer {
         this.tokenStreams.set(uri, parsedFile.tokenStream);
         this.flatCommandsMap.set(uri, parsedFile.flatCommands);
         this.updateTargetInfoStructureFingerprint(uri, parsedFile.flatCommands, false);
+
+        // Set comments and document-version tracking BEFORE extractSymbols so that
+        // hasCurrentParsedSnapshot returns true for re-entrant calls during
+        // dependency resolution (e.g. A includes B, B includes A).
+        const commentsChannel = CMakeLexer.channelNames.indexOf("COMMENTS");
+        this.commentsMap.set(uri, parsedFile.tokenStream.tokens.filter(token => token.channel === commentsChannel));
+
+        const openDocument = this.documents.get(uri);
+        if (openDocument) {
+            this.parsedDocumentVersionsByUri.set(uri, openDocument.version);
+        } else {
+            this.parsedDocumentVersionsByUri.delete(uri);
+        }
+
+        // Symbol extraction can recursively parse dependency files and is expensive
+        // for large projects. Skip it during diagnostics so that syntax/semantic
+        // checking returns quickly; symbolIndex is populated by background indexing.
+        if (skipSymbolExtraction) {
+            return;
+        }
 
         const baseDir = URI.file(path.dirname(URI.parse(uri).fsPath));
         const fileSymbolCache = await extractSymbols(uri, parsedFile.flatCommands, baseDir, workspaceState.symbolIndex, {
@@ -1761,16 +1793,6 @@ export class CMakeLanguageServer {
             },
         });
         workspaceState.symbolIndex.setCache(uri, fileSymbolCache);
-
-        const commentsChannel = CMakeLexer.channelNames.indexOf("COMMENTS");
-        this.commentsMap.set(uri, parsedFile.tokenStream.tokens.filter(token => token.channel === commentsChannel));
-
-        const openDocument = this.documents.get(uri);
-        if (openDocument) {
-            this.parsedDocumentVersionsByUri.set(uri, openDocument.version);
-        } else {
-            this.parsedDocumentVersionsByUri.delete(uri);
-        }
     }
 
     private parseCMakeFile(
@@ -1796,7 +1818,11 @@ export class CMakeLanguageServer {
             { uri, getText: () => text },
             'on-demand cache miss'
         );
-        await this.storeParsedFileSnapshot(uri, parsedFile);
+        // On-demand parsing (triggered by hover, completion, etc.) stores parse
+        // caches only. Symbol extraction is deferred to background workspace
+        // indexing to avoid recursively parsing the entire dependency tree on
+        // every cache miss.
+        await this.storeParsedFileSnapshot(uri, parsedFile, undefined, true);
         return parsedFile;
     }
 

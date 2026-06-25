@@ -1,5 +1,15 @@
 # Change Log
 
+## v0.8.0
+
+Bug Fixes:
+
+* #12: windows vscode 提示 spawn EINVAL
+
+Improvements:
+
+* 性能提升
+
 ## v0.7.2
 
 Bug Fixes:
