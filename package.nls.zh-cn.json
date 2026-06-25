@@ -17,6 +17,7 @@
     "pkgConfigPath": "设置 pkg-config 命令的路径, 用于在命令 pkg_check_modules 提供模块补全",
     "pkgConfigPath.deprecated": "已弃用。请改用 cmakeIntelliSense.pkgConfigPath。",
     "traceServer.deprecated": "已弃用。请改用 cmakeIntelliSense.trace.server。",
+    "enableCMakeToolsIntegration": "启用后，会从 CMake Tools 插件获取构建目录、目标和测试信息以增强 IntelliSense 功能。如果未使用 CMake Tools 或希望独立运行，可关闭此选项。",
     "common.yes": "是",
     "common.no": "否",
     "common.available": "可用",

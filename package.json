@@ -207,6 +207,11 @@
             ],
             "default": "off",
             "deprecationMessage": "%traceServer.deprecated%"
+          },
+          "cmakeIntelliSense.enableCMakeToolsIntegration": {
+            "type": "boolean",
+            "default": true,
+            "description": "%enableCMakeToolsIntegration%"
           }
         }
       }

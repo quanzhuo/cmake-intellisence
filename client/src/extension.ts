@@ -37,6 +37,18 @@ export async function activate(context: vscode.ExtensionContext) {
             const newCmakePath = await getCMakePath();
             await checkAndStart(newCmakePath);
         }
+
+        if (affectsCompatibleConfiguration(e, 'enableCMakeToolsIntegration')) {
+            const enabled = getCompatibleSetting('enableCMakeToolsIntegration', true);
+            if (enabled && !cmakeToolsSnapshotBridge && client) {
+                cmakeToolsSnapshotBridge = new CMakeToolsSnapshotBridge(client, logger);
+                logger.info('CMake Tools integration enabled');
+            } else if (!enabled && cmakeToolsSnapshotBridge) {
+                cmakeToolsSnapshotBridge.dispose();
+                cmakeToolsSnapshotBridge = undefined;
+                logger.info('CMake Tools integration disabled');
+            }
+        }
     }));
 
     await checkAndStart(await getCMakePath());
@@ -94,7 +106,12 @@ async function startLanguageServer(cmakePath: string, serverModule: string, chan
 
     client = new LanguageClient(SERVER_ID, SERVER_NAME, serverOptions, clientOptions);
     cmakeToolsSnapshotBridge?.dispose();
-    cmakeToolsSnapshotBridge = new CMakeToolsSnapshotBridge(client, logger);
+    cmakeToolsSnapshotBridge = undefined;
+    if (getCompatibleSetting('enableCMakeToolsIntegration', true)) {
+        cmakeToolsSnapshotBridge = new CMakeToolsSnapshotBridge(client, logger);
+    } else {
+        logger.info('CMake Tools integration is disabled by configuration');
+    }
 
     // start the client. This will also launch the server
     logger.info(`Start ${SERVER_NAME} ...`);

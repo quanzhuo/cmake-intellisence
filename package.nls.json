@@ -17,6 +17,7 @@
     "pkgConfigPath": "Set the path to the pkg-config command, used to provide module completion in the pkg_check_modules command",
     "pkgConfigPath.deprecated": "Deprecated. Use cmakeIntelliSense.pkgConfigPath instead.",
     "traceServer.deprecated": "Deprecated. Use cmakeIntelliSense.trace.server instead.",
+    "enableCMakeToolsIntegration": "When enabled, queries the CMake Tools extension for build directory, targets, and test information to enhance IntelliSense features. Disable if you don't use CMake Tools or prefer standalone operation.",
     "common.yes": "Yes",
     "common.no": "No",
     "common.available": "Available",
