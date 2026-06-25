@@ -926,6 +926,12 @@ export class CMakeLanguageServer {
         throwIfCancelled(token);
         await this.ensureEnvironmentInitialized(params.textDocument.uri);
         throwIfCancelled(token);
+        // Ensure the parse tree is current for the latest document version. Without this,
+        // FlatCommand token positions (especially RP) may be stale when the user edits the
+        // document and immediately triggers completion before the diagnostics debounce timer
+        // has re-parsed the file.
+        await this.ensureParsedFile(params.textDocument.uri);
+        throwIfCancelled(token);
         // Do NOT await full workspace indexing here. The symbolIndex is populated
         // incrementally as background indexing progresses, so completions become
         // richer over time without blocking on the full workspace scan.

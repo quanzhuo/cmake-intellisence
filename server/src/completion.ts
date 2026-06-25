@@ -1447,24 +1447,6 @@ export default class Completion {
         return kinds.size > 0 ? kinds : null;
     }
 
-    private async getSharedFilePathSuggestions(
-        info: CMakeCompletionInfo,
-        word: string,
-        argumentSemanticKinds: Set<ArgumentSemanticKind> | null,
-    ): Promise<CompletionItem[] | null> {
-        if (argumentSemanticKinds?.has(ArgumentSemanticKind.FilePath)) {
-            return this.getFileSuggestions(info, word);
-        }
-
-        // Preserve the previous best-effort behavior when completion is running
-        // without a parsed command context (lexer-token fallback).
-        if (!argumentSemanticKinds && info.context === undefined) {
-            return this.getFileSuggestions(info, word);
-        }
-
-        return null;
-    }
-
     private getPropertySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
         const properties = this.symbolIndex
             ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.Property))
@@ -1622,11 +1604,8 @@ export default class Completion {
                 break;
         }
 
-        if (info.command && !(info.command in builtinCmds)) {
-            return null;
-        }
-
-        const keywords: string[] = ((builtinCmds as any)[info.command!]['keyword']) ?? [];
+        const commandDef = info.command ? (builtinCmds as Record<string, { keyword?: string[] }>)[info.command] : undefined;
+        const keywords: string[] = commandDef?.['keyword'] ?? [];
         const argsCompletions = keywords.map((arg) => {
             return {
                 label: arg,
@@ -1634,7 +1613,7 @@ export default class Completion {
             };
         });
 
-        const fileSuggestions = await this.getSharedFilePathSuggestions(info, word, argumentSemanticKinds);
+        const fileSuggestions = await this.getFileSuggestions(info, word);
         return [...argsCompletions, ...(fileSuggestions ?? [])];
 
     }
