@@ -18,11 +18,13 @@ export interface ExtensionSettings {
     pkgConfigPath: string;
     cmdCaseDiagnostics: boolean;
     workspaceIgnoreDirectories?: string[];
+    enableCMakeToolsIntegration: boolean;
 }
 
 const CMAKE_CACHE_FINGERPRINT_SCHEMA_VERSION = 1;
 const builtinEntriesMemo = new Map<string, Promise<[Set<string>, Set<string>, Set<string>, Set<string>, Set<string>]>>();
 const cmakeRootMemo = new Map<string, Promise<string | null>>();
+const pkgConfigModulesMemo = new Map<string, Promise<Map<string, string>>>();
 
 type PersistedBuiltinEntries = {
     cmakeFingerprint: string;
@@ -415,20 +417,16 @@ async function getCMakeCacheFingerprint(cmakePath: string): Promise<CMakeCacheFi
     try {
         const stats = await fs.promises.stat(cmakePath);
         if (!stats.isFile()) {
-            const raw = [
-                CMAKE_CACHE_FINGERPRINT_SCHEMA_VERSION.toString(),
-                cmakePath,
-                size.toString(),
-                mtimeMs.toString(),
-            ].join('\0');
-            return {
-                memoKey: raw,
-                value: crypto.createHash('sha256').update(raw).digest('hex'),
-            };
+            throw new Error(`cmake path is not a file: ${cmakePath}`);
         }
         size = stats.size;
         mtimeMs = stats.mtimeMs;
-    } catch {
+    } catch (error) {
+        // Only swallow standard Node.js file-system errors (have a 'code' property).
+        // Re-throw custom errors (e.g. !stats.isFile()) to let the caller handle them.
+        if (!(error instanceof Error && 'code' in error)) {
+            throw error;
+        }
     }
 
     const raw = [
@@ -554,27 +552,43 @@ async function fetchBuiltinEntriesFromCMake(cmakePath: string): Promise<BuiltinE
 }
 
 async function getPkgConfigModules(pkgConfigPath: string): Promise<Map<string, string>> {
-    const modules = new Map<string, string>();
-    const pkgConfig = which.sync(pkgConfigPath, { nothrow: true });
-    if (pkgConfig === null) {
-        return modules;
+    const memoKey = pkgConfigPath;
+    const memoized = pkgConfigModulesMemo.get(memoKey);
+    if (memoized) {
+        return memoized;
     }
 
-    const { stdout } = await execFilePromise(pkgConfig, ['--list-all']);
-    if (stdout.trim().length === 0) {
-        return modules;
-    }
-
-    for (const line of stdout.split('\n')) {
-        const firstSpace = line.indexOf(' ');
-        if (firstSpace <= 0) {
-            continue;
+    const request = (async (): Promise<Map<string, string>> => {
+        const modules = new Map<string, string>();
+        const pkgConfig = which.sync(pkgConfigPath, { nothrow: true });
+        if (pkgConfig === null) {
+            return modules;
         }
-        const pkgName = line.substring(0, firstSpace);
-        const description = line.substring(firstSpace).trimStart();
-        modules.set(pkgName, description);
+
+        const { stdout } = await execFilePromise(pkgConfig, ['--list-all']);
+        if (stdout.trim().length === 0) {
+            return modules;
+        }
+
+        for (const line of stdout.split('\n')) {
+            const firstSpace = line.indexOf(' ');
+            if (firstSpace <= 0) {
+                continue;
+            }
+            const pkgName = line.substring(0, firstSpace);
+            const description = line.substring(firstSpace).trimStart();
+            modules.set(pkgName, description);
+        }
+        return modules;
+    })();
+
+    pkgConfigModulesMemo.set(memoKey, request);
+    try {
+        return await request;
+    } catch (error) {
+        pkgConfigModulesMemo.delete(memoKey);
+        throw error;
     }
-    return modules;
 }
 
 export class ProjectTargetInfoListener {

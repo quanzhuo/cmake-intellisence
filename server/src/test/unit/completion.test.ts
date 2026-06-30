@@ -21,7 +21,8 @@ suite('Completion Tests', () => {
             cmakePath: "cmake",
             pkgConfigPath: "",
             cmdCaseDiagnostics: false,
-            loggingLevel: 'off'
+            loggingLevel: 'off',
+            enableCMakeToolsIntegration: true,
         };
         await initializeCMakeEnvironment(extSettings, symbolIndex);
     });
@@ -451,7 +452,8 @@ suite('Condition Completion Tests', () => {
             cmakePath: 'cmake',
             pkgConfigPath: '',
             cmdCaseDiagnostics: false,
-            loggingLevel: 'off'
+            loggingLevel: 'off',
+            enableCMakeToolsIntegration: true,
         };
         await initializeCMakeEnvironment(extSettings, symbolIndex);
     });
@@ -1106,7 +1108,8 @@ suite('Generator Expression Completion Tests', () => {
             cmakePath: 'cmake',
             pkgConfigPath: '',
             cmdCaseDiagnostics: false,
-            loggingLevel: 'off'
+            loggingLevel: 'off',
+            enableCMakeToolsIntegration: true,
         };
         await initializeCMakeEnvironment(extSettings, symbolIndex);
     });

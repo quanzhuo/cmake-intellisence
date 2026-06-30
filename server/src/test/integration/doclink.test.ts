@@ -47,7 +47,8 @@ suite('Document Link Integration Tests', () => {
         cmakePath: 'cmake',
         pkgConfigPath: '',
         cmdCaseDiagnostics: false,
-        loggingLevel: 'off'
+        loggingLevel: 'off',
+        enableCMakeToolsIntegration: true,
     };
 
     function fileUri(relativePath: string): string {

@@ -9,6 +9,7 @@ suite('config compatibility tests', () => {
         cmdCaseDiagnostics: false,
         pkgConfigPath: 'pkg-config',
         workspaceIgnoreDirectories: ['.git', 'build'],
+        enableCMakeToolsIntegration: true,
     };
 
     test('prefers current settings when current keys are customized', () => {

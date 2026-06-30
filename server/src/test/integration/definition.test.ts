@@ -46,7 +46,8 @@ suite('Definition Integration Tests', () => {
         cmakePath: 'cmake',
         pkgConfigPath: '',
         cmdCaseDiagnostics: false,
-        loggingLevel: 'off'
+        loggingLevel: 'off',
+        enableCMakeToolsIntegration: true,
     };
 
     // ── helpers ────────────────────────────────────────────────

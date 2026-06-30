@@ -9,6 +9,7 @@ type RawExtensionSettings = {
     pkgConfigPath?: string;
     cmdCaseDiagnostics?: boolean;
     workspaceIgnoreDirectories?: string[];
+    enableCMakeToolsIntegration?: boolean;
 };
 
 function asString(value: unknown): string | undefined {
@@ -120,5 +121,6 @@ export function resolveExtensionSettings(currentSettingsValue: unknown, legacySe
             legacySettings.workspaceIgnoreDirectories,
             defaultWorkspaceIgnoreDirectories,
         ),
+        enableCMakeToolsIntegration: resolveBooleanSetting(currentSettings.enableCMakeToolsIntegration, legacySettings.enableCMakeToolsIntegration, defaults.enableCMakeToolsIntegration),
     };
 }

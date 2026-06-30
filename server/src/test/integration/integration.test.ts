@@ -49,7 +49,8 @@ suite('LSP Integration Tests', () => {
         cmakePath: 'cmake',
         pkgConfigPath: '',
         cmdCaseDiagnostics: true,
-        loggingLevel: 'off'
+        loggingLevel: 'off',
+        enableCMakeToolsIntegration: true,
     };
 
     suiteSetup(async function () {

@@ -134,6 +134,7 @@ export class CMakeLanguageServer {
         cmdCaseDiagnostics: false,
         pkgConfigPath: 'pkg-config',
         workspaceIgnoreDirectories: ['.git', '.hg', '.svn', 'node_modules', 'dist', 'out', 'build', 'cmake-build-debug', 'cmake-build-release'],
+        enableCMakeToolsIntegration: true,
     };
 
     constructor() {
