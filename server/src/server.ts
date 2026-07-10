@@ -1179,7 +1179,10 @@ export class CMakeLanguageServer {
         const resolve = async (): Promise<SymbolInformation[] | null> => {
             await this.ensureAllWorkspaceFoldersIndexed();
             const results = await Promise.all(this.getWorkspaceFolders().map(async folder => {
-                const resolver = new WorkspaceSymbolResolver(this.getWorkspaceState(folder).symbolIndex);
+                const resolver = new WorkspaceSymbolResolver(
+                    this.getWorkspaceState(folder).symbolIndex,
+                    folder.toString(),
+                );
                 return resolver.resolve(params) ?? [];
             }));
             return results.flat();
