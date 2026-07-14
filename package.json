@@ -153,6 +153,11 @@
             "description": "%workspaceIgnoreDirectories%",
             "deprecationMessage": "%workspaceIgnoreDirectories.deprecated%"
           },
+          "cmakeIntelliSense.excludeCMakeBuildDirectories": {
+            "type": "boolean",
+            "default": true,
+            "description": "%excludeCMakeBuildDirectories%"
+          },
           "cmakeIntelliSense.cmdCaseDiagnostics": {
             "type": "boolean",
             "description": "%cmdCaseDiagnostics%",

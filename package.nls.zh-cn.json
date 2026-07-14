@@ -7,6 +7,7 @@
     "loggingLevel.deprecated": "已弃用。请改用 cmakeIntelliSense.loggingLevel。",
     "workspaceIgnoreDirectories": "设置在索引工作区 CMake 文件时需要跳过的目录名列表",
     "workspaceIgnoreDirectories.deprecated": "已弃用。请改用 cmakeIntelliSense.workspaceIgnoreDirectories。",
+    "excludeCMakeBuildDirectories": "索引工作区 CMake 文件时，跳过同时包含 CMakeCache.txt 和 CMakeFiles 目录的构建目录",
     "diagnostics.breakContinue": "命令 '{0}' 只能在循环中使用",
     "diagnostics.cmdCase": "建议使用小写形式的 CMake 命令",
     "diagnostics.missingFilePath": "引用的路径 '{0}' 不存在",

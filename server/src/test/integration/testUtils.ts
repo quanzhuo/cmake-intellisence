@@ -24,6 +24,7 @@ export function createCompatibleConfigurationResponse(extSettings: ExtensionSett
         cmdCaseDiagnostics: extSettings.cmdCaseDiagnostics,
         pkgConfigPath: extSettings.pkgConfigPath,
         workspaceIgnoreDirectories: extSettings.workspaceIgnoreDirectories,
+        excludeCMakeBuildDirectories: extSettings.excludeCMakeBuildDirectories,
     };
 
     return [response, response];

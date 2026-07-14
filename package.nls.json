@@ -7,6 +7,7 @@
     "loggingLevel.deprecated": "Deprecated. Use cmakeIntelliSense.loggingLevel instead.",
     "workspaceIgnoreDirectories": "Directory names to skip while indexing workspace CMake files",
     "workspaceIgnoreDirectories.deprecated": "Deprecated. Use cmakeIntelliSense.workspaceIgnoreDirectories instead.",
+    "excludeCMakeBuildDirectories": "Skip directories that contain both CMakeCache.txt and a CMakeFiles directory while indexing workspace CMake files",
     "diagnostics.breakContinue": "The command '{0}' can only be used within loops",
     "diagnostics.cmdCase": "It is recommended to use lowercase CMake commands",
     "diagnostics.missingFilePath": "Referenced path '{0}' does not exist",

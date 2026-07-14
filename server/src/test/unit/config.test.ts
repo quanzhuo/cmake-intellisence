@@ -9,6 +9,7 @@ suite('config compatibility tests', () => {
         cmdCaseDiagnostics: false,
         pkgConfigPath: 'pkg-config',
         workspaceIgnoreDirectories: ['.git', 'build'],
+        excludeCMakeBuildDirectories: true,
         enableCMakeToolsIntegration: true,
     };
 
@@ -19,12 +20,14 @@ suite('config compatibility tests', () => {
             cmdCaseDiagnostics: true,
             pkgConfigPath: '/usr/bin/pkg-config',
             workspaceIgnoreDirectories: ['dist'],
+            excludeCMakeBuildDirectories: false,
         }, {
             cmakePath: '/legacy/cmake',
             loggingLevel: 'error',
             cmdCaseDiagnostics: false,
             pkgConfigPath: '/legacy/pkg-config',
             workspaceIgnoreDirectories: ['legacy'],
+            excludeCMakeBuildDirectories: true,
         }, defaults);
 
         assert.deepStrictEqual(resolved, {
@@ -33,6 +36,8 @@ suite('config compatibility tests', () => {
             cmdCaseDiagnostics: true,
             pkgConfigPath: '/usr/bin/pkg-config',
             workspaceIgnoreDirectories: ['dist'],
+            excludeCMakeBuildDirectories: false,
+            enableCMakeToolsIntegration: true,
         });
     });
 
@@ -43,12 +48,14 @@ suite('config compatibility tests', () => {
             cmdCaseDiagnostics: false,
             pkgConfigPath: 'pkg-config',
             workspaceIgnoreDirectories: ['.git', 'build'],
+            excludeCMakeBuildDirectories: true,
         }, {
             cmakePath: '/legacy/cmake',
             loggingLevel: 'warning',
             cmdCaseDiagnostics: true,
             pkgConfigPath: '/legacy/pkg-config',
             workspaceIgnoreDirectories: ['legacy', ' out '],
+            excludeCMakeBuildDirectories: false,
         }, defaults);
 
         assert.deepStrictEqual(resolved, {
@@ -57,6 +64,8 @@ suite('config compatibility tests', () => {
             cmdCaseDiagnostics: true,
             pkgConfigPath: '/legacy/pkg-config',
             workspaceIgnoreDirectories: ['legacy', 'out'],
+            excludeCMakeBuildDirectories: false,
+            enableCMakeToolsIntegration: true,
         });
     });
 

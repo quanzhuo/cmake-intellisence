@@ -18,6 +18,7 @@ export interface ExtensionSettings {
     pkgConfigPath: string;
     cmdCaseDiagnostics: boolean;
     workspaceIgnoreDirectories?: string[];
+    excludeCMakeBuildDirectories?: boolean;
     enableCMakeToolsIntegration: boolean;
 }
 

@@ -39,6 +39,7 @@ import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, CMakeToolsProjectSnapshot, C
 import { PathExpressionResolver } from './pathExpressionResolver';
 import { ParsedCMakeFile, getFileContent, parseCMakeText } from './utils';
 import { WorkspaceSymbolResolver } from './workspaceSymbol';
+import { collectWorkspaceCMakeFiles } from './workspaceScanner';
 
 type Word = {
     text: string,
@@ -134,6 +135,7 @@ export class CMakeLanguageServer {
         cmdCaseDiagnostics: false,
         pkgConfigPath: 'pkg-config',
         workspaceIgnoreDirectories: ['.git', '.hg', '.svn', 'node_modules', 'dist', 'out', 'build', 'cmake-build-debug', 'cmake-build-release'],
+        excludeCMakeBuildDirectories: true,
         enableCMakeToolsIntegration: true,
     };
 
@@ -1279,6 +1281,8 @@ export class CMakeLanguageServer {
                 this.getWorkspaceIgnoreDirectories(workspaceState.extSettings),
                 this.getWorkspaceIgnoreDirectories(extSettings),
             );
+            const excludeCMakeBuildDirectoriesChanged = extSettings.excludeCMakeBuildDirectories
+                !== workspaceState.extSettings.excludeCMakeBuildDirectories;
 
             if (environmentChanged) {
                 await this.startEnvironmentInitialization(folder, extSettings);
@@ -1289,7 +1293,7 @@ export class CMakeLanguageServer {
             workspaceState.extSettings = extSettings;
             this.logger.setLevel(extSettings.loggingLevel);
 
-            if (workspaceIgnoreDirectoriesChanged) {
+            if (workspaceIgnoreDirectoriesChanged || excludeCMakeBuildDirectoriesChanged) {
                 this.clearWorkspaceFolderSnapshots(folder);
                 await this.ensureWorkspaceFolderIndexed(folder);
             }
@@ -1683,9 +1687,10 @@ export class CMakeLanguageServer {
         const start = Date.now();
         const workspaceState = this.getWorkspaceState(workspaceFolder);
         const collectStart = Date.now();
-        const files = await this.collectWorkspaceCMakeFiles(
+        const files = await collectWorkspaceCMakeFiles(
             workspaceFolder.fsPath,
             this.getWorkspaceIgnoreDirectories(workspaceState.extSettings),
+            workspaceState.extSettings.excludeCMakeBuildDirectories !== false,
         );
         this.logger.debug(`Collected ${files.length} workspace CMake files in ${Date.now() - collectStart}ms for ${workspaceFolder.fsPath}`);
 
@@ -1716,37 +1721,6 @@ export class CMakeLanguageServer {
 
     private isEnvironmentGenerationCurrent(workspaceFolder: URI, generation: number): boolean {
         return this.getWorkspaceState(workspaceFolder).environmentGeneration === generation;
-    }
-
-    private async collectWorkspaceCMakeFiles(rootPath: string, ignoredDirectoryNames: readonly string[]): Promise<string[]> {
-        const results: string[] = [];
-        const ignoredDirectories = new Set(ignoredDirectoryNames);
-
-        const visit = async (dirPath: string): Promise<void> => {
-            const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
-            for (const entry of entries) {
-                const fullPath = path.join(dirPath, entry.name);
-                if (entry.isSymbolicLink()) {
-                    continue;
-                }
-                if (entry.isDirectory()) {
-                    if (ignoredDirectories.has(entry.name)) {
-                        continue;
-                    }
-                    await visit(fullPath);
-                    continue;
-                }
-                if (!entry.isFile()) {
-                    continue;
-                }
-                if (entry.name === 'CMakeLists.txt' || entry.name.endsWith('.cmake')) {
-                    results.push(fullPath);
-                }
-            }
-        };
-
-        await visit(rootPath);
-        return results;
     }
 
     private async indexWorkspaceFile(uri: string, generation?: number): Promise<void> {

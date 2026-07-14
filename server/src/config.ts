@@ -9,6 +9,7 @@ type RawExtensionSettings = {
     pkgConfigPath?: string;
     cmdCaseDiagnostics?: boolean;
     workspaceIgnoreDirectories?: string[];
+    excludeCMakeBuildDirectories?: boolean;
     enableCMakeToolsIntegration?: boolean;
 };
 
@@ -47,6 +48,7 @@ function asRawExtensionSettings(value: unknown): RawExtensionSettings {
         workspaceIgnoreDirectories: Array.isArray(record.workspaceIgnoreDirectories)
             ? normalizeStringArray(record.workspaceIgnoreDirectories, [])
             : undefined,
+        excludeCMakeBuildDirectories: asBoolean(record.excludeCMakeBuildDirectories),
     };
 }
 
@@ -120,6 +122,11 @@ export function resolveExtensionSettings(currentSettingsValue: unknown, legacySe
             currentSettings.workspaceIgnoreDirectories,
             legacySettings.workspaceIgnoreDirectories,
             defaultWorkspaceIgnoreDirectories,
+        ),
+        excludeCMakeBuildDirectories: resolveBooleanSetting(
+            currentSettings.excludeCMakeBuildDirectories,
+            legacySettings.excludeCMakeBuildDirectories,
+            defaults.excludeCMakeBuildDirectories ?? true,
         ),
         enableCMakeToolsIntegration: resolveBooleanSetting(currentSettings.enableCMakeToolsIntegration, legacySettings.enableCMakeToolsIntegration, defaults.enableCMakeToolsIntegration),
     };
