@@ -1564,6 +1564,24 @@ suite('LSP Integration Tests', () => {
         assert(formatted.includes('    project'), 'Nested command should be indented');
     });
 
+    test('should not return destructive edits for syntax-invalid documents', async function () {
+        const invalidDocuments = [
+            ['file:///test-workspace/format-invalid-empty-command.txt', 'set()'],
+            ['file:///test-workspace/format-invalid-unclosed-command.txt', 'message(foo']
+        ] as const;
+
+        for (const [uri, content] of invalidDocuments) {
+            openDocument(uri, content);
+
+            const edits = await connection.sendRequest(DocumentFormattingRequest.type, {
+                textDocument: { uri },
+                options: { tabSize: 4, insertSpaces: true }
+            });
+
+            assert.strictEqual(edits, null, `Expected formatting to be skipped for: ${content}`);
+        }
+    });
+
     //#endregion ── Formatting ─────────────────────────────────────────────
 
     //#region ── Document Symbols ───────────────────────────────────────

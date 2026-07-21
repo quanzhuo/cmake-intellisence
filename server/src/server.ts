@@ -1174,23 +1174,53 @@ export class CMakeLanguageServer {
     }
 
     private async onDocumentFormatting(params: DocumentFormattingParams): Promise<TextEdit[] | null> {
-        const snapshot = await this.ensureParsedFile(params.textDocument.uri, 'formatting');
-        const tabSize = params.options.tabSize;
-        const document = this.documents.get(params.textDocument.uri);
+        const uri = params.textDocument.uri;
+        const document = this.documents.get(uri);
         if (!document) {
             return null;
         }
-        const range: Range = {
-            start: { line: 0, character: 0 },
-            end: { line: document.lineCount - 1, character: Number.MAX_VALUE }
-        };
 
+        const documentVersion = document.version;
+        const originalText = document.getText();
+        const snapshot = await this.ensureParsedFile(uri, 'formatting');
+        const currentDocument = this.documents.get(uri);
+        if (
+            !currentDocument ||
+            currentDocument.version !== documentVersion ||
+            !sourceRevisionsEqual(snapshot.revision, { kind: 'document', version: documentVersion })
+        ) {
+            this.logger.debug(`Skipped formatting stale document: ${uri}`);
+            return null;
+        }
+
+        if (snapshot.syntaxDiagnostics.length > 0) {
+            this.logger.debug(`Skipped formatting document with syntax errors: ${uri}`);
+            return null;
+        }
+
+        const tabSize = params.options.tabSize;
         const formatListener = new Formatter(tabSize, snapshot.tokenStream);
         try {
             formatListener.format(snapshot.flatCommands);
         } catch (error) {
             this.logger.error(`Failed to format document: ${error}`);
+            return null;
         }
+
+        if (this.documents.get(uri)?.version !== documentVersion) {
+            this.logger.debug(`Discarded formatting result for changed document: ${uri}`);
+            return null;
+        }
+
+        if (formatListener.formatted === originalText) {
+            return [];
+        }
+
+        const range: Range = {
+            start: { line: 0, character: 0 },
+            end: document.positionAt(originalText.length)
+        };
+
         return [
             {
                 range: range,
