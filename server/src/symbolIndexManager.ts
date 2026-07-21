@@ -8,6 +8,7 @@ export interface PopulateIndexTopDownOptions {
     rootUri: string;
     symbolIndex: SymbolIndex;
     loadFlatCommands: (uri: string) => Promise<unknown>;
+    ensureFileIndexed?: (uri: string) => Promise<boolean>;
     shouldCancel?: () => boolean;
     visited?: Set<string>;
     onDependencyError?: (uri: string, error: unknown) => DependencyErrorAction | Promise<DependencyErrorAction>;
@@ -18,9 +19,10 @@ export async function ensureSymbolIndexCache(
     loadFlatCommands: (uri: string) => Promise<unknown>,
     uri: string,
     shouldCancel?: () => boolean,
-): Promise<void> {
+    ensureFileIndexed?: (uri: string) => Promise<boolean>,
+): Promise<boolean> {
     if (symbolIndex.getCache(uri)) {
-        return;
+        return true;
     }
 
     let hydrated = false;
@@ -35,8 +37,14 @@ export async function ensureSymbolIndexCache(
 
     if (!hydrated) {
         throwIfCancelled(shouldCancel);
-        await loadFlatCommands(uri);
+        if (ensureFileIndexed) {
+            return await ensureFileIndexed(uri);
+        } else {
+            await loadFlatCommands(uri);
+        }
     }
+
+    return hydrated || !!symbolIndex.getCache(uri);
 }
 
 export async function populateIndexTopDown(options: PopulateIndexTopDownOptions): Promise<void> {
@@ -52,7 +60,16 @@ export async function populateIndexTopDown(options: PopulateIndexTopDownOptions)
         visited.add(uri);
 
         try {
-            await ensureSymbolIndexCache(options.symbolIndex, options.loadFlatCommands, uri, options.shouldCancel);
+            const cacheAvailable = await ensureSymbolIndexCache(
+                options.symbolIndex,
+                options.loadFlatCommands,
+                uri,
+                options.shouldCancel,
+                options.ensureFileIndexed,
+            );
+            if (!cacheAvailable) {
+                continue;
+            }
             throwIfCancelled(options.shouldCancel);
         } catch (error) {
             if (isCancellationError(error)) {

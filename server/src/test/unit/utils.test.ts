@@ -7,9 +7,15 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
 import { FileApiRawSnapshot } from '../../fileApiSnapshot';
 import { SymbolIndex } from '../../symbolIndex';
-import { getFileContent, getFindPackageUri, getIncludeFileUri, getIncludeModuleUri, normalizeQuotedArgument } from '../../utils';
+import { getFileContent, getFindPackageUri, getIncludeFileUri, getIncludeModuleUri, normalizeQuotedArgument, parseCMakeText } from '../../utils';
 
 suite('Utils Tests', () => {
+    test('parseCMakeText captures syntax errors without the default console listener', () => {
+        const parsed = parseCMakeText('set()');
+
+        assert(parsed.syntaxDiagnostics.length > 0);
+    });
+
     test('getFileContent should return empty text for directories', async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-'));
         const documents = new TextDocuments(TextDocument);

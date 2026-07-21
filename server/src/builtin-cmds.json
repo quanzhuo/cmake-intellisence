@@ -100,6 +100,18 @@
     ],
     "deprecated": true
   },
+  "cmake_diagnostic": {
+    "sig": [
+      "cmake_diagnostic(SET <category> <action> [RECURSE])",
+      "cmake_diagnostic(PROMOTE <category> <action> [NO_RECURSE])",
+      "cmake_diagnostic(DEMOTE <category> <action> [NO_RECURSE])",
+      "cmake_diagnostic(GET <diagnostic> <out-var>)",
+      "cmake_diagnostic(PUSH)",
+      "cmake_diagnostic(POP)"
+    ],
+    "keyword": ["SET", "PROMOTE", "DEMOTE", "GET", "PUSH", "POP", "RECURSE", "NO_RECURSE"],
+    "constant": ["IGNORE", "WARN", "SEND_ERROR", "FATAL_ERROR"]
+  },
   "cmake_file_api": {
     "sig": [
       "cmake_file_api(QUERY API_VERSION <version> [CODEMODEL <versions>...] [CACHE <versions>...] [CMAKEFILES <versions>...] [TOOLCHAINS <versions>...])"
@@ -302,6 +314,12 @@
       "define_property(<GLOBAL | DIRECTORY | TARGET | SOURCE | TEST | VARIABLE | CACHED_VARIABLE> PROPERTY <name> [INHERITED] BRIEF_DOCS <brief-doc> [docs...] FULL_DOCS <full-doc> [docs...])"
     ],
     "keyword": ["GLOBAL", "DIRECTORY", "TARGET", "SOURCE", "TEST", "VARIABLE", "CACHED_VARIABLE", "PROPERTY", "INHERITED", "BRIEF_DOCS", "FULL_DOCS"]
+  },
+  "discover_tests": {
+    "sig": [
+      "discover_tests(COMMAND <command> [<arg>...] [COMMAND_EXPAND_LISTS] [CONFIGURATIONS <config>...] DISCOVERY_ARGS <arg>... DISCOVERY_MATCH <regex> [DISCOVERY_PROPERTIES <key> <value> [<key> <value>]...] TEST_NAME <replacement> TEST_ARGS <replacement>... [TEST_PROPERTIES <key> <replacement> [<key> <replacement>]...])"
+    ],
+    "keyword": ["COMMAND", "COMMAND_EXPAND_LISTS", "CONFIGURATIONS", "DISCOVERY_ARGS", "DISCOVERY_MATCH", "DISCOVERY_PROPERTIES", "TEST_NAME", "TEST_ARGS", "TEST_PROPERTIES"]
   },
   "else": {
     "sig": [

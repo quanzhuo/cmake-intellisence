@@ -1772,6 +1772,21 @@ suite('LSP Integration Tests', () => {
         assert(result!.data.length > 0, 'Should have semantic token data');
     });
 
+    test('should return stable data for repeated full semantic token requests', async function () {
+        const uri = 'file:///test-workspace/semantic-repeat.txt';
+        openDocument(uri, 'set(MY_VAR "hello")\nmessage(STATUS ${MY_VAR})');
+
+        const first = await connection.sendRequest(SemanticTokensRequest.type, {
+            textDocument: { uri }
+        });
+        const second = await connection.sendRequest(SemanticTokensRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(first !== null && second !== null);
+        assert.deepStrictEqual(second!.data, first!.data);
+    });
+
     test('should differentiate between functions and macros', async function () {
         const uri = 'file:///test-workspace/semantic_funcs_macros.txt';
         const content = [
@@ -1942,11 +1957,8 @@ suite('LSP Integration Tests', () => {
 
         assert(delta !== null, 'Semantic token delta response should not be null');
         const deltaLike = delta as { edits?: Array<unknown>; data?: number[] };
-        if (Array.isArray(deltaLike.edits)) {
-            assert(deltaLike.edits.length > 0, 'Semantic token delta should include edits after a document change');
-        } else {
-            assert(Array.isArray(deltaLike.data) && deltaLike.data.length > 0, 'Fallback full semantic token response should contain data');
-        }
+        assert(Array.isArray(deltaLike.edits), 'A delta request after a full response should reuse the stored baseline');
+        assert(deltaLike.edits.length > 0, 'Semantic token delta should include edits after a document change');
     });
 
     //#endregion ── Semantic Tokens ────────────────────────────────────────

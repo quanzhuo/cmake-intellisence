@@ -1,10 +1,11 @@
-import { CommonTokenStream, ParseTreeWalker, Token } from 'antlr4';
+import { ParseTreeWalker, Token } from 'antlr4';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams } from 'vscode-languageserver-protocol';
 import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocument';
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
-import { CancellationToken, CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
+import { CancellationToken, CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, DidChangeWatchedFilesParams, FileChangeType, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceFoldersChangeEvent, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import { ArgumentSemanticKind, DefinitionSubject, resolveCursorTarget } from './argumentSemantics';
 import { loadBuiltinModuleCommandCatalog, warmBuiltinModuleCaches } from './builtinModuleIndex';
@@ -14,15 +15,13 @@ import { BuiltinEntriesLoadStats, ExtensionSettings, ProjectTargetInfoListener, 
 import { CONFIGURATION_SECTION, LEGACY_CONFIGURATION_SECTION, resolveExtensionSettings } from './config';
 import Completion, { CMakeCompletionType, CompletionItemType, ProjectTargetInfo, findCommandAtPosition, findRecoveredCommandInfoAtPosition, getCompletionHelpLabel, getCompletionInfoAtCursor, getCompletionItemType, getCompletionWorkspaceKey, inComments } from './completion';
 import { DefinitionResolver } from './definition';
-import SemanticDiagnosticsListener, { CommandCaseChecker, DIAG_CODE_CMD_CASE, SyntaxErrorListener } from './diagnostics';
+import SemanticDiagnosticsListener, { CommandCaseChecker, DIAG_CODE_CMD_CASE } from './diagnostics';
 import { DocumentLinkInfo } from './docLink';
 import { loadFileApiRawSnapshot } from './fileApiLoader';
 import { SymbolListener } from './docSymbols';
 import { FileApiCacheEntrySnapshot, FileApiRawSnapshot } from './fileApiSnapshot';
 import { FlatCommand } from './flatCommands';
 import { Formatter } from './format';
-import CMakeLexer from './generated/CMakeLexer';
-import { FileContext } from './generated/CMakeParser';
 import localize, { localizeInitializer } from './localize';
 import { Logger, createLogger } from './logging';
 import { ExecFileFailure, execFilePromise } from './processUtils';
@@ -30,14 +29,15 @@ import { PathDiagnosticsProvider } from './pathDiagnostics';
 import { ReferenceResolver } from './references';
 import { RenameResolver } from './rename';
 import { rstToMarkdown } from './rstToMarkdown';
-import { SemanticTokenListener, getTokenBuilder, getTokenModifiers, getTokenTypes, tokenBuilders } from './semanticTokens';
+import { SemanticTokenListener, createTokenBuilder, deleteTokenBuilder, getTokenBuilder, getTokenModifiers, getTokenTypes } from './semanticTokens';
 import { buildSignatureHelp, buildSignatureHelpForInvocation } from './signatureHelp';
 import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex } from './symbolIndex';
 import { populateIndexTopDown } from './symbolIndexManager';
 import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, CMakeToolsProjectSnapshot, CMakeToolsProjectSnapshotNotificationParams, READY_NOTIFICATION } from './cmakeToolsSnapshot';
 import { PathExpressionResolver } from './pathExpressionResolver';
-import { ParsedCMakeFile, getFileContent, parseCMakeText } from './utils';
+import { ParsedFileSnapshot, ParsedFileStore, SourceRevision, sourceRevisionKey, sourceRevisionsEqual } from './parsedFileStore';
+import { parseCMakeText } from './utils';
 import { WorkspaceSymbolResolver } from './workspaceSymbol';
 import { collectWorkspaceCMakeFiles } from './workspaceScanner';
 
@@ -47,10 +47,17 @@ type Word = {
     col: number
 };
 
+type StructureFingerprints = {
+    dependency: string;
+    targetInfo: string;
+};
+
 type WorkspaceState = {
     workspaceFolder: URI;
     symbolIndex: SymbolIndex;
     cmakeToolsProjectSnapshot?: CMakeToolsProjectSnapshot;
+    cmakeToolsUpdateSequence: number;
+    cmakeToolsUpdate?: Promise<void>;
     fileApiRawSnapshot?: FileApiRawSnapshot;
     cmakeCacheEntriesByName?: CMakeCacheEntriesByName;
     cmakeCacheBuildDirectory?: string;
@@ -64,6 +71,8 @@ type WorkspaceState = {
     cmakeHelpCache: Map<string, HelpCacheEntry>;
     environmentInitialization?: Promise<void>;
     environmentGeneration: number;
+    analysisGeneration: number;
+    requestGeneration: number;
     environmentReady: boolean;
     extSettings: ExtensionSettings;
 };
@@ -75,6 +84,13 @@ type HelpCacheEntry = {
 
 const CMAKE_HELP_NULL_CACHE_TTL_MS = 5 * 60 * 1000;
 const DIAGNOSTICS_DEBOUNCE_MS = 220;
+const WORKSPACE_REINDEX_DEBOUNCE_MS = 220;
+const MAX_CLOSED_PARSED_FILE_SNAPSHOTS = 128;
+const DEPENDENCY_STRUCTURE_COMMANDS = new Set([
+    'include',
+    'add_subdirectory',
+    'set',
+]);
 const TARGET_INFO_STRUCTURE_COMMANDS = new Set([
     'add_executable',
     'add_library',
@@ -111,17 +127,15 @@ export class CMakeLanguageServer {
     private connection = createConnection(ProposedFeatures.all);
     private documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
     private disposables: Disposable[] = [];
-    private fileContexts: Map<string, FileContext> = new Map();
-    private tokenStreams: Map<string, CommonTokenStream> = new Map();
-    private flatCommandsMap: Map<string, FlatCommand[]> = new Map();
-    private commentsMap: Map<string, Token[]> = new Map();
-    private parsedFileRequestsByUri: Map<string, Promise<ParsedCMakeFile>> = new Map();
-    private parsedDocumentVersionsByUri: Map<string, number> = new Map();
+    private parsedFiles = new ParsedFileStore();
+    private symbolIndexRequestsByUri: Map<string, { requestKey: string; request: Promise<void> }> = new Map();
+    private structureFingerprintsByUri: Map<string, StructureFingerprints> = new Map();
     private workspaceStates: Map<string, WorkspaceState> = new Map();
+    private workspaceFolders: URI[] = [];
     private logger: Logger = createLogger('cmake-intelli', 'off');
     private diagnosticsTimerByUri: Map<string, ReturnType<typeof setTimeout>> = new Map();
+    private workspaceReindexTimerByKey: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private diagnosticsSequenceByUri: Map<string, number> = new Map();
-    private targetInfoStructureFingerprintByUri: Map<string, string> = new Map();
     private diagnosticsRescheduledCount = 0;
     private diagnosticsDroppedStaleSequenceCount = 0;
     private diagnosticsDroppedStaleVersionCount = 0;
@@ -155,6 +169,7 @@ export class CMakeLanguageServer {
             this.connection.onWorkspaceSymbol(this.wrapRequest('workspaceSymbol', this.onWorkspaceSymbol.bind(this), null)),
             this.connection.onCodeAction(this.wrapRequest('codeAction', this.onCodeAction.bind(this), [])),
             this.connection.onDidChangeConfiguration(this.wrapNotification('didChangeConfiguration', this.onDidChangeConfiguration.bind(this))),
+            this.connection.onDidChangeWatchedFiles(this.wrapNotification('didChangeWatchedFiles', this.onDidChangeWatchedFiles.bind(this))),
             this.connection.onNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, this.wrapNotification('cmakeToolsProjectSnapshotChanged', this.onCMakeToolsProjectSnapshotChanged.bind(this))),
             this.connection.onDocumentLinks(this.wrapRequest('documentLinks', this.onDocumentLinks.bind(this), null)),
             this.connection.onShutdown(this.wrapNotification('shutdown', this.onShutdown.bind(this))),
@@ -186,10 +201,13 @@ export class CMakeLanguageServer {
         return {
             workspaceFolder,
             symbolIndex: new SymbolIndex(),
+            cmakeToolsUpdateSequence: 0,
             projectTargetInfoDirty: false,
             projectTargetInfoVersion: 0,
             cmakeHelpCache: new Map<string, HelpCacheEntry>(),
             environmentGeneration: 0,
+            analysisGeneration: 0,
+            requestGeneration: 0,
             environmentReady: false,
             extSettings: { ...this.defaultExtSettings },
         };
@@ -267,11 +285,15 @@ export class CMakeLanguageServer {
 
     private async onInitialize(params: InitializeParams): Promise<InitializeResult> {
         this.initParams = params;
+        this.workspaceFolders = params.workspaceFolders?.map(folder => URI.parse(folder.uri))
+            ?? (params.rootUri ? [URI.parse(params.rootUri)] : []);
         localizeInitializer.init(params.locale || 'en');
 
         const result: InitializeResult = {
             capabilities: {
-                textDocumentSync: TextDocumentSyncKind.Full,
+                // The server still performs whole-file ANTLR analysis, but range-based
+                // synchronization avoids transferring the complete document on every edit.
+                textDocumentSync: TextDocumentSyncKind.Incremental,
                 hoverProvider: true,
                 signatureHelpProvider: {
                     triggerCharacters: ['('],
@@ -315,6 +337,13 @@ export class CMakeLanguageServer {
 
     private async onInitialized(params: InitializedParams) {
         this.connection.client.register(DidChangeConfigurationNotification.type, undefined);
+        if (this.initParams?.capabilities.workspace?.workspaceFolders) {
+            this.disposables.push(
+                this.connection.workspace.onDidChangeWorkspaceFolders(
+                    this.wrapNotification('didChangeWorkspaceFolders', this.onDidChangeWorkspaceFolders.bind(this))
+                )
+            );
+        }
         const workspaceFolders = this.getWorkspaceFolders();
         const initializationStart = Date.now();
         const initializationResults = await Promise.allSettled(workspaceFolders.map(folder => this.ensureEnvironmentInitialized(folder)));
@@ -337,9 +366,8 @@ export class CMakeLanguageServer {
         this.logger.debug(`Initial environment initialization finished in ${Date.now() - initializationStart}ms for ${workspaceFolders.length} workspace folder(s)`);
 
         // The server is ready to handle requests as soon as the CMake environment is
-        // initialized. Workspace file indexing is kicked off in the background; individual
-        // LSP request handlers (hover, completion, …) will wait for it via
-        // ensureWorkspaceIndexedForUri when they first need the workspace symbol index.
+        // initialized. Workspace file indexing continues in the background, while
+        // interactive handlers index only the current or reachable files on demand.
         this.connection.sendNotification(READY_NOTIFICATION);
 
         const workspaceIndexStart = Date.now();
@@ -352,44 +380,103 @@ export class CMakeLanguageServer {
             });
     }
 
-    private async onCMakeToolsProjectSnapshotChanged(params: CMakeToolsProjectSnapshotNotificationParams): Promise<void> {
-        const startedAt = Date.now();
+    private onCMakeToolsProjectSnapshotChanged(params: CMakeToolsProjectSnapshotNotificationParams): Promise<void> {
         const workspaceFolder = URI.parse(params.workspaceFolderUri);
         const workspaceState = this.getWorkspaceState(workspaceFolder);
+        const updateSequence = ++workspaceState.cmakeToolsUpdateSequence;
+        workspaceState.requestGeneration++;
+
+        let update: Promise<void>;
+        update = this.processCMakeToolsProjectSnapshotChanged(
+            params,
+            workspaceFolder,
+            workspaceState,
+            updateSequence,
+        ).finally(() => {
+            if (workspaceState.cmakeToolsUpdate === update) {
+                workspaceState.cmakeToolsUpdate = undefined;
+            }
+        });
+        workspaceState.cmakeToolsUpdate = update;
+        return update;
+    }
+
+    private async processCMakeToolsProjectSnapshotChanged(
+        params: CMakeToolsProjectSnapshotNotificationParams,
+        workspaceFolder: URI,
+        workspaceState: WorkspaceState,
+        updateSequence: number,
+    ): Promise<void> {
+        const startedAt = Date.now();
         const previousSnapshot = workspaceState.cmakeToolsProjectSnapshot;
         const previousFileApiRawSnapshot = workspaceState.fileApiRawSnapshot;
         const nextSnapshot = params.snapshot ?? undefined;
-        workspaceState.cmakeToolsProjectSnapshot = nextSnapshot;
+        let nextFileApiRawSnapshot = previousFileApiRawSnapshot;
         if (this.shouldResetFileApiRawSnapshot(previousSnapshot, nextSnapshot)) {
-            workspaceState.fileApiRawSnapshot = undefined;
+            nextFileApiRawSnapshot = undefined;
         }
 
         if (nextSnapshot?.buildDirectory) {
             const fileApiLoadStart = Date.now();
             try {
-                workspaceState.fileApiRawSnapshot = loadFileApiRawSnapshot(nextSnapshot.buildDirectory) ?? undefined;
+                nextFileApiRawSnapshot = loadFileApiRawSnapshot(nextSnapshot.buildDirectory) ?? undefined;
                 this.logger.debug(`Loaded File API snapshot for ${workspaceFolder.fsPath} in ${Date.now() - fileApiLoadStart}ms`);
             } catch (error) {
-                workspaceState.fileApiRawSnapshot = undefined;
+                nextFileApiRawSnapshot = undefined;
                 this.logger.debug(`Failed to load File API snapshot for ${workspaceFolder.fsPath}: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
 
         const cmakeCacheLoadStart = Date.now();
-        workspaceState.cmakeCacheEntriesByName = nextSnapshot?.buildDirectory
+        const nextCMakeCacheEntriesByName = nextSnapshot?.buildDirectory
             ? await loadCMakeCacheEntries(nextSnapshot.buildDirectory)
             : undefined;
-        workspaceState.cmakeCacheBuildDirectory = nextSnapshot?.buildDirectory;
         this.logger.debug(`Loaded CMake cache snapshot for ${workspaceFolder.fsPath} in ${Date.now() - cmakeCacheLoadStart}ms`);
 
-        if (this.didFileApiRawSnapshotChange(previousFileApiRawSnapshot, workspaceState.fileApiRawSnapshot)) {
+        if (workspaceState.cmakeToolsUpdateSequence !== updateSequence) {
+            this.logger.debug(`Discarded superseded CMake Tools snapshot update for ${workspaceFolder.fsPath}`);
+            return;
+        }
+
+        workspaceState.cmakeToolsProjectSnapshot = nextSnapshot;
+        workspaceState.fileApiRawSnapshot = nextFileApiRawSnapshot;
+        workspaceState.cmakeCacheEntriesByName = nextCMakeCacheEntriesByName;
+        workspaceState.cmakeCacheBuildDirectory = nextSnapshot?.buildDirectory;
+        // The observable snapshot is now committed atomically. Requests may use
+        // it while the follow-up diagnostics refresh continues.
+        workspaceState.cmakeToolsUpdate = undefined;
+
+        if (this.didFileApiRawSnapshotChange(previousFileApiRawSnapshot, nextFileApiRawSnapshot)) {
             const diagnosticsRefreshStart = Date.now();
-            await this.refreshOpenDocumentDiagnosticsForWorkspace(workspaceFolder);
-            this.logger.debug(`Refreshed open-document diagnostics for ${workspaceFolder.fsPath} in ${Date.now() - diagnosticsRefreshStart}ms after snapshot change`);
+            void this.refreshOpenDocumentDiagnosticsForWorkspace(workspaceFolder)
+                .then(() => {
+                    this.logger.debug(`Refreshed open-document diagnostics for ${workspaceFolder.fsPath} in ${Date.now() - diagnosticsRefreshStart}ms after snapshot change`);
+                })
+                .catch(error => {
+                    this.logger.error(
+                        `Failed to refresh diagnostics after CMake Tools snapshot update for ${workspaceFolder.fsPath}`,
+                        error instanceof Error ? error : new Error(String(error)),
+                    );
+                });
         }
 
         this.logger.debug(`Processed CMake Tools snapshot update for ${workspaceFolder.fsPath} in ${Date.now() - startedAt}ms`);
         this.logger.debug(`Updated CMake Tools snapshot for ${workspaceFolder.fsPath}`, JSON.stringify(params.snapshot));
+    }
+
+    private async ensureCMakeToolsStateReady(workspaceState: WorkspaceState): Promise<void> {
+        while (workspaceState.cmakeToolsUpdate) {
+            const update = workspaceState.cmakeToolsUpdate;
+            try {
+                await update;
+            } catch {
+                // The notification wrapper records the error. Requests continue
+                // with the last fully committed snapshot.
+            }
+            if (workspaceState.cmakeToolsUpdate === update) {
+                return;
+            }
+        }
     }
 
     private shouldResetFileApiRawSnapshot(
@@ -419,19 +506,48 @@ export class CMakeLanguageServer {
     }
 
     private async onHover(params: HoverParams, token: CancellationToken): Promise<Hover | null> {
-        const workspaceState = this.getWorkspaceStateForUri(params.textDocument.uri);
         throwIfCancelled(token);
         await this.ensureEnvironmentInitialized(params.textDocument.uri);
-        throwIfCancelled(token);
-        await this.ensureParsedFile(params.textDocument.uri);
-        throwIfCancelled(token);
-        const comments = this.getComments(params.textDocument.uri);
+
+        while (this.documents.get(params.textDocument.uri)) {
+            throwIfCancelled(token);
+            const workspaceState = this.getWorkspaceStateForUri(params.textDocument.uri);
+            await this.ensureCMakeToolsStateReady(workspaceState);
+            throwIfCancelled(token);
+            const analysisGeneration = workspaceState.analysisGeneration;
+            const requestGeneration = workspaceState.requestGeneration;
+            const snapshot = await this.ensureParsedFile(params.textDocument.uri, 'hover');
+            if (!await this.ensureFileIndexedAsync(params.textDocument.uri, snapshot, analysisGeneration)
+                || workspaceState.analysisGeneration !== analysisGeneration
+                || workspaceState.requestGeneration !== requestGeneration
+                || !await this.isParsedSnapshotCurrent(snapshot)) {
+                continue;
+            }
+
+            const result = await this.computeHover(params, token, workspaceState, snapshot);
+            if (workspaceState.analysisGeneration === analysisGeneration
+                && workspaceState.requestGeneration === requestGeneration
+                && await this.isParsedSnapshotCurrent(snapshot)) {
+                return result;
+            }
+        }
+
+        return null;
+    }
+
+    private async computeHover(
+        params: HoverParams,
+        token: CancellationToken,
+        workspaceState: WorkspaceState,
+        snapshot: ParsedFileSnapshot,
+    ): Promise<Hover | null> {
+        const comments = snapshot.comments;
         if (inComments(params.position, comments)) {
             return null;
         }
 
-        const commands: FlatCommand[] = this.getFlatCommands(params.textDocument.uri);
-        const tokenStream = this.getTokenStream(params.textDocument.uri);
+        const commands = snapshot.flatCommands;
+        const tokenStream = snapshot.tokenStream;
         const hoveredCommand = findCommandAtPosition(commands, params.position);
         const recoveredCommandInfo = hoveredCommand ? null : findRecoveredCommandInfoAtPosition(tokenStream, params.position);
         const recoveredCommandName = recoveredCommandInfo?.name ?? null;
@@ -925,58 +1041,67 @@ export class CMakeLanguageServer {
     }
 
     private async handleCompletion(params: CompletionParams, token?: CancellationToken): Promise<CompletionItem[] | CompletionList | null> {
-        const workspaceState = this.getWorkspaceStateForUri(params.textDocument.uri);
         throwIfCancelled(token);
         await this.ensureEnvironmentInitialized(params.textDocument.uri);
-        throwIfCancelled(token);
-        // Ensure the parse tree is current for the latest document version. Without this,
-        // FlatCommand token positions (especially RP) may be stale when the user edits the
-        // document and immediately triggers completion before the diagnostics debounce timer
-        // has re-parsed the file.
-        await this.ensureParsedFile(params.textDocument.uri);
-        throwIfCancelled(token);
-        // Do NOT await full workspace indexing or dependency-graph resolution here.
-        // Built-in symbols (commands, variables, modules, etc.) are always available
-        // from the system cache, so completions work immediately. Workspace-level
-        // symbols (user-defined variables, targets) are populated progressively by
-        // background workspace indexing — no need for a separate fire-and-forget
-        // dependency walk that would compete with the indexer and re-parse files
-        // that diagnostics already cached without symbols.
 
-        const document = this.documents.get(params.textDocument.uri);
-        if (!document) {
-            return null;
+        while (true) {
+            throwIfCancelled(token);
+            const document = this.documents.get(params.textDocument.uri);
+            if (!document) {
+                return null;
+            }
+
+            const workspaceState = this.getWorkspaceStateForUri(document.uri);
+            await this.ensureCMakeToolsStateReady(workspaceState);
+            throwIfCancelled(token);
+            const analysisGeneration = workspaceState.analysisGeneration;
+            const requestGeneration = workspaceState.requestGeneration;
+            // Only the current document is on completion's foreground path. Other
+            // open documents are refreshed by their debounced diagnostics.
+            const snapshot = await this.ensureParsedFile(document.uri, 'completion');
+            if (!await this.ensureFileIndexedAsync(document.uri, snapshot, analysisGeneration)
+                || workspaceState.analysisGeneration !== analysisGeneration
+                || workspaceState.requestGeneration !== requestGeneration
+                || !await this.isParsedSnapshotCurrent(snapshot)) {
+                continue;
+            }
+            throwIfCancelled(token);
+
+            const entryFileSource = this.getEntryFilePath(document.uri);
+            const word = getWordAtPosition(document, params.position).text;
+            const targetInfo = this.getProjectTargetInfoForCompletion(document.uri, entryFileSource);
+            const snapshotTargetNames = workspaceState.cmakeToolsProjectSnapshot?.targetNames ?? [];
+            const snapshotTestNames = workspaceState.cmakeToolsProjectSnapshot?.testNames ?? [];
+            const completion = new Completion(
+                snapshot.flatCommands,
+                snapshot.tokenStream,
+                targetInfo,
+                word,
+                this.logger,
+                workspaceState.symbolIndex,
+                document.uri,
+                entryFileSource,
+                workspaceState.workspaceFolder.toString(),
+                snapshotTargetNames,
+                snapshotTestNames,
+            );
+            const startCompletion = Date.now();
+            const result = await completion.onCompletion(params);
+            throwIfCancelled(token);
+            if (workspaceState.analysisGeneration !== analysisGeneration
+                || workspaceState.requestGeneration !== requestGeneration
+                || !await this.isParsedSnapshotCurrent(snapshot)) {
+                continue;
+            }
+
+            const elapsed = Date.now() - startCompletion;
+            const itemCount = Array.isArray(result) ? result.length : result?.items?.length ?? 0;
+            const isIncomplete = !Array.isArray(result) && result?.isIncomplete ? ' (incomplete)' : '';
+            this.logger.debug(
+                `Completion returned ${itemCount} item(s)${isIncomplete} in ${elapsed}ms for ${document.uri} (word="${word}", line=${params.position.line}, col=${params.position.character})`
+            );
+            return result;
         }
-
-        const entryFileSource = this.getEntryFilePath(params.textDocument.uri);
-
-        const word = getWordAtPosition(document, params.position).text;
-        const targetInfo = this.getProjectTargetInfoForCompletion(params.textDocument.uri, entryFileSource);
-        throwIfCancelled(token);
-        const snapshotTargetNames = workspaceState.cmakeToolsProjectSnapshot?.targetNames ?? [];
-        const snapshotTestNames = workspaceState.cmakeToolsProjectSnapshot?.testNames ?? [];
-        const completion = new Completion(
-            this.flatCommandsMap,
-            this.tokenStreams,
-            targetInfo,
-            word,
-            this.logger,
-            workspaceState.symbolIndex,
-            params.textDocument.uri,
-            entryFileSource,
-            workspaceState.workspaceFolder.toString(),
-            snapshotTargetNames,
-            snapshotTestNames,
-        );
-        const startCompletion = Date.now();
-        const result = await completion.onCompletion(params);
-        const elapsed = Date.now() - startCompletion;
-        const itemCount = Array.isArray(result) ? result.length : result?.items?.length ?? 0;
-        const isIncomplete = !Array.isArray(result) && result?.isIncomplete ? ' (incomplete)' : '';
-        this.logger.debug(
-            `Completion returned ${itemCount} item(s)${isIncomplete} in ${elapsed}ms for ${params.textDocument.uri} (word="${word}", line=${params.position.line}, col=${params.position.character})`
-        );
-        return result;
     }
 
     private onCompletionResolve(item: CompletionItem): Promise<CompletionItem> {
@@ -1030,9 +1155,9 @@ export class CMakeLanguageServer {
     private async onSignatureHelp(params: SignatureHelpParams): Promise<SignatureHelp | null> {
         const pos = params.position;
         const uri = params.textDocument.uri;
-        await this.ensureParsedFile(uri);
-        const commands: FlatCommand[] = this.getFlatCommands(uri);
-        const tokenStream = this.getTokenStream(uri);
+        const snapshot = await this.ensureParsedFile(uri, 'signature help');
+        const commands = snapshot.flatCommands;
+        const tokenStream = snapshot.tokenStream;
         const completionInfo = getCompletionInfoAtCursor(commands, pos, tokenStream);
         if (completionInfo.type === CMakeCompletionType.Argument && completionInfo.command) {
             const args = completionInfo.context
@@ -1049,7 +1174,7 @@ export class CMakeLanguageServer {
     }
 
     private async onDocumentFormatting(params: DocumentFormattingParams): Promise<TextEdit[] | null> {
-        await this.ensureParsedFile(params.textDocument.uri);
+        const snapshot = await this.ensureParsedFile(params.textDocument.uri, 'formatting');
         const tabSize = params.options.tabSize;
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
@@ -1060,9 +1185,9 @@ export class CMakeLanguageServer {
             end: { line: document.lineCount - 1, character: Number.MAX_VALUE }
         };
 
-        const formatListener = new Formatter(tabSize, this.getTokenStream(params.textDocument.uri));
+        const formatListener = new Formatter(tabSize, snapshot.tokenStream);
         try {
-            formatListener.format(this.getFlatCommands(params.textDocument.uri));
+            formatListener.format(snapshot.flatCommands);
         } catch (error) {
             this.logger.error(`Failed to format document: ${error}`);
         }
@@ -1075,136 +1200,217 @@ export class CMakeLanguageServer {
     }
 
     private async onDocumentSymbol(params: DocumentSymbolParams): Promise<DocumentSymbol[] | SymbolInformation[] | null> {
-        await this.ensureParsedFile(params.textDocument.uri);
+        const snapshot = await this.ensureParsedFile(params.textDocument.uri, 'document symbols');
         const symbolListener = new SymbolListener();
-        ParseTreeWalker.DEFAULT.walk(symbolListener, this.getFileContext(params.textDocument.uri));
+        ParseTreeWalker.DEFAULT.walk(symbolListener, snapshot.fileContext);
         return symbolListener.getSymbols();
     }
 
     private async onDefinition(params: DefinitionParams, token: CancellationToken): Promise<Location | Location[] | LocationLink[] | null> {
         const uri: string = params.textDocument.uri;
-        const workspaceState = this.getWorkspaceStateForUri(uri);
-        throwIfCancelled(token);
-        await this.ensureParsedFile(uri);
-        throwIfCancelled(token);
-        const comments = this.getComments(uri);
-        if (inComments(params.position, comments)) {
-            return null;
-        }
+        while (true) {
+            throwIfCancelled(token);
+            const workspaceState = this.getWorkspaceStateForUri(uri);
+            await this.ensureCMakeToolsStateReady(workspaceState);
+            throwIfCancelled(token);
+            const analysisGeneration = workspaceState.analysisGeneration;
+            const requestGeneration = workspaceState.requestGeneration;
+            const snapshot = await this.ensureParsedFile(uri, 'definition');
+            await this.ensureOpenDocumentIndexes(workspaceState);
+            if (workspaceState.analysisGeneration !== analysisGeneration
+                || workspaceState.requestGeneration !== requestGeneration
+                || !await this.isParsedSnapshotCurrent(snapshot)) {
+                continue;
+            }
+            throwIfCancelled(token);
+            if (inComments(params.position, snapshot.comments)) {
+                return null;
+            }
 
-        const commands = this.getFlatCommands(uri);
-        const command = findCommandAtPosition(commands, params.position);
-        if (command === null) {
-            return null;
-        }
+            const command = findCommandAtPosition(snapshot.flatCommands, params.position);
+            if (command === null) {
+                return null;
+            }
 
-        const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
-        const resolver = new DefinitionResolver(
-            this.documents,
-            workspaceState.symbolIndex,
-            this.getFlatCommandsAsync.bind(this),
-            workspaceFolder,
-            URI.parse(uri),
-            command,
-            this.logger,
-            () => token.isCancellationRequested,
-            workspaceState.fileApiRawSnapshot,
-            workspaceState.cmakeToolsProjectSnapshot?.buildDirectory,
-        );
-        return await resolver.resolve(params);
+            const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
+            const resolver = new DefinitionResolver(
+                this.documents,
+                workspaceState.symbolIndex,
+                this.getFlatCommandsAsync.bind(this),
+                workspaceFolder,
+                URI.parse(uri),
+                command,
+                this.logger,
+                () => token.isCancellationRequested,
+                workspaceState.fileApiRawSnapshot,
+                workspaceState.cmakeToolsProjectSnapshot?.buildDirectory,
+                this.ensureFileIndexedAsync.bind(this),
+            );
+            const result = await resolver.resolve(params);
+            if (workspaceState.analysisGeneration === analysisGeneration
+                && workspaceState.requestGeneration === requestGeneration
+                && await this.isParsedSnapshotCurrent(snapshot)) {
+                return result;
+            }
+        }
     }
 
     private async onReferences(params: ReferenceParams, token: CancellationToken): Promise<Location[] | null> {
         const uri: string = params.textDocument.uri;
-        const workspaceState = this.getWorkspaceStateForUri(uri);
-        throwIfCancelled(token);
-        await this.ensureParsedFile(uri);
-        throwIfCancelled(token);
-        const comments = this.getComments(uri);
-        if (inComments(params.position, comments)) {
-            return null;
-        }
+        while (true) {
+            throwIfCancelled(token);
+            const workspaceState = this.getWorkspaceStateForUri(uri);
+            const analysisGeneration = workspaceState.analysisGeneration;
+            const requestGeneration = workspaceState.requestGeneration;
+            const snapshot = await this.ensureParsedFile(uri, 'references');
+            await this.ensureOpenDocumentIndexes(workspaceState);
+            if (workspaceState.analysisGeneration !== analysisGeneration
+                || workspaceState.requestGeneration !== requestGeneration
+                || !await this.isParsedSnapshotCurrent(snapshot)) {
+                continue;
+            }
+            throwIfCancelled(token);
+            if (inComments(params.position, snapshot.comments)) {
+                return null;
+            }
 
-        const commands = this.getFlatCommands(uri);
-        const command = findCommandAtPosition(commands, params.position);
-        if (command === null) {
-            return null;
-        }
+            const command = findCommandAtPosition(snapshot.flatCommands, params.position);
+            if (command === null) {
+                return null;
+            }
 
-        const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
-        const resolver = new ReferenceResolver(
-            this.documents,
-            workspaceState.symbolIndex,
-            this.getFlatCommandsAsync.bind(this),
-            workspaceFolder,
-            URI.parse(uri),
-            command,
-            this.logger,
-            () => token.isCancellationRequested,
-        );
-        return await resolver.resolve(params);
+            const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
+            const resolver = new ReferenceResolver(
+                this.documents,
+                workspaceState.symbolIndex,
+                this.getFlatCommandsAsync.bind(this),
+                workspaceFolder,
+                URI.parse(uri),
+                command,
+                this.logger,
+                () => token.isCancellationRequested,
+                this.ensureFileIndexedAsync.bind(this),
+            );
+            const result = await resolver.resolve(params);
+            if (workspaceState.analysisGeneration === analysisGeneration
+                && workspaceState.requestGeneration === requestGeneration
+                && await this.isParsedSnapshotCurrent(snapshot)) {
+                return result;
+            }
+        }
     }
 
     private async onRename(params: RenameParams, token: CancellationToken): Promise<WorkspaceEdit | null> {
         const uri: string = params.textDocument.uri;
-        const workspaceState = this.getWorkspaceStateForUri(uri);
-        throwIfCancelled(token);
-        await this.ensureParsedFile(uri);
-        throwIfCancelled(token);
-        const comments = this.getComments(uri);
-        if (inComments(params.position, comments)) {
-            return null;
-        }
+        while (true) {
+            throwIfCancelled(token);
+            const workspaceState = this.getWorkspaceStateForUri(uri);
+            const analysisGeneration = workspaceState.analysisGeneration;
+            const requestGeneration = workspaceState.requestGeneration;
+            const snapshot = await this.ensureParsedFile(uri, 'rename');
+            await this.ensureOpenDocumentIndexes(workspaceState);
+            if (workspaceState.analysisGeneration !== analysisGeneration
+                || workspaceState.requestGeneration !== requestGeneration
+                || !await this.isParsedSnapshotCurrent(snapshot)) {
+                continue;
+            }
+            throwIfCancelled(token);
+            if (inComments(params.position, snapshot.comments)) {
+                return null;
+            }
 
-        const commands = this.getFlatCommands(uri);
-        const command = findCommandAtPosition(commands, params.position);
-        if (command === null) {
-            return null;
-        }
+            const command = findCommandAtPosition(snapshot.flatCommands, params.position);
+            if (command === null) {
+                return null;
+            }
 
-        const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
-        const refResolver = new ReferenceResolver(
-            this.documents,
-            workspaceState.symbolIndex,
-            this.getFlatCommandsAsync.bind(this),
-            workspaceFolder,
-            URI.parse(uri),
-            command,
-            this.logger,
-            () => token.isCancellationRequested,
-        );
-        const renameResolver = new RenameResolver(refResolver);
-        return await renameResolver.resolve(params, () => token.isCancellationRequested);
+            const workspaceFolder = this.getWorkspaceFolderForUri(uri).toString();
+            const refResolver = new ReferenceResolver(
+                this.documents,
+                workspaceState.symbolIndex,
+                this.getFlatCommandsAsync.bind(this),
+                workspaceFolder,
+                URI.parse(uri),
+                command,
+                this.logger,
+                () => token.isCancellationRequested,
+                this.ensureFileIndexedAsync.bind(this),
+            );
+            const renameResolver = new RenameResolver(refResolver);
+            const result = await renameResolver.resolve(params, () => token.isCancellationRequested);
+            if (workspaceState.analysisGeneration === analysisGeneration
+                && workspaceState.requestGeneration === requestGeneration
+                && await this.isParsedSnapshotCurrent(snapshot)) {
+                return result;
+            }
+        }
     }
 
-    private async onWorkspaceSymbol(params: WorkspaceSymbolParams): Promise<SymbolInformation[] | null> {
-        const resolve = async (): Promise<SymbolInformation[] | null> => {
+    private async onWorkspaceSymbol(
+        params: WorkspaceSymbolParams,
+        token: CancellationToken,
+    ): Promise<SymbolInformation[] | null> {
+        while (true) {
+            throwIfCancelled(token);
+            const workspaceFolders = this.getWorkspaceFolders();
+            const requestGenerations = new Map(workspaceFolders.map(folder => {
+                const state = this.getWorkspaceState(folder);
+                return [folder.toString(), state.requestGeneration] as const;
+            }));
+
+            await Promise.all(workspaceFolders.map(folder =>
+                this.ensureOpenDocumentIndexes(this.getWorkspaceState(folder))
+            ));
             await this.ensureAllWorkspaceFoldersIndexed();
-            const results = await Promise.all(this.getWorkspaceFolders().map(async folder => {
+            throwIfCancelled(token);
+
+            const currentWorkspaceKeys = new Set(this.getWorkspaceFolders().map(folder => folder.toString()));
+            if (currentWorkspaceKeys.size !== workspaceFolders.length
+                || workspaceFolders.some(folder => !currentWorkspaceKeys.has(folder.toString()))
+                || workspaceFolders.some(folder =>
+                    this.getWorkspaceState(folder).requestGeneration !== requestGenerations.get(folder.toString())
+                )) {
+                continue;
+            }
+
+            const results = workspaceFolders.map(folder => {
                 const resolver = new WorkspaceSymbolResolver(
                     this.getWorkspaceState(folder).symbolIndex,
                     folder.toString(),
                 );
                 return resolver.resolve(params) ?? [];
-            }));
+            });
             return results.flat();
-        };
-
-        return resolve();
+        }
     }
 
     private async onSemanticTokens(params: SemanticTokensParams): Promise<SemanticTokens> {
-        const workspaceState = this.getWorkspaceStateForUri(params.textDocument.uri);
         const document = this.documents.get(params.textDocument.uri);
         if (document === undefined) {
             return { data: [] };
         }
-        await this.ensureParsedFile(params.textDocument.uri);
-        const docUri: URI = URI.parse(params.textDocument.uri);
-        const entryUri = this.getEntryFilePath(params.textDocument.uri);
-        const semanticListener = new SemanticTokenListener(docUri.toString(), workspaceState.symbolIndex, entryUri);
-        ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(params.textDocument.uri));
-        return semanticListener.getSemanticTokens();
+
+        while (this.documents.get(document.uri)) {
+            const workspaceState = this.getWorkspaceStateForUri(document.uri);
+            const analysisGeneration = workspaceState.analysisGeneration;
+            const requestGeneration = workspaceState.requestGeneration;
+            const snapshot = await this.ensureParsedFile(document.uri, 'semantic tokens');
+            if (!await this.ensureFileIndexedAsync(document.uri, snapshot, analysisGeneration)
+                || workspaceState.analysisGeneration !== analysisGeneration
+                || workspaceState.requestGeneration !== requestGeneration
+                || !await this.isParsedSnapshotCurrent(snapshot)) {
+                continue;
+            }
+
+            const docUri = URI.parse(document.uri);
+            const entryUri = this.getEntryFilePath(document.uri);
+            const builder = createTokenBuilder(document.uri);
+            const semanticListener = new SemanticTokenListener(docUri.toString(), workspaceState.symbolIndex, entryUri, builder);
+            ParseTreeWalker.DEFAULT.walk(semanticListener, snapshot.fileContext);
+            return semanticListener.getSemanticTokens();
+        }
+
+        return { data: [] };
     }
 
     private async onSemanticTokensDelta(params: SemanticTokensDeltaParams): Promise<SemanticTokens | SemanticTokensDelta> {
@@ -1213,15 +1419,28 @@ export class CMakeLanguageServer {
             return { edits: [] };
         }
 
-        const workspaceState = this.getWorkspaceStateForUri(document.uri);
-        await this.ensureParsedFile(document.uri);
-        const builder = getTokenBuilder(document.uri);
-        builder.previousResult(params.previousResultId);
-        const docUri: URI = URI.parse(document.uri);
-        const entryUri = this.getEntryFilePath(document.uri);
-        const semanticListener = new SemanticTokenListener(docUri.toString(), workspaceState.symbolIndex, entryUri);
-        ParseTreeWalker.DEFAULT.walk(semanticListener, this.getFileContext(document.uri));
-        return semanticListener.buildEdits();
+        while (this.documents.get(document.uri)) {
+            const workspaceState = this.getWorkspaceStateForUri(document.uri);
+            const analysisGeneration = workspaceState.analysisGeneration;
+            const requestGeneration = workspaceState.requestGeneration;
+            const snapshot = await this.ensureParsedFile(document.uri, 'semantic tokens delta');
+            if (!await this.ensureFileIndexedAsync(document.uri, snapshot, analysisGeneration)
+                || workspaceState.analysisGeneration !== analysisGeneration
+                || workspaceState.requestGeneration !== requestGeneration
+                || !await this.isParsedSnapshotCurrent(snapshot)) {
+                continue;
+            }
+
+            const builder = getTokenBuilder(document.uri);
+            builder.previousResult(params.previousResultId);
+            const docUri = URI.parse(document.uri);
+            const entryUri = this.getEntryFilePath(document.uri);
+            const semanticListener = new SemanticTokenListener(docUri.toString(), workspaceState.symbolIndex, entryUri, builder);
+            ParseTreeWalker.DEFAULT.walk(semanticListener, snapshot.fileContext);
+            return semanticListener.buildEdits();
+        }
+
+        return { edits: [] };
     }
 
     private onCodeAction(params: CodeActionParams): (Command | CodeAction)[] | null {
@@ -1286,7 +1505,6 @@ export class CMakeLanguageServer {
 
             if (environmentChanged) {
                 await this.startEnvironmentInitialization(folder, extSettings);
-                this.clearWorkspaceFolderSnapshots(folder);
                 await this.ensureWorkspaceFolderIndexed(folder);
                 return;
             }
@@ -1307,6 +1525,12 @@ export class CMakeLanguageServer {
      * @param event 
      */
     private async onDidChangeContent(event: TextDocumentChangeEvent<TextDocument>) {
+        // Never expose symbols from a previous document version as if they were
+        // current. The previous parsed snapshot remains available solely for
+        // structural comparison when the new version is committed.
+        const workspaceState = this.getWorkspaceStateForUri(event.document.uri);
+        workspaceState.requestGeneration++;
+        workspaceState.symbolIndex.deleteCache(event.document.uri);
         this.scheduleDiagnosticsForDocument(event.document);
     }
 
@@ -1341,29 +1565,45 @@ export class CMakeLanguageServer {
         await this.publishDiagnosticsForDocument(document, sequence);
     }
 
-    private computeTargetInfoStructureFingerprint(flatCommands: FlatCommand[]): string {
-        const parts: string[] = [];
-        for (const command of flatCommands) {
-            const commandName = command.commandName.toLowerCase();
-            if (!TARGET_INFO_STRUCTURE_COMMANDS.has(commandName)) {
-                continue;
-            }
-
-            const args = command.argument_list().map(arg => arg.getText()).join('\u001f');
-            parts.push(`${commandName}\u001e${args}`);
+    private rescheduleDiagnosticsIfVersionIsCurrent(uri: string, version: number): void {
+        const latestDocument = this.documents.get(uri);
+        if (latestDocument?.version === version) {
+            this.scheduleDiagnosticsForDocument(latestDocument);
         }
-
-        return parts.join('\u001d');
     }
 
-    private updateTargetInfoStructureFingerprint(uri: string, flatCommands: FlatCommand[], markDirtyOnChange: boolean): void {
-        const nextFingerprint = this.computeTargetInfoStructureFingerprint(flatCommands);
-        const previousFingerprint = this.targetInfoStructureFingerprintByUri.get(uri);
-        if (markDirtyOnChange && previousFingerprint !== undefined && previousFingerprint !== nextFingerprint) {
-            this.markProjectTargetInfoDirty(uri);
+    private computeStructureFingerprints(flatCommands: FlatCommand[]): StructureFingerprints {
+        const dependencyHash = createHash('sha256');
+        const targetInfoHash = createHash('sha256');
+        let dependencyCommandCount = 0;
+        let targetInfoCommandCount = 0;
+
+        const updateHash = (hash: ReturnType<typeof createHash>, command: FlatCommand): void => {
+            hash.update(command.commandName.toLowerCase());
+            hash.update('\u001e');
+            for (const arg of command.argument_list()) {
+                hash.update(arg.getText());
+                hash.update('\u001f');
+            }
+            hash.update('\u001d');
+        };
+
+        for (const command of flatCommands) {
+            const commandName = command.commandName.toLowerCase();
+            if (DEPENDENCY_STRUCTURE_COMMANDS.has(commandName)) {
+                dependencyCommandCount++;
+                updateHash(dependencyHash, command);
+            }
+            if (TARGET_INFO_STRUCTURE_COMMANDS.has(commandName)) {
+                targetInfoCommandCount++;
+                updateHash(targetInfoHash, command);
+            }
         }
 
-        this.targetInfoStructureFingerprintByUri.set(uri, nextFingerprint);
+        return {
+            dependency: `${dependencyCommandCount}:${dependencyHash.digest('hex')}`,
+            targetInfo: `${targetInfoCommandCount}:${targetInfoHash.digest('hex')}`,
+        };
     }
 
     private async publishDiagnosticsForDocument(document: TextDocument, expectedSequence?: number): Promise<void> {
@@ -1377,19 +1617,26 @@ export class CMakeLanguageServer {
         const workspaceState = this.getWorkspaceStateForUri(document.uri);
         const ensureEnvironmentStart = Date.now();
         await this.ensureEnvironmentInitialized(document.uri);
+        await this.ensureCMakeToolsStateReady(workspaceState);
         this.logger.debug(`Diagnostics environment check finished for ${document.uri} in ${Date.now() - ensureEnvironmentStart}ms`);
 
-        const syntaxErrorListener = new SyntaxErrorListener();
-        const parsedFile = this.parseCMakeFile(document, 'document change', parser => {
-            parser.removeErrorListeners();
-            parser.addErrorListener(syntaxErrorListener);
-        });
-        const { fileContext, flatCommands } = parsedFile;
-        this.updateTargetInfoStructureFingerprint(document.uri, flatCommands, true);
-        // Store parsed snapshot but skip recursive symbol extraction so that
-        // diagnostics return quickly. The symbolIndex is populated by background
-        // workspace indexing and does not need to block syntax/semantic checking.
-        await this.storeParsedFileSnapshot(document.uri, parsedFile, undefined, true);
+        const snapshot = await this.ensureParsedFile(document.uri, 'document diagnostics');
+        if (!sourceRevisionsEqual(snapshot.revision, { kind: 'document', version: startVersion })) {
+            this.diagnosticsDroppedStaleVersionCount++;
+            return;
+        }
+        const analysisGeneration = workspaceState.analysisGeneration;
+        const requestGeneration = workspaceState.requestGeneration;
+        if (!await this.ensureFileIndexedAsync(
+            document.uri,
+            snapshot,
+            analysisGeneration,
+        ) || !await this.isParsedSnapshotCurrent(snapshot)) {
+            this.diagnosticsDroppedStaleVersionCount++;
+            this.rescheduleDiagnosticsIfVersionIsCurrent(document.uri, startVersion);
+            return;
+        }
+        const { fileContext, flatCommands } = snapshot;
 
         const semanticListener = new SemanticDiagnosticsListener();
         ParseTreeWalker.DEFAULT.walk(semanticListener, fileContext);
@@ -1409,7 +1656,7 @@ export class CMakeLanguageServer {
         const diagnostics = {
             uri: document.uri,
             diagnostics: [
-                ...syntaxErrorListener.getSyntaxErrors(),
+                ...snapshot.syntaxDiagnostics,
                 ...semanticListener.getSemanticDiagnostics(),
                 ...pathDiagnostics,
             ]
@@ -1424,6 +1671,13 @@ export class CMakeLanguageServer {
         const latestDocument = this.documents.get(document.uri);
         if (!latestDocument || latestDocument.version !== startVersion) {
             this.diagnosticsDroppedStaleVersionCount++;
+            return;
+        }
+        if (workspaceState.analysisGeneration !== analysisGeneration
+            || workspaceState.requestGeneration !== requestGeneration
+            || !await this.isParsedSnapshotCurrent(snapshot)) {
+            this.diagnosticsDroppedStaleVersionCount++;
+            this.rescheduleDiagnosticsIfVersionIsCurrent(document.uri, startVersion);
             return;
         }
         if (expectedSequence !== undefined && this.diagnosticsSequenceByUri.get(document.uri) !== expectedSequence) {
@@ -1470,25 +1724,38 @@ export class CMakeLanguageServer {
     }
 
     private async onDocumentLinks(params: DocumentLinkParams, token: CancellationToken): Promise<DocumentLink[] | null> {
-        const workspaceState = this.getWorkspaceStateForUri(params.textDocument.uri);
-        throwIfCancelled(token);
-        await this.ensureParsedFile(params.textDocument.uri);
-        throwIfCancelled(token);
-        await this.populateIndexTopDownAsync(params.textDocument.uri, new Set<string>(), token);
-        throwIfCancelled(token);
-        const commands = this.getFlatCommands(params.textDocument.uri);
-        const linkInfo = await DocumentLinkInfo.create(
-            commands,
-            params.textDocument.uri,
-            workspaceState.symbolIndex,
-            this.getEntryFilePath(params.textDocument.uri),
-            this.getWorkspaceFolderForUri(params.textDocument.uri).fsPath,
-            this.getFlatCommandsAsync.bind(this),
-            workspaceState.fileApiRawSnapshot,
-            workspaceState.cmakeToolsProjectSnapshot?.buildDirectory,
-        );
-        throwIfCancelled(token);
-        return linkInfo.links;
+        while (true) {
+            throwIfCancelled(token);
+            const workspaceState = this.getWorkspaceStateForUri(params.textDocument.uri);
+            await this.ensureCMakeToolsStateReady(workspaceState);
+            throwIfCancelled(token);
+            const analysisGeneration = workspaceState.analysisGeneration;
+            const requestGeneration = workspaceState.requestGeneration;
+            const snapshot = await this.ensureParsedFile(params.textDocument.uri, 'document links');
+            await this.populateIndexTopDownAsync(params.textDocument.uri, new Set<string>(), token);
+            if (workspaceState.analysisGeneration !== analysisGeneration
+                || workspaceState.requestGeneration !== requestGeneration
+                || !await this.isParsedSnapshotCurrent(snapshot)) {
+                continue;
+            }
+            throwIfCancelled(token);
+            const linkInfo = await DocumentLinkInfo.create(
+                snapshot.flatCommands,
+                params.textDocument.uri,
+                workspaceState.symbolIndex,
+                this.getEntryFilePath(params.textDocument.uri),
+                this.getWorkspaceFolderForUri(params.textDocument.uri).fsPath,
+                this.getFlatCommandsAsync.bind(this),
+                workspaceState.fileApiRawSnapshot,
+                workspaceState.cmakeToolsProjectSnapshot?.buildDirectory,
+            );
+            throwIfCancelled(token);
+            if (workspaceState.analysisGeneration === analysisGeneration
+                && workspaceState.requestGeneration === requestGeneration
+                && await this.isParsedSnapshotCurrent(snapshot)) {
+                return linkInfo.links;
+            }
+        }
     }
 
     private async onDidClose(event: TextDocumentChangeEvent<TextDocument>) {
@@ -1499,25 +1766,100 @@ export class CMakeLanguageServer {
             this.diagnosticsTimerByUri.delete(uri);
         }
         this.diagnosticsSequenceByUri.delete(uri);
-        this.targetInfoStructureFingerprintByUri.delete(uri);
-        tokenBuilders.delete(uri);
-        this.fileContexts.delete(uri);
-        this.tokenStreams.delete(uri);
-        this.commentsMap.delete(uri);
-        this.parsedDocumentVersionsByUri.delete(uri);
+        deleteTokenBuilder(uri);
+        this.parsedFiles.delete(uri);
         const docUri = URI.parse(uri);
         const workspaceFolderUri = this.getWorkspaceFolderForUri(uri);
+        const workspaceState = this.getWorkspaceState(workspaceFolderUri);
+        workspaceState.requestGeneration++;
         const isPersistedWorkspaceFile = this.isUriInsideWorkspace(docUri, workspaceFolderUri) && fs.existsSync(docUri.fsPath);
 
         if (isPersistedWorkspaceFile) {
             await this.indexWorkspaceFile(uri);
         } else {
-            this.flatCommandsMap.delete(uri);
-            this.getWorkspaceState(workspaceFolderUri).symbolIndex.deleteCache(uri);
+            this.structureFingerprintsByUri.delete(uri);
+            workspaceState.symbolIndex.deleteCache(uri);
         }
 
-        const workspaceState = this.getWorkspaceState(workspaceFolderUri);
         this.resetProjectTargetInfo(workspaceState, false);
+    }
+
+    private async onDidChangeWatchedFiles(params: DidChangeWatchedFilesParams): Promise<void> {
+        const latestChangeByUri = new Map(params.changes.map(change => [change.uri, change]));
+        const changesToProcess: typeof params.changes = [];
+        const workspaceFoldersToReindex = new Map<string, URI>();
+
+        for (const change of latestChangeByUri.values()) {
+            // Open documents are authoritative; their didChange stream will update
+            // the snapshot and symbol cache independently of disk notifications.
+            if (this.documents.get(change.uri)) {
+                continue;
+            }
+
+            const parsedUri = URI.parse(change.uri);
+            if (parsedUri.scheme !== 'file') {
+                continue;
+            }
+            const fileName = path.basename(parsedUri.fsPath);
+            if (fileName !== 'CMakeLists.txt' && !fileName.endsWith('.cmake')) {
+                continue;
+            }
+
+            this.parsedFiles.delete(change.uri);
+            this.structureFingerprintsByUri.delete(change.uri);
+            this.markProjectTargetInfoDirty(change.uri);
+            changesToProcess.push(change);
+
+            const workspaceFolder = this.getWorkspaceFolderForUri(change.uri);
+            workspaceFoldersToReindex.set(workspaceFolder.toString(), workspaceFolder);
+        }
+
+        // A changed variable or a newly created include can alter dependencies of
+        // source files whose own text did not change. Rebuild the complete compact
+        // symbol graph for every affected workspace.
+        for (const workspaceFolder of workspaceFoldersToReindex.values()) {
+            this.invalidateWorkspaceSymbolIndex(workspaceFolder.toString(), false);
+        }
+
+        for (const change of changesToProcess) {
+            if (change.type === FileChangeType.Deleted) {
+                continue;
+            }
+
+            try {
+                await this.indexWorkspaceFile(change.uri);
+            } catch (error) {
+                this.logger.error(`Failed to re-index changed CMake file ${change.uri}`, error as Error);
+            }
+            await new Promise<void>(resolve => setImmediate(resolve));
+        }
+
+        for (const workspaceFolder of workspaceFoldersToReindex.values()) {
+            void this.ensureWorkspaceFolderIndexed(workspaceFolder);
+        }
+    }
+
+    private async onDidChangeWorkspaceFolders(event: WorkspaceFoldersChangeEvent): Promise<void> {
+        const removedKeys = new Set(event.removed.map(folder => folder.uri));
+        for (const removed of event.removed) {
+            const folderUri = URI.parse(removed.uri);
+            this.clearWorkspaceFolderSnapshots(folderUri);
+            this.workspaceStates.delete(folderUri.toString());
+        }
+
+        this.workspaceFolders = this.workspaceFolders.filter(folder => !removedKeys.has(folder.toString()));
+        for (const added of event.added) {
+            const folderUri = URI.parse(added.uri);
+            if (!this.workspaceFolders.some(folder => folder.toString() === folderUri.toString())) {
+                this.workspaceFolders.push(folderUri);
+            }
+        }
+
+        await Promise.all(event.added.map(async added => {
+            const folderUri = URI.parse(added.uri);
+            await this.ensureEnvironmentInitialized(folderUri);
+            void this.ensureWorkspaceFolderIndexed(folderUri);
+        }));
     }
 
     private onShutdown() {
@@ -1525,6 +1867,10 @@ export class CMakeLanguageServer {
             clearTimeout(timer);
         }
         this.diagnosticsTimerByUri.clear();
+        for (const timer of this.workspaceReindexTimerByKey.values()) {
+            clearTimeout(timer);
+        }
+        this.workspaceReindexTimerByKey.clear();
         this.disposables.forEach((disposable) => {
             disposable.dispose();
         });
@@ -1568,8 +1914,7 @@ export class CMakeLanguageServer {
     }
 
     private getWorkspaceFolders(): URI[] {
-        return this.initParams?.workspaceFolders?.map(folder => URI.parse(folder.uri))
-            ?? (this.initParams?.rootUri ? [URI.parse(this.initParams.rootUri)] : []);
+        return [...this.workspaceFolders];
     }
 
     private isUriInsideWorkspace(documentUri: URI, workspaceFolder: URI): boolean {
@@ -1595,54 +1940,59 @@ export class CMakeLanguageServer {
     }
 
     private clearWorkspaceFolderSnapshots(workspaceFolder: URI): void {
-        for (const uri of [...this.fileContexts.keys()]) {
-            if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
-                this.fileContexts.delete(uri);
-            }
+        const workspaceKey = workspaceFolder.toString();
+        const reindexTimer = this.workspaceReindexTimerByKey.get(workspaceKey);
+        if (reindexTimer) {
+            clearTimeout(reindexTimer);
+            this.workspaceReindexTimerByKey.delete(workspaceKey);
         }
-
-        for (const uri of [...this.tokenStreams.keys()]) {
+        this.parsedFiles.deleteWhere(uri => this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder));
+        for (const uri of this.structureFingerprintsByUri.keys()) {
             if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
-                this.tokenStreams.delete(uri);
-            }
-        }
-
-        for (const uri of [...this.flatCommandsMap.keys()]) {
-            if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
-                this.flatCommandsMap.delete(uri);
-            }
-        }
-
-        for (const uri of [...this.commentsMap.keys()]) {
-            if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
-                this.commentsMap.delete(uri);
-            }
-        }
-
-        for (const uri of [...this.parsedDocumentVersionsByUri.keys()]) {
-            if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
-                this.parsedDocumentVersionsByUri.delete(uri);
-            }
-        }
-
-        for (const uri of [...this.targetInfoStructureFingerprintByUri.keys()]) {
-            if (this.isUriInsideWorkspace(URI.parse(uri), workspaceFolder)) {
-                this.targetInfoStructureFingerprintByUri.delete(uri);
+                this.structureFingerprintsByUri.delete(uri);
             }
         }
 
         const workspaceState = this.getWorkspaceState(workspaceFolder);
+        workspaceState.cmakeToolsUpdateSequence++;
+        workspaceState.analysisGeneration++;
+        workspaceState.requestGeneration++;
         workspaceState.symbolIndex.deleteCachesInDirectory(workspaceFolder.fsPath);
         this.resetWorkspaceIndexState(workspaceState);
         this.resetProjectTargetInfo(workspaceState, false);
     }
 
-    private async ensureAllWorkspaceFoldersIndexed(): Promise<void> {
-        await Promise.all(this.getWorkspaceFolders().map(folder => this.ensureWorkspaceFolderIndexed(folder)));
+    private invalidateWorkspaceSymbolIndex(docUri: string, scheduleReindex = true): void {
+        const workspaceFolder = this.getWorkspaceFolderForUri(docUri);
+        const workspaceState = this.getWorkspaceState(workspaceFolder);
+        workspaceState.analysisGeneration++;
+        workspaceState.requestGeneration++;
+        workspaceState.symbolIndex.deleteCachesInDirectory(workspaceFolder.fsPath);
+        this.resetWorkspaceIndexState(workspaceState);
+
+        if (!scheduleReindex || !workspaceState.environmentReady) {
+            return;
+        }
+
+        const generation = workspaceState.analysisGeneration;
+        const workspaceKey = workspaceFolder.toString();
+        const existingTimer = this.workspaceReindexTimerByKey.get(workspaceKey);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+        }
+        const timer = setTimeout(() => {
+            if (this.workspaceReindexTimerByKey.get(workspaceKey) === timer) {
+                this.workspaceReindexTimerByKey.delete(workspaceKey);
+            }
+            if (this.isAnalysisGenerationCurrent(workspaceFolder, generation)) {
+                void this.ensureWorkspaceFolderIndexed(workspaceFolder);
+            }
+        }, WORKSPACE_REINDEX_DEBOUNCE_MS);
+        this.workspaceReindexTimerByKey.set(workspaceKey, timer);
     }
 
-    private async ensureWorkspaceIndexedForUri(docUri: string): Promise<void> {
-        await this.ensureWorkspaceFolderIndexed(this.getWorkspaceFolderForUri(docUri));
+    private async ensureAllWorkspaceFoldersIndexed(): Promise<void> {
+        await Promise.all(this.getWorkspaceFolders().map(folder => this.ensureWorkspaceFolderIndexed(folder)));
     }
 
     private resetWorkspaceIndexState(workspaceState: WorkspaceState): void {
@@ -1652,8 +2002,14 @@ export class CMakeLanguageServer {
     }
 
     private ensureWorkspaceFolderIndexed(workspaceFolder: URI): Promise<void> {
+        const workspaceKey = workspaceFolder.toString();
+        const reindexTimer = this.workspaceReindexTimerByKey.get(workspaceKey);
+        if (reindexTimer) {
+            clearTimeout(reindexTimer);
+            this.workspaceReindexTimerByKey.delete(workspaceKey);
+        }
         const workspaceState = this.getWorkspaceState(workspaceFolder);
-        const generation = workspaceState.environmentGeneration;
+        const generation = workspaceState.analysisGeneration;
         if (workspaceState.workspaceIndexedGeneration === generation) {
             return Promise.resolve();
         }
@@ -1665,7 +2021,7 @@ export class CMakeLanguageServer {
 
         const indexing = this.indexWorkspaceFolder(workspaceFolder, generation)
             .then(completed => {
-                if (completed && this.isEnvironmentGenerationCurrent(workspaceFolder, generation)) {
+                if (completed && this.isAnalysisGenerationCurrent(workspaceFolder, generation)) {
                     workspaceState.workspaceIndexedGeneration = generation;
                 }
             })
@@ -1698,14 +2054,16 @@ export class CMakeLanguageServer {
         progress.begin('CMake: Indexing workspace', 0, `0 / ${files.length}`);
         try {
             for (let i = 0; i < files.length; i++) {
-                if (!this.isEnvironmentGenerationCurrent(workspaceFolder, generation)) {
+                if (!this.isAnalysisGenerationCurrent(workspaceFolder, generation)) {
                     return false;
                 }
                 await this.indexWorkspaceFile(URI.file(files[i]).toString(), generation);
                 progress.report(Math.round(((i + 1) / files.length) * 100), `${i + 1} / ${files.length}`);
+                // ANTLR analysis is synchronous. Yield between files so pending
+                // interactive LSP messages can run before the next background parse.
+                await new Promise<void>(resolve => setImmediate(resolve));
             }
-
-            if (!this.isEnvironmentGenerationCurrent(workspaceFolder, generation)) {
+            if (!this.isAnalysisGenerationCurrent(workspaceFolder, generation)) {
                 return false;
             }
 
@@ -1719,129 +2077,295 @@ export class CMakeLanguageServer {
         }
     }
 
-    private isEnvironmentGenerationCurrent(workspaceFolder: URI, generation: number): boolean {
-        return this.getWorkspaceState(workspaceFolder).environmentGeneration === generation;
+    private isAnalysisGenerationCurrent(workspaceFolder: URI, generation: number): boolean {
+        return this.workspaceStates.get(workspaceFolder.toString())?.analysisGeneration === generation;
     }
 
     private async indexWorkspaceFile(uri: string, generation?: number): Promise<void> {
-        const text = await getFileContent(this.documents, URI.parse(uri));
-        const parsedFile = this.parseCMakeFile({ uri, getText: () => text }, 'workspace index');
-        await this.storeParsedFileSnapshot(uri, parsedFile, generation);
+        const snapshot = await this.ensureParsedFile(uri, 'workspace index');
+        const indexed = await this.ensureFileIndexedAsync(uri, snapshot, generation);
+
+        // Closed workspace files only need their compact FileSymbolCache after
+        // indexing. Reparse them on demand for features that require an ANTLR tree.
+        if (indexed && !this.documents.get(uri) && this.parsedFiles.isCurrent(uri, snapshot.revision)) {
+            this.parsedFiles.delete(uri);
+        }
     }
 
-    private async storeParsedFileSnapshot(uri: string, parsedFile: ParsedCMakeFile, generation?: number, skipSymbolExtraction?: boolean) {
-        const workspaceState = this.getWorkspaceStateForUri(uri);
-        if (generation !== undefined && workspaceState.environmentGeneration !== generation) {
-            return;
-        }
-        this.fileContexts.set(uri, parsedFile.fileContext);
-        this.tokenStreams.set(uri, parsedFile.tokenStream);
-        this.flatCommandsMap.set(uri, parsedFile.flatCommands);
-        this.updateTargetInfoStructureFingerprint(uri, parsedFile.flatCommands, false);
-
-        // Set comments and document-version tracking BEFORE extractSymbols so that
-        // hasCurrentParsedSnapshot returns true for re-entrant calls during
-        // dependency resolution (e.g. A includes B, B includes A).
-        const commentsChannel = CMakeLexer.channelNames.indexOf("COMMENTS");
-        this.commentsMap.set(uri, parsedFile.tokenStream.tokens.filter(token => token.channel === commentsChannel));
-
+    private async loadFileSource(uri: string): Promise<{ text: string; revision: SourceRevision }> {
         const openDocument = this.documents.get(uri);
         if (openDocument) {
-            this.parsedDocumentVersionsByUri.set(uri, openDocument.version);
-        } else {
-            this.parsedDocumentVersionsByUri.delete(uri);
+            return {
+                text: openDocument.getText(),
+                revision: {
+                    kind: 'document',
+                    version: openDocument.version,
+                },
+            };
         }
 
-        // Symbol extraction can recursively parse dependency files and is expensive
-        // for large projects. Skip it during diagnostics so that syntax/semantic
-        // checking returns quickly; symbolIndex is populated by background indexing.
-        if (skipSymbolExtraction) {
-            return;
+        const parsedUri = URI.parse(uri);
+        if (parsedUri.scheme !== 'file') {
+            return {
+                text: '',
+                revision: { kind: 'missing' },
+            };
         }
 
-        const baseDir = URI.file(path.dirname(URI.parse(uri).fsPath));
-        const fileSymbolCache = await extractSymbols(uri, parsedFile.flatCommands, baseDir, workspaceState.symbolIndex, {
-            entryFile: this.getEntryFilePath(uri),
-            getFlatCommands: async (targetUri) => {
-                if (targetUri === uri) {
-                    return parsedFile.flatCommands;
+        try {
+            // A save can replace or rewrite a file while it is being read. Only
+            // publish a revision when metadata is stable around the read.
+            while (true) {
+                const before = await fs.promises.stat(parsedUri.fsPath);
+                if (!before.isFile()) {
+                    return {
+                        text: '',
+                        revision: { kind: 'missing' },
+                    };
+                }
+                const text = await fs.promises.readFile(parsedUri.fsPath, 'utf8');
+                const after = await fs.promises.stat(parsedUri.fsPath);
+                if (before.mtimeMs !== after.mtimeMs
+                    || before.ctimeMs !== after.ctimeMs
+                    || before.size !== after.size) {
+                    continue;
                 }
 
-                return this.getFlatCommandsAsync(targetUri);
-            },
+                return {
+                    text,
+                    revision: {
+                        kind: 'disk',
+                        mtimeMs: after.mtimeMs,
+                        ctimeMs: after.ctimeMs,
+                        size: after.size,
+                    },
+                };
+            }
+        } catch {
+            return {
+                text: '',
+                revision: { kind: 'missing' },
+            };
+        }
+    }
+
+    private async isSourceRevisionCurrent(uri: string, revision: SourceRevision): Promise<boolean> {
+        const openDocument = this.documents.get(uri);
+        if (openDocument) {
+            return revision.kind === 'document' && revision.version === openDocument.version;
+        }
+
+        if (revision.kind === 'document') {
+            return false;
+        }
+
+        const parsedUri = URI.parse(uri);
+        if (parsedUri.scheme !== 'file') {
+            return revision.kind === 'missing';
+        }
+
+        try {
+            const stats = await fs.promises.stat(parsedUri.fsPath);
+            return revision.kind === 'disk'
+                && stats.isFile()
+                && stats.mtimeMs === revision.mtimeMs
+                && stats.ctimeMs === revision.ctimeMs
+                && stats.size === revision.size;
+        } catch {
+            return revision.kind === 'missing';
+        }
+    }
+
+    private async isParsedSnapshotCurrent(snapshot: ParsedFileSnapshot): Promise<boolean> {
+        return this.parsedFiles.isCurrent(snapshot.uri, snapshot.revision)
+            && await this.isSourceRevisionCurrent(snapshot.uri, snapshot.revision);
+    }
+
+    private onParsedSnapshotCommitted(
+        next: ParsedFileSnapshot,
+        previous: ParsedFileSnapshot | undefined,
+    ): void {
+        const previousFingerprints = previous
+            ? {
+                dependency: previous.dependencyFingerprint,
+                targetInfo: previous.targetInfoFingerprint,
+            }
+            : this.structureFingerprintsByUri.get(next.uri);
+        this.structureFingerprintsByUri.set(next.uri, {
+            dependency: next.dependencyFingerprint,
+            targetInfo: next.targetInfoFingerprint,
         });
-        workspaceState.symbolIndex.setCache(uri, fileSymbolCache);
+
+        if (previousFingerprints !== undefined
+            && previousFingerprints.targetInfo !== next.targetInfoFingerprint) {
+            this.markProjectTargetInfoDirty(next.uri);
+        }
+        if (previousFingerprints !== undefined
+            && previousFingerprints.dependency !== next.dependencyFingerprint) {
+            // Dependency extraction can depend on variables and include paths
+            // declared in other files. A structural change therefore invalidates
+            // the workspace graph, not only the edited file's own symbols.
+            this.invalidateWorkspaceSymbolIndex(next.uri);
+        }
+
+        this.parsedFiles.evictClosedSnapshots(
+            uri => this.documents.get(uri) !== undefined,
+            MAX_CLOSED_PARSED_FILE_SNAPSHOTS,
+        );
     }
 
     private parseCMakeFile(
-        document: Pick<TextDocument, 'uri' | 'getText'>,
+        uri: string,
+        text: string,
+        revision: SourceRevision,
         trigger: string,
-        configureParser?: Parameters<typeof parseCMakeText>[1]
-    ): ParsedCMakeFile {
+    ): ParsedFileSnapshot {
         const start = Date.now();
-        const parsedFile = parseCMakeText(document.getText(), configureParser);
+        const parsedFile = parseCMakeText(text);
         const elapsedMs = Date.now() - start;
         const tokenCount = Math.max(parsedFile.tokenStream.tokens.length - 1, 0);
 
         this.logger.info(
-            `Parsed CMake file: ${document.uri} (trigger=${trigger}, duration=${elapsedMs}ms, commands=${parsedFile.flatCommands.length}, tokens=${tokenCount})`
+            `Parsed CMake file: ${uri} (trigger=${trigger}, revision=${sourceRevisionKey(revision)}, duration=${elapsedMs}ms, commands=${parsedFile.flatCommands.length}, tokens=${tokenCount})`
         );
 
-        return parsedFile;
+        const structureFingerprints = this.computeStructureFingerprints(parsedFile.flatCommands);
+        return {
+            ...parsedFile,
+            uri,
+            revision,
+            dependencyFingerprint: structureFingerprints.dependency,
+            targetInfoFingerprint: structureFingerprints.targetInfo,
+        };
     }
 
-    private async parseAndStoreFileAsync(uri: string): Promise<ParsedCMakeFile> {
-        const text = await getFileContent(this.documents, URI.parse(uri));
-        const parsedFile = this.parseCMakeFile(
-            { uri, getText: () => text },
-            'on-demand cache miss'
-        );
-        // On-demand parsing (triggered by hover, completion, etc.) stores parse
-        // caches only. Symbol extraction is deferred to background workspace
-        // indexing to avoid recursively parsing the entire dependency tree on
-        // every cache miss.
-        await this.storeParsedFileSnapshot(uri, parsedFile, undefined, true);
-        return parsedFile;
+    private async ensureParsedFile(uri: string, trigger = 'on-demand cache miss'): Promise<ParsedFileSnapshot> {
+        while (true) {
+            const source = await this.loadFileSource(uri);
+            const cached = this.parsedFiles.getCurrent(uri, source.revision);
+            if (cached) {
+                return cached;
+            }
+
+            const snapshot = await this.parsedFiles.getOrCreate(
+                uri,
+                source.revision,
+                () => this.parseCMakeFile(uri, source.text, source.revision, trigger),
+                this.onParsedSnapshotCommitted.bind(this),
+            );
+            if (await this.isSourceRevisionCurrent(uri, snapshot.revision)
+                && this.parsedFiles.isCurrent(uri, snapshot.revision)) {
+                return snapshot;
+            }
+        }
     }
 
-    private hasCurrentParsedSnapshot(uri: string): boolean {
-        const hasCachedSnapshot = this.fileContexts.has(uri)
-            && this.tokenStreams.has(uri)
-            && this.flatCommandsMap.has(uri)
-            && this.commentsMap.has(uri);
-        if (!hasCachedSnapshot) {
+    private async ensureFileIndexedAsync(
+        uri: string,
+        snapshot?: ParsedFileSnapshot,
+        generation?: number,
+    ): Promise<boolean> {
+        const workspaceState = this.getWorkspaceStateForUri(uri);
+        const expectedGeneration = generation ?? workspaceState.analysisGeneration;
+        if (workspaceState.analysisGeneration !== expectedGeneration) {
             return false;
         }
 
-        const openDocument = this.documents.get(uri);
-        if (!openDocument) {
-            return true;
+        const currentSnapshot = snapshot ?? await this.ensureParsedFile(uri);
+        const revisionKey = sourceRevisionKey(currentSnapshot.revision);
+        if (workspaceState.symbolIndex.hasCurrentCache(uri, revisionKey)) {
+            const revisionCurrent = await this.isSourceRevisionCurrent(uri, currentSnapshot.revision);
+            return revisionCurrent
+                && workspaceState.analysisGeneration === expectedGeneration
+                && workspaceState.symbolIndex.hasCurrentCache(uri, revisionKey);
         }
 
-        const parsedVersion = this.parsedDocumentVersionsByUri.get(uri);
-        if (parsedVersion === undefined) {
-            // The snapshot was indexed from disk while the file was not open as a document.
-            // The initial document version (1) always reflects the same on-disk content,
-            // so the cached snapshot is valid and there is no need to re-parse.
-            return openDocument.version === 1;
+        const requestKey = `${workspaceState.workspaceFolder.toString()}\0${expectedGeneration}\0${revisionKey}`;
+        const existing = this.symbolIndexRequestsByUri.get(uri);
+        if (existing?.requestKey === requestKey) {
+            await existing.request;
+            const revisionCurrent = await this.isSourceRevisionCurrent(uri, currentSnapshot.revision);
+            return revisionCurrent
+                && workspaceState.analysisGeneration === expectedGeneration
+                && workspaceState.symbolIndex.hasCurrentCache(uri, revisionKey);
         }
-        return parsedVersion === openDocument.version;
-    }
 
-    private async ensureParsedFile(uri: string): Promise<void> {
-        while (!this.hasCurrentParsedSnapshot(uri)) {
-            let request = this.parsedFileRequestsByUri.get(uri);
-            if (!request) {
-                request = this.parseAndStoreFileAsync(uri)
-                    .finally(() => {
-                        if (this.parsedFileRequestsByUri.get(uri) === request) {
-                            this.parsedFileRequestsByUri.delete(uri);
+        let request: Promise<void>;
+        request = (async (): Promise<void> => {
+            const baseDir = URI.file(path.dirname(URI.parse(uri).fsPath));
+            const fileSymbolCache = await extractSymbols(
+                uri,
+                currentSnapshot.flatCommands,
+                baseDir,
+                workspaceState.symbolIndex,
+                {
+                    entryFile: this.getEntryFilePath(uri),
+                    getFlatCommands: async (targetUri) => {
+                        if (targetUri === uri) {
+                            return currentSnapshot.flatCommands;
                         }
-                    });
-                this.parsedFileRequestsByUri.set(uri, request);
+
+                        return this.getFlatCommandsAsync(targetUri);
+                    },
+                }
+            );
+
+            if (workspaceState.analysisGeneration !== expectedGeneration) {
+                return;
+            }
+            if (!await this.isSourceRevisionCurrent(uri, currentSnapshot.revision)) {
+                return;
+            }
+            if (workspaceState.analysisGeneration !== expectedGeneration) {
+                return;
             }
 
-            await request;
+            workspaceState.symbolIndex.setCache(uri, fileSymbolCache, revisionKey);
+        })().finally(() => {
+            if (this.symbolIndexRequestsByUri.get(uri)?.request === request) {
+                this.symbolIndexRequestsByUri.delete(uri);
+            }
+        });
+
+        this.symbolIndexRequestsByUri.set(uri, { requestKey, request });
+        await request;
+        const revisionCurrent = await this.isSourceRevisionCurrent(uri, currentSnapshot.revision);
+        return revisionCurrent
+            && workspaceState.analysisGeneration === expectedGeneration
+            && workspaceState.symbolIndex.hasCurrentCache(uri, revisionKey);
+    }
+
+    private async ensureOpenDocumentIndexes(workspaceState: WorkspaceState): Promise<void> {
+        for (const document of this.documents.all()) {
+            if (document.languageId !== 'cmake') {
+                continue;
+            }
+            if (this.getWorkspaceFolderForUri(document.uri).toString() !== workspaceState.workspaceFolder.toString()) {
+                continue;
+            }
+
+            while (this.documents.get(document.uri)) {
+                const currentDocument = this.documents.get(document.uri);
+                if (!currentDocument) {
+                    break;
+                }
+
+                const revisionKey = sourceRevisionKey({
+                    kind: 'document',
+                    version: currentDocument.version,
+                });
+                if (workspaceState.symbolIndex.hasCurrentCache(document.uri, revisionKey)) {
+                    break;
+                }
+
+                const analysisGeneration = workspaceState.analysisGeneration;
+                const snapshot = await this.ensureParsedFile(document.uri, 'open document index refresh');
+                if (await this.ensureFileIndexedAsync(document.uri, snapshot, analysisGeneration)
+                    && workspaceState.analysisGeneration === analysisGeneration
+                    && await this.isParsedSnapshotCurrent(snapshot)) {
+                    break;
+                }
+            }
         }
     }
 
@@ -1852,6 +2376,7 @@ export class CMakeLanguageServer {
             visited,
             symbolIndex: workspaceState.symbolIndex,
             loadFlatCommands: this.getFlatCommandsAsync.bind(this),
+            ensureFileIndexed: this.ensureFileIndexedAsync.bind(this),
             shouldCancel: () => token?.isCancellationRequested ?? false,
             onDependencyError: async (dependencyUri, error): Promise<'continue'> => {
                 this.logger.error(`Failed to parse dependency during completion: ${dependencyUri}`, error as Error);
@@ -1867,8 +2392,8 @@ export class CMakeLanguageServer {
         const entryCMake = fs.existsSync(projectRootCMake.fsPath)
             ? projectRootCMake.toString()
             : this.getEntryFilePath(docUri);
-        await this.ensureParsedFile(entryCMake);
-        const commands = this.getFlatCommands(entryCMake);
+        const snapshot = await this.ensureParsedFile(entryCMake);
+        const commands = snapshot.flatCommands;
         const targetInfoListener = new ProjectTargetInfoListener(
             workspaceState.symbolIndex,
             entryCMake,
@@ -1905,6 +2430,7 @@ export class CMakeLanguageServer {
         if (workspaceState.projectTargetInfo) {
             if (workspaceState.projectTargetInfoDirty) {
                 this.scheduleProjectTargetInfoRebuild(workspaceState, workspaceFolder, docUri, entryUri);
+                return {} as ProjectTargetInfo;
             }
 
             return workspaceState.projectTargetInfo;
@@ -1983,8 +2509,8 @@ export class CMakeLanguageServer {
         if (entryUri) {
             const projectRootCMake = Utils.joinPath(workspaceFolder, 'CMakeLists.txt');
             if (!fs.existsSync(projectRootCMake.fsPath) && entryUri !== docUri) {
-                await this.ensureParsedFile(entryUri);
-                const commands = this.getFlatCommands(entryUri);
+                const snapshot = await this.ensureParsedFile(entryUri);
+                const commands = snapshot.flatCommands;
                 const targetInfoListener = new ProjectTargetInfoListener(
                     workspaceState.symbolIndex,
                     entryUri,
@@ -1993,7 +2519,8 @@ export class CMakeLanguageServer {
                     new Set<string>(),
                     workspaceFolder.fsPath,
                 );
-                await targetInfoListener.processCommands(commands);                const targetInfo = targetInfoListener.targetInfo;
+                await targetInfoListener.processCommands(commands);
+                const targetInfo = targetInfoListener.targetInfo;
                 if (targetInfoVersion === workspaceState.projectTargetInfoVersion) {
                     workspaceState.projectTargetInfo = targetInfo;
                     workspaceState.projectTargetInfoDirty = false;
@@ -2024,12 +2551,11 @@ export class CMakeLanguageServer {
         const workspaceState = this.getWorkspaceState(workspaceFolder);
         const generation = ++workspaceState.environmentGeneration;
         workspaceState.environmentReady = false;
+        this.clearWorkspaceFolderSnapshots(workspaceFolder);
         const settingsStart = Date.now();
         workspaceState.extSettings = settings ?? await this.getExtSettings(workspaceFolder.toString());
         this.logger.debug(`Loaded extension settings for ${workspaceFolder.fsPath} in ${Date.now() - settingsStart}ms`);
         this.logger.setLevel(workspaceState.extSettings.loggingLevel);
-        this.resetWorkspaceIndexState(workspaceState);
-        this.resetProjectTargetInfo(workspaceState, false);
         workspaceState.cmakeHelpCache.clear();
         const previousModulePath = workspaceState.symbolIndex.cmakeModulePath;
         if (previousModulePath) {
@@ -2129,6 +2655,11 @@ export class CMakeLanguageServer {
             if (!workspaceState.environmentReady) {
                 throw new Error(`Failed to initialize CMake environment for ${workspaceFolder.fsPath}`);
             }
+            if (settings
+                && (settings.cmakePath !== workspaceState.extSettings.cmakePath
+                    || settings.pkgConfigPath !== workspaceState.extSettings.pkgConfigPath)) {
+                await this.startEnvironmentInitialization(workspaceFolder, settings);
+            }
             return;
         }
 
@@ -2145,33 +2676,8 @@ export class CMakeLanguageServer {
         }
     }
 
-    private requireCachedValue<T>(cacheName: string, uri: string, value: T | undefined): T {
-        if (value !== undefined) {
-            return value;
-        }
-
-        throw new Error(`Missing ${cacheName} cache for ${uri}`);
-    }
-
-    public getFileContext(uri: string): FileContext {
-        return this.requireCachedValue('fileContext', uri, this.fileContexts.get(uri));
-    }
-
-    public getTokenStream(uri: string): CommonTokenStream {
-        return this.requireCachedValue('tokenStream', uri, this.tokenStreams.get(uri));
-    }
-
-    public getFlatCommands(uri: string): FlatCommand[] {
-        return this.requireCachedValue('flatCommands', uri, this.flatCommandsMap.get(uri));
-    }
-
-    public async getFlatCommandsAsync(uri: string): Promise<FlatCommand[]> {
-        await this.ensureParsedFile(uri);
-        return this.getFlatCommands(uri);
-    }
-
-    private getComments(uri: string): Token[] {
-        return this.requireCachedValue('comments', uri, this.commentsMap.get(uri));
+    private async getFlatCommandsAsync(uri: string): Promise<FlatCommand[]> {
+        return (await this.ensureParsedFile(uri)).flatCommands;
     }
 
     private getCMakeHelp(workspaceState: WorkspaceState, helpArg: string, label: string, logErrors = false): Promise<string | null> {

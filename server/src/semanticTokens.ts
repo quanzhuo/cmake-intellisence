@@ -63,7 +63,13 @@ enum TokenTypes {
     operator = 'operator'
 }
 
-export const tokenBuilders: Map<string, SemanticTokensBuilder> = new Map();
+const tokenBuilders: Map<string, SemanticTokensBuilder> = new Map();
+
+export function createTokenBuilder(uri: string): SemanticTokensBuilder {
+    const builder = new SemanticTokensBuilder();
+    tokenBuilders.set(uri, builder);
+    return builder;
+}
 
 export function getTokenBuilder(uri: string): SemanticTokensBuilder {
     let builder = tokenBuilders.get(uri);
@@ -73,6 +79,10 @@ export function getTokenBuilder(uri: string): SemanticTokensBuilder {
     builder = new SemanticTokensBuilder();
     tokenBuilders.set(uri, builder);
     return builder;
+}
+
+export function deleteTokenBuilder(uri: string): void {
+    tokenBuilders.delete(uri);
 }
 
 export function getTokenTypes(initParams: InitializeParams): string[] {
@@ -106,12 +116,17 @@ export class SemanticTokenListener extends CMakeParserListener {
     private _visibleFiles: string[] | null = null;
     private emittedTokens: Set<string> = new Set();
 
-    constructor(uri: string, symbolIndex: SymbolIndex, entryUri: string) {
+    constructor(
+        uri: string,
+        symbolIndex: SymbolIndex,
+        entryUri: string,
+        builder: SemanticTokensBuilder = new SemanticTokensBuilder(),
+    ) {
         super();
         this._uri = uri;
         this.symbolIndex = symbolIndex;
         this.entryUri = entryUri;
-        this._builder = getTokenBuilder(uri);
+        this._builder = builder;
     }
 
     private normalizeVariableName(token: string): string {
@@ -515,15 +530,8 @@ export class SemanticTokenListener extends CMakeParserListener {
             });
         } else {
             // Differentiate functions vs macros via SymbolIndex
-            let isMacro = false;
-            for (const cache of this.symbolIndex.getAllCaches()) {
-                const commandSymbols = cache.commands.get(cmdNameLower);
-                if (commandSymbols && commandSymbols.some(s => s.kind === SymbolKind.Macro)) {
-                    isMacro = true;
-                    break;
-                }
-            }
-            const tokenType = isMacro ? TokenTypes.macro : TokenTypes.function;
+            const commandKind = this.symbolIndex.getUserCommandKind(cmdNameLower);
+            const tokenType = commandKind === SymbolKind.Macro ? TokenTypes.macro : TokenTypes.function;
 
             this.pushToken(
                 commandToken.line - 1,

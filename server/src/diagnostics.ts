@@ -1,4 +1,3 @@
-import { ErrorListener, RecognitionException, Recognizer, Token } from "antlr4";
 import { Diagnostic, DiagnosticSeverity } from "vscode-languageserver";
 import { FlatCommand } from "./flatCommands";
 import { BreakCmdContext, ContinueCmdContext, ForeachLoopContext, WhileLoopContext } from "./generated/CMakeParser";
@@ -7,45 +6,6 @@ import localize from "./localize";
 import { SymbolIndex } from "./symbolIndex";
 
 export const DIAG_CODE_CMD_CASE = 0;
-
-export class SyntaxErrorListener extends ErrorListener<Token> {
-    private diagnostics: Diagnostic[] = [];
-
-    /**
-     * 
-     * @param recognizer 
-     * @param offendingSymbol 
-     * @param line start from 1
-     * @param column start from 0
-     * @param msg 
-     * @param e 
-     */
-    syntaxError(recognizer: Recognizer<Token>, offendingSymbol: Token, line: number, column: number, msg: string, e: RecognitionException | undefined): void {
-        this.diagnostics.push({
-            range: {
-                start: {
-                    line: line - 1,
-                    character: column
-                },
-                end: {
-                    line: line - 1,
-                    character: column + offendingSymbol.text.length
-                }
-            },
-            severity: DiagnosticSeverity.Error,
-            source: 'cmake-intellisense',
-            message: msg
-        });
-    }
-
-    public getSyntaxErrors(): Diagnostic[] {
-        return this.diagnostics;
-    }
-
-    public clearSyntaxErrors() {
-        this.diagnostics = [];
-    }
-}
 
 export default class SemanticDiagnosticsListener extends CMakeListener {
     private diagnostics: Diagnostic[] = [];

@@ -6,7 +6,7 @@ function pathSeparatorFor(fsPath: string): '\\' | '/' {
     return fsPath.includes('\\') ? '\\' : '/';
 }
 
-const DEFAULT_MAX_FILE_CACHES = 2048;
+const DEFAULT_MAX_FILE_CACHES = Number.POSITIVE_INFINITY;
 const MAX_VISIBLE_FILES_DEPTH = 100;
 
 export enum SymbolKind {
@@ -144,8 +144,16 @@ export class SymbolIndex {
     public pkgConfigPath: string = '';
     public pkgConfigModules: Map<string, string> = new Map();
     private fileCaches: Map<string, FileSymbolCache> = new Map();
+    private fileCacheRevisionKeys: Map<string, string> = new Map();
     private systemCache: FileSymbolCache = new FileSymbolCache('cmake-builtin://system');
     private builtinModuleCommandCatalog: Map<string, string> = new Map();
+    private generation = 0;
+    private readonly entryFileCache = new Map<string, { generation: number; value: string | undefined }>();
+    private readonly reachableFilesCache = new Map<string, { generation: number; value: string[] }>();
+    private readonly visibleFilesCache = new Map<string, { generation: number; value: string[] }>();
+    private readonly workspaceSymbolNamesCache = new Map<SymbolKind, { generation: number; value: string[] }>();
+    private userCommandNamesCache?: { generation: number; value: string[] };
+    private userCommandKindsCache?: { generation: number; value: Map<string, SymbolKind.Function | SymbolKind.Macro> };
 
     constructor(private readonly maxFileCaches: number = DEFAULT_MAX_FILE_CACHES) {
     }
@@ -182,12 +190,40 @@ export class SymbolIndex {
         return this.systemCache;
     }
 
-    setCache(uri: string, cache: FileSymbolCache): void {
+    private invalidateDerivedCaches(): void {
+        this.generation++;
+        this.entryFileCache.clear();
+        this.reachableFilesCache.clear();
+        this.visibleFilesCache.clear();
+        this.workspaceSymbolNamesCache.clear();
+        this.userCommandNamesCache = undefined;
+        this.userCommandKindsCache = undefined;
+    }
+
+    setCache(uri: string, cache: FileSymbolCache, revisionKey?: string): void {
         if (this.fileCaches.has(uri)) {
             this.fileCaches.delete(uri);
         }
         this.fileCaches.set(uri, cache);
+        if (revisionKey === undefined) {
+            this.fileCacheRevisionKeys.delete(uri);
+        } else {
+            this.fileCacheRevisionKeys.set(uri, revisionKey);
+        }
+        this.invalidateDerivedCaches();
         this.evictLeastRecentlyUsedCaches();
+    }
+
+    hasCurrentCache(uri: string, revisionKey: string): boolean {
+        return this.fileCaches.has(uri) && this.fileCacheRevisionKeys.get(uri) === revisionKey;
+    }
+
+    getCacheRevisionKey(uri: string): string | undefined {
+        return this.fileCacheRevisionKeys.get(uri);
+    }
+
+    getGeneration(): number {
+        return this.generation;
     }
 
     getCache(uri: string): FileSymbolCache | undefined {
@@ -208,15 +244,21 @@ export class SymbolIndex {
                 return;
             }
             this.fileCaches.delete(oldestUri);
+            this.fileCacheRevisionKeys.delete(oldestUri);
         }
     }
 
     deleteCache(uri: string): void {
-        this.fileCaches.delete(uri);
+        const deleted = this.fileCaches.delete(uri);
+        this.fileCacheRevisionKeys.delete(uri);
+        if (deleted) {
+            this.invalidateDerivedCaches();
+        }
     }
 
     deleteCachesInDirectory(directoryPath: string): void {
         const normalizedDirectory = URI.file(directoryPath).fsPath;
+        let deleted = false;
         for (const uri of this.fileCaches.keys()) {
             if (!uri.startsWith('file://')) {
                 continue;
@@ -225,7 +267,12 @@ export class SymbolIndex {
             const fsPath = URI.parse(uri).fsPath;
             if (fsPath === normalizedDirectory || fsPath.startsWith(`${normalizedDirectory}${fsPath.includes('\\') ? '\\' : '/'}`)) {
                 this.fileCaches.delete(uri);
+                this.fileCacheRevisionKeys.delete(uri);
+                deleted = true;
             }
+        }
+        if (deleted) {
+            this.invalidateDerivedCaches();
         }
     }
 
@@ -255,6 +302,11 @@ export class SymbolIndex {
     }
 
     findEntryFile(targetUri: string): string | undefined {
+        const cached = this.entryFileCache.get(targetUri);
+        if (cached?.generation === this.generation) {
+            return cached.value;
+        }
+
         const allCaches = this.getAllCaches();
         const incomingDependencies = new Set<string>();
 
@@ -264,23 +316,22 @@ export class SymbolIndex {
             }
         }
 
-        const canReachTarget = (startUri: string, visited: Set<string>): boolean => {
-            if (startUri === targetUri) {
-                return true;
-            }
-            if (visited.has(startUri)) {
-                return false;
-            }
-            visited.add(startUri);
-
-            const cache = this.getCache(startUri);
-            if (!cache) {
-                return false;
-            }
-
-            for (const dependency of this.getAvailableDependencies(cache.uri)) {
-                if (canReachTarget(dependency.uri, visited)) {
+        const canReachTarget = (startUri: string): boolean => {
+            const visited = new Set<string>();
+            const stack = [startUri];
+            while (stack.length > 0) {
+                const uri = stack.pop()!;
+                if (uri === targetUri) {
                     return true;
+                }
+                if (visited.has(uri)) {
+                    continue;
+                }
+                visited.add(uri);
+
+                const dependencies = this.getAvailableDependencies(uri);
+                for (let index = dependencies.length - 1; index >= 0; index--) {
+                    stack.push(dependencies[index].uri);
                 }
             }
 
@@ -292,17 +343,20 @@ export class SymbolIndex {
             .filter(uri => !incomingDependencies.has(uri));
 
         for (const rootUri of rootCandidates) {
-            if (canReachTarget(rootUri, new Set<string>())) {
+            if (canReachTarget(rootUri)) {
+                this.entryFileCache.set(targetUri, { generation: this.generation, value: rootUri });
                 return rootUri;
             }
         }
 
         for (const cache of allCaches) {
-            if (canReachTarget(cache.uri, new Set<string>())) {
+            if (canReachTarget(cache.uri)) {
+                this.entryFileCache.set(targetUri, { generation: this.generation, value: cache.uri });
                 return cache.uri;
             }
         }
 
+        this.entryFileCache.set(targetUri, { generation: this.generation, value: undefined });
         return undefined;
     }
 
@@ -407,7 +461,13 @@ export class SymbolIndex {
     }
 
     *getAllUserCommandSymbols(): IterableIterator<string> {
+        if (this.userCommandNamesCache?.generation === this.generation) {
+            yield* this.userCommandNamesCache.value;
+            return;
+        }
+
         const emitted = new Set<string>();
+        const names: string[] = [];
 
         for (const cache of this.fileCaches.values()) {
             if (this.isBuiltinModuleUri(cache.uri)) {
@@ -426,14 +486,44 @@ export class SymbolIndex {
                     }
 
                     emitted.add(key);
-                    yield symbol.name;
+                    names.push(symbol.name);
                 }
             }
         }
+        this.userCommandNamesCache = { generation: this.generation, value: names };
+        yield* names;
+    }
+
+    getUserCommandKind(name: string): SymbolKind.Function | SymbolKind.Macro | undefined {
+        if (this.userCommandKindsCache?.generation !== this.generation) {
+            const kinds = new Map<string, SymbolKind.Function | SymbolKind.Macro>();
+            for (const cache of this.fileCaches.values()) {
+                for (const [commandName, symbols] of cache.commands) {
+                    for (const symbol of symbols) {
+                        if (symbol.kind === SymbolKind.Macro) {
+                            kinds.set(commandName, SymbolKind.Macro);
+                            break;
+                        }
+                        if (symbol.kind === SymbolKind.Function && !kinds.has(commandName)) {
+                            kinds.set(commandName, SymbolKind.Function);
+                        }
+                    }
+                }
+            }
+            this.userCommandKindsCache = { generation: this.generation, value: kinds };
+        }
+        return this.userCommandKindsCache.value.get(name.toLowerCase());
     }
 
     *getAllWorkspaceSymbols(kind: SymbolKind): IterableIterator<string> {
+        const cached = this.workspaceSymbolNamesCache.get(kind);
+        if (cached?.generation === this.generation) {
+            yield* cached.value;
+            return;
+        }
+
         const emitted = new Set<string>();
+        const names: string[] = [];
 
         for (const cache of this.fileCaches.values()) {
             switch (kind) {
@@ -449,7 +539,7 @@ export class SymbolIndex {
                                 continue;
                             }
                             emitted.add(key);
-                            yield symbol.name;
+                            names.push(symbol.name);
                         }
                     }
                     break;
@@ -460,7 +550,7 @@ export class SymbolIndex {
                                 continue;
                             }
                             emitted.add(symbol.name);
-                            yield symbol.name;
+                            names.push(symbol.name);
                         }
                     }
                     break;
@@ -471,42 +561,48 @@ export class SymbolIndex {
                                 continue;
                             }
                             emitted.add(symbol.name);
-                            yield symbol.name;
+                            names.push(symbol.name);
                         }
                     }
                     break;
             }
         }
+        this.workspaceSymbolNamesCache.set(kind, { generation: this.generation, value: names });
+        yield* names;
     }
 
     clear(): void {
         this.fileCaches.clear();
+        this.fileCacheRevisionKeys.clear();
         this.builtinModuleCommandCatalog.clear();
+        this.invalidateDerivedCaches();
     }
 
     public getReachableFiles(startUri: string): string[] {
+        const cached = this.reachableFilesCache.get(startUri);
+        if (cached?.generation === this.generation) {
+            return [...cached.value];
+        }
+
         const ordered: string[] = [];
         const visited = new Set<string>();
 
-        const visit = (uri: string) => {
+        const stack = [startUri];
+        while (stack.length > 0) {
+            const uri = stack.pop()!;
             if (visited.has(uri)) {
-                return;
+                continue;
             }
             visited.add(uri);
             ordered.push(uri);
 
-            const cache = this.getCache(uri);
-            if (!cache) {
-                return;
+            const dependencies = this.getAvailableDependencies(uri);
+            for (let index = dependencies.length - 1; index >= 0; index--) {
+                stack.push(dependencies[index].uri);
             }
-
-            for (const dep of this.getAvailableDependencies(cache.uri)) {
-                visit(dep.uri);
-            }
-        };
-
-        visit(startUri);
-        return ordered;
+        }
+        this.reachableFilesCache.set(startUri, { generation: this.generation, value: ordered });
+        return [...ordered];
     }
 
     /**
@@ -514,6 +610,12 @@ export class SymbolIndex {
      * precisely simulating CMake's dynamic scoping (include vs add_subdirectory).
      */
     public getVisibleFilesForVariable(startUri: string, targetUri: string): string[] {
+        const cacheKey = `${startUri}\0${targetUri}`;
+        const cached = this.visibleFilesCache.get(cacheKey);
+        if (cached?.generation === this.generation) {
+            return [...cached.value];
+        }
+
         const visited = new Set<string>();
         const stack: Array<{ uri: string; visibleFiles: string[]; depth: number }> = [{ uri: startUri, visibleFiles: [], depth: 0 }];
 
@@ -526,7 +628,9 @@ export class SymbolIndex {
 
             const visibleFiles = [...current.visibleFiles, current.uri];
             if (current.uri === targetUri) {
-                return this.collectVisibleIncludes(targetUri, visibleFiles);
+                const result = this.collectVisibleIncludes(targetUri, visibleFiles);
+                this.visibleFilesCache.set(cacheKey, { generation: this.generation, value: result });
+                return [...result];
             }
 
             const cache = this.getCache(current.uri);
@@ -545,6 +649,7 @@ export class SymbolIndex {
             }
         }
 
+        this.visibleFilesCache.set(cacheKey, { generation: this.generation, value: [] });
         return [];
     }
 

@@ -101,6 +101,9 @@ async function startLanguageServer(cmakePath: string, serverModule: string, chan
             { language: 'cmake', scheme: 'file' },
             { language: 'cmake', scheme: 'untitled' }
         ],
+        synchronize: {
+            fileEvents: vscode.workspace.createFileSystemWatcher('**/{CMakeLists.txt,*.cmake}')
+        },
         outputChannel: channel
     };
 

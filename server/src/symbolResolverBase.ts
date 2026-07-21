@@ -29,6 +29,7 @@ export abstract class SymbolResolverBase {
         protected command: FlatCommand,
         protected logger: Logger,
         protected shouldCancel?: () => boolean,
+        protected ensureFileIndexed?: (uri: string) => Promise<boolean>,
     ) {
         const dir = path.dirname(curFile.fsPath);
         this.baseDir = URI.file(dir);
@@ -49,6 +50,7 @@ export abstract class SymbolResolverBase {
             visited: new Set(),
             symbolIndex: this.symbolIndex,
             loadFlatCommands: this.getFlatCommands,
+            ensureFileIndexed: this.ensureFileIndexed,
             shouldCancel: this.shouldCancel,
             onDependencyError: async (uri, error): Promise<'continue'> => {
                 this.logger.error(`Failed to index dependency ${uri}`, error as Error);

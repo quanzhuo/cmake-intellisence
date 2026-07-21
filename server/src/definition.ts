@@ -25,8 +25,9 @@ export class DefinitionResolver extends SymbolResolverBase {
         shouldCancel?: () => boolean,
         private fileApiRawSnapshot?: FileApiRawSnapshot,
         private buildDirectory?: string,
+        ensureFileIndexed?: (uri: string) => Promise<boolean>,
     ) {
-        super(documents, symbolIndex, getFlatCommands, workspaceFolder, curFile, command, logger, shouldCancel);
+        super(documents, symbolIndex, getFlatCommands, workspaceFolder, curFile, command, logger, shouldCancel, ensureFileIndexed);
     }
 
     private getPathExpressionResolver(): PathExpressionResolver {

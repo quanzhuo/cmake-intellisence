@@ -1,7 +1,7 @@
-import { CharStream, CharStreams, CommonTokenStream } from 'antlr4';
+import { CharStream, CharStreams, CommonTokenStream, ErrorListener, RecognitionException, Recognizer, Token } from 'antlr4';
 import { existsSync, promises as fsPromises, statSync } from 'fs';
 import * as path from 'path';
-import { TextDocuments } from 'vscode-languageserver';
+import { Diagnostic, DiagnosticSeverity, TextDocuments } from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI, Utils } from 'vscode-uri';
 import { FileApiRawSnapshot } from './fileApiSnapshot';
@@ -14,19 +14,60 @@ export interface ParsedCMakeFile {
     fileContext: FileContext;
     tokenStream: CommonTokenStream;
     flatCommands: FlatCommand[];
+    comments: Token[];
+    syntaxDiagnostics: Diagnostic[];
 }
 
-export function parseCMakeText(text: string, configureParser?: (parser: CMakeParser) => void): ParsedCMakeFile {
+class CollectingSyntaxErrorListener extends ErrorListener<unknown> {
+    readonly diagnostics: Diagnostic[] = [];
+
+    syntaxError(
+        _recognizer: Recognizer<unknown>,
+        offendingSymbol: unknown,
+        line: number,
+        column: number,
+        msg: string,
+        _error: RecognitionException | undefined,
+    ): void {
+        const tokenText = offendingSymbol && typeof offendingSymbol === 'object' && 'text' in offendingSymbol
+            ? String((offendingSymbol as { text?: unknown }).text ?? '')
+            : '';
+        this.diagnostics.push({
+            range: {
+                start: {
+                    line: Math.max(line - 1, 0),
+                    character: column,
+                },
+                end: {
+                    line: Math.max(line - 1, 0),
+                    character: column + Math.max(tokenText.length, 1),
+                },
+            },
+            severity: DiagnosticSeverity.Error,
+            source: 'cmake-intellisense',
+            message: msg,
+        });
+    }
+}
+
+export function parseCMakeText(text: string): ParsedCMakeFile {
     const input: CharStream = CharStreams.fromString(text);
     const lexer = new CMakeLexer(input);
+    const syntaxErrorListener = new CollectingSyntaxErrorListener();
+    lexer.removeErrorListeners();
+    lexer.addErrorListener(syntaxErrorListener);
     const tokenStream = new CommonTokenStream(lexer);
     const parser = new CMakeParser(tokenStream);
-    configureParser?.(parser);
+    parser.removeErrorListeners();
+    parser.addErrorListener(syntaxErrorListener);
     const fileContext = parser.file();
+    const commentsChannel = CMakeLexer.channelNames.indexOf('COMMENTS');
     return {
         fileContext,
         tokenStream,
         flatCommands: extractFlatCommands(fileContext),
+        comments: tokenStream.tokens.filter(token => token.channel === commentsChannel),
+        syntaxDiagnostics: syntaxErrorListener.diagnostics,
     };
 }
 

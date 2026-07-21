@@ -228,7 +228,7 @@
     "tsc-watch": "tsc -p ./server -w",
     "develop": "npm run grammar && npm run antlr4 && webpack --mode development --watch",
     "product": "npm run grammar && npm run antlr4 && webpack --mode production --devtool false",
-    "pretest": "npm run compile && npm run lint",
+    "pretest": "rimraf server/out server/tsconfig.tsbuildinfo && npm run compile && npm run lint",
     "lint": "eslint . --ext ts",
     "test": "mocha",
     "postinstall": "cd client && npm install && cd ../server && npm install && cd ..",

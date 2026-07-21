@@ -973,8 +973,8 @@ export default class Completion {
     private completionParams?: CompletionParams;
 
     constructor(
-        private flatCommandsMap: Map<string, FlatCommand[]>,
-        private tokenStreams: Map<string, CommonTokenStream>,
+        private flatCommandsSource: FlatCommand[] | Map<string, FlatCommand[]>,
+        private tokenStreamSource: CommonTokenStream | Map<string, CommonTokenStream>,
         private targetInfo: ProjectTargetInfo = {} as ProjectTargetInfo,
         private word: string,
         private logger: Logger,
@@ -1928,8 +1928,12 @@ export default class Completion {
 
     public async onCompletion(params: CompletionParams): Promise<CompletionItem[] | CompletionList | null> {
         this.completionParams = params;
-        const tokenStream = this.tokenStreams.get(params.textDocument.uri);
-        const fallbackCommands = this.flatCommandsMap.get(params.textDocument.uri);
+        const tokenStream = this.tokenStreamSource instanceof Map
+            ? this.tokenStreamSource.get(params.textDocument.uri)
+            : this.tokenStreamSource;
+        const fallbackCommands = this.flatCommandsSource instanceof Map
+            ? this.flatCommandsSource.get(params.textDocument.uri)
+            : this.flatCommandsSource;
 
         if (!tokenStream || !fallbackCommands) {
             return this.getCommandSuggestions(this.word);

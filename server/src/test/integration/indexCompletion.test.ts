@@ -7,6 +7,8 @@ import {
     CompletionItem,
     CompletionList,
     CompletionRequest,
+    DefinitionRequest,
+    DidChangeTextDocumentNotification,
     DidOpenTextDocumentNotification,
     ExitNotification,
     IPCMessageReader,
@@ -14,6 +16,7 @@ import {
     InitializeParams,
     InitializeRequest,
     InitializedNotification,
+    Location,
     ProtocolConnection,
     PublishDiagnosticsNotification,
     PublishDiagnosticsParams,
@@ -78,6 +81,13 @@ suite('Index Completion Integration Tests', () => {
 
     async function getCompletions(uri: string, line: number, character: number) {
         return connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line, character }
+        });
+    }
+
+    async function getDefinition(uri: string, line: number, character: number) {
+        return connection.sendRequest(DefinitionRequest.type, {
             textDocument: { uri },
             position: { line, character }
         });
@@ -189,6 +199,77 @@ suite('Index Completion Integration Tests', () => {
 
         assert.ok(labels.includes('root_lib'), 'Missing root_lib from indexed targets');
         assert.ok(labels.includes('src_lib'), 'Missing src_lib from indexed targets');
+    });
+
+    test('should update symbols when completion arrives before debounced diagnostics', async () => {
+        const defsUri = fileUri('interactive-targets.cmake');
+        const initialDiagnostics = waitForDiagnostics(defsUri);
+        openDocument(defsUri, [
+            'add_library(stale_before_edit INTERFACE)',
+            'target_link_libraries(app interactive_)',
+        ].join('\n'));
+        await initialDiagnostics;
+
+        const updatedDiagnostics = waitForDiagnostics(defsUri);
+        docVersion++;
+        connection.sendNotification(DidChangeTextDocumentNotification.type, {
+            textDocument: { uri: defsUri, version: docVersion },
+            contentChanges: [{
+                text: [
+                    'add_library(interactive_after_edit INTERFACE)',
+                    'target_link_libraries(app interactive_)',
+                ].join('\n')
+            }],
+        });
+
+        const completions = await getCompletions(defsUri, 1, 'target_link_libraries(app interactive_'.length);
+        const items = (completions as CompletionList | CompletionItem[] | null);
+        const labels = (Array.isArray(items) ? items : items?.items ?? []).map(item => item.label);
+
+        assert.ok(labels.includes('interactive_after_edit'), 'Missing target from the current document revision');
+        assert.ok(!labels.includes('stale_before_edit'), 'Stale target should be removed immediately after an edit');
+        await updatedDiagnostics;
+    });
+
+    test('should rebuild cross-file dependencies after an included file changes', async () => {
+        const rootUri = fileUri('CMakeLists.txt');
+        const firstUri = fileUri('dynamic-first.cmake');
+        const secondUri = fileUri('dynamic-second.cmake');
+        const routerUri = fileUri('dynamic-router.cmake');
+
+        for (const [uri, content] of [
+            [firstUri, 'set(DYNAMIC_VAR first)'],
+            [secondUri, 'set(DYNAMIC_VAR second)'],
+            [routerUri, 'include(dynamic-first.cmake)'],
+        ] as const) {
+            const diagnostics = waitForDiagnostics(uri);
+            openDocument(uri, content);
+            await diagnostics;
+        }
+
+        const rootDiagnostics = waitForDiagnostics(rootUri);
+        docVersion++;
+        connection.sendNotification(DidChangeTextDocumentNotification.type, {
+            textDocument: { uri: rootUri, version: docVersion },
+            contentChanges: [{ text: 'include(dynamic-router.cmake)\nmessage(${DYNAMIC_VAR})\n' }],
+        });
+        await rootDiagnostics;
+
+        const initial = await getDefinition(rootUri, 1, 'message(${DYNAMIC_'.length);
+        const initialLocations = (Array.isArray(initial) ? initial : [initial]) as Location[];
+        assert.strictEqual(initialLocations[0]?.uri, firstUri);
+
+        const routerDiagnostics = waitForDiagnostics(routerUri);
+        docVersion++;
+        connection.sendNotification(DidChangeTextDocumentNotification.type, {
+            textDocument: { uri: routerUri, version: docVersion },
+            contentChanges: [{ text: 'include(dynamic-second.cmake)' }],
+        });
+
+        const updated = await getDefinition(rootUri, 1, 'message(${DYNAMIC_'.length);
+        const updatedLocations = (Array.isArray(updated) ? updated : [updated]) as Location[];
+        assert.strictEqual(updatedLocations[0]?.uri, secondUri);
+        await routerDiagnostics;
     });
 
 });
