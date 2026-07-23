@@ -98,6 +98,14 @@ export interface Dependency {
     uncertain?: boolean;
 }
 
+export interface SetFileCacheOptions {
+    preserveDependencyContexts?: boolean;
+}
+
+export interface DeleteFileCacheOptions {
+    retainDependencyContexts?: boolean;
+}
+
 /**
  * Cached symbols and dependencies for a single CMake file.
  */
@@ -118,6 +126,8 @@ export class FileSymbolCache {
 
     // Dependencies in exact order of declaration
     public readonly dependencies: Dependency[] = [];
+    public readonly dependencyInputVariables: Set<string> = new Set();
+    public readonly variableValueReferences: Map<string, Set<string>> = new Map();
     public readonly occurrences: SymbolOccurrence[] = [];
     public readonly scopes: Map<string, SemanticScope> = new Map();
     public readonly uncertainOrders: Set<number> = new Set();
@@ -228,6 +238,16 @@ export class FileSymbolCache {
             ...(uncertain ? { uncertain: true } : {}),
         });
     }
+
+    addDependencyInputVariable(variableName: string): void {
+        this.dependencyInputVariables.add(variableName);
+    }
+
+    addVariableValueReference(variableName: string, referencedVariable: string): void {
+        const references = this.variableValueReferences.get(variableName) ?? new Set<string>();
+        references.add(referencedVariable);
+        this.variableValueReferences.set(variableName, references);
+    }
 }
 
 /**
@@ -242,6 +262,7 @@ export class SymbolIndex {
     private fileCaches: Map<string, FileSymbolCache> = new Map();
     private fileCacheRevisionKeys: Map<string, string> = new Map();
     private dependencyContexts = new Map<string, Map<string, { revisionKey?: string; dependencies: Dependency[] }>>();
+    private retainedDependencyContexts = new Map<string, Map<string, Dependency[]>>();
     private systemCache: FileSymbolCache = new FileSymbolCache('cmake-builtin://system');
     private builtinModuleCommandCatalog: Map<string, string> = new Map();
     private generation = 0;
@@ -295,7 +316,13 @@ export class SymbolIndex {
         this.userCommandNamesCache = undefined;
     }
 
-    setCache(uri: string, cache: FileSymbolCache, revisionKey?: string, entryFile?: string): void {
+    setCache(
+        uri: string,
+        cache: FileSymbolCache,
+        revisionKey?: string,
+        entryFile?: string,
+        options?: SetFileCacheOptions,
+    ): void {
         if (this.fileCaches.has(uri)) {
             this.fileCaches.delete(uri);
         }
@@ -305,18 +332,41 @@ export class SymbolIndex {
         } else {
             this.fileCacheRevisionKeys.set(uri, revisionKey);
         }
+        if (options?.preserveDependencyContexts) {
+            const retainedContexts = this.retainedDependencyContexts.get(uri);
+            for (const [retainedEntry, dependencies] of retainedContexts ?? []) {
+                const contextsByUri = this.dependencyContexts.get(retainedEntry) ?? new Map();
+                contextsByUri.set(uri, {
+                    revisionKey,
+                    dependencies: dependencies.map(dependency => ({ ...dependency })),
+                });
+                this.dependencyContexts.set(retainedEntry, contextsByUri);
+            }
+        }
+        this.retainedDependencyContexts.delete(uri);
         for (const contextsByUri of this.dependencyContexts.values()) {
             const context = contextsByUri.get(uri);
             if (context && context.revisionKey !== revisionKey) {
-                contextsByUri.delete(uri);
+                if (options?.preserveDependencyContexts) {
+                    context.revisionKey = revisionKey;
+                } else {
+                    contextsByUri.delete(uri);
+                }
             }
         }
         if (entryFile !== undefined) {
             const contextsByUri = this.dependencyContexts.get(entryFile) ?? new Map();
-            contextsByUri.set(uri, {
-                revisionKey,
-                dependencies: cache.dependencies.map(dependency => ({ ...dependency })),
-            });
+            const preservedContext = options?.preserveDependencyContexts
+                ? contextsByUri.get(uri)
+                : undefined;
+            if (preservedContext) {
+                preservedContext.revisionKey = revisionKey;
+            } else {
+                contextsByUri.set(uri, {
+                    revisionKey,
+                    dependencies: cache.dependencies.map(dependency => ({ ...dependency })),
+                });
+            }
             this.dependencyContexts.set(entryFile, contextsByUri);
         }
         this.invalidateDerivedCaches();
@@ -347,6 +397,60 @@ export class SymbolIndex {
         this.invalidateDerivedCaches();
     }
 
+    clearProjectContext(entryFile: string): void {
+        if (!this.dependencyContexts.delete(entryFile)) {
+            return;
+        }
+        this.invalidateDerivedCaches();
+    }
+
+    getProjectEntries(): string[] {
+        return Array.from(this.dependencyContexts.keys());
+    }
+
+    getProjectEntriesForUri(uri: string): string[] {
+        const entries: string[] = [];
+        for (const [entryFile, contextsByUri] of this.dependencyContexts) {
+            if (entryFile === uri || contextsByUri.has(uri)) {
+                entries.push(entryFile);
+            }
+        }
+        return entries;
+    }
+
+    getProjectDependencyInputVariables(entryFile: string): Set<string> {
+        const inputs = new Set<string>();
+        const referencesByVariable = new Map<string, Set<string>>();
+        for (const uri of this.getReachableFiles(entryFile)) {
+            const cache = this.getCache(uri);
+            if (!cache) {
+                continue;
+            }
+            for (const variableName of cache.dependencyInputVariables) {
+                inputs.add(variableName);
+            }
+            for (const [variableName, references] of cache.variableValueReferences) {
+                const combinedReferences = referencesByVariable.get(variableName) ?? new Set<string>();
+                for (const referencedVariable of references) {
+                    combinedReferences.add(referencedVariable);
+                }
+                referencesByVariable.set(variableName, combinedReferences);
+            }
+        }
+
+        const pending = Array.from(inputs);
+        for (let index = 0; index < pending.length; index++) {
+            const variableName = pending[index];
+            for (const referencedVariable of referencesByVariable.get(variableName) ?? []) {
+                if (!inputs.has(referencedVariable)) {
+                    inputs.add(referencedVariable);
+                    pending.push(referencedVariable);
+                }
+            }
+        }
+        return inputs;
+    }
+
     getGeneration(): number {
         return this.generation;
     }
@@ -374,9 +478,26 @@ export class SymbolIndex {
         }
     }
 
-    deleteCache(uri: string): void {
+    deleteCache(uri: string, options?: DeleteFileCacheOptions): void {
         const deleted = this.fileCaches.delete(uri);
         this.fileCacheRevisionKeys.delete(uri);
+        if (options?.retainDependencyContexts) {
+            const retainedContexts = this.retainedDependencyContexts.get(uri) ?? new Map<string, Dependency[]>();
+            for (const [entryFile, contextsByUri] of this.dependencyContexts) {
+                const context = contextsByUri.get(uri);
+                if (context) {
+                    retainedContexts.set(
+                        entryFile,
+                        context.dependencies.map(dependency => ({ ...dependency })),
+                    );
+                }
+            }
+            if (retainedContexts.size > 0) {
+                this.retainedDependencyContexts.set(uri, retainedContexts);
+            }
+        } else {
+            this.retainedDependencyContexts.delete(uri);
+        }
         this.deleteDependencyContextsForUri(uri);
         if (deleted) {
             this.invalidateDerivedCaches();
@@ -385,18 +506,29 @@ export class SymbolIndex {
 
     deleteCachesInDirectory(directoryPath: string): void {
         const normalizedDirectory = URI.file(directoryPath).fsPath;
+        const isInsideDirectory = (uri: string): boolean => {
+            if (!uri.startsWith('file://')) {
+                return false;
+            }
+            const fsPath = URI.parse(uri).fsPath;
+            return fsPath === normalizedDirectory
+                || fsPath.startsWith(`${normalizedDirectory}${fsPath.includes('\\') ? '\\' : '/'}`);
+        };
         let deleted = false;
         for (const uri of this.fileCaches.keys()) {
-            if (!uri.startsWith('file://')) {
+            if (!isInsideDirectory(uri)) {
                 continue;
             }
 
-            const fsPath = URI.parse(uri).fsPath;
-            if (fsPath === normalizedDirectory || fsPath.startsWith(`${normalizedDirectory}${fsPath.includes('\\') ? '\\' : '/'}`)) {
-                this.fileCaches.delete(uri);
-                this.fileCacheRevisionKeys.delete(uri);
-                this.deleteDependencyContextsForUri(uri);
-                deleted = true;
+            this.fileCaches.delete(uri);
+            this.fileCacheRevisionKeys.delete(uri);
+            this.retainedDependencyContexts.delete(uri);
+            this.deleteDependencyContextsForUri(uri);
+            deleted = true;
+        }
+        for (const uri of this.retainedDependencyContexts.keys()) {
+            if (isInsideDirectory(uri)) {
+                this.retainedDependencyContexts.delete(uri);
             }
         }
         if (deleted) {
@@ -723,6 +855,7 @@ export class SymbolIndex {
         this.fileCaches.clear();
         this.fileCacheRevisionKeys.clear();
         this.dependencyContexts.clear();
+        this.retainedDependencyContexts.clear();
         this.builtinModuleCommandCatalog.clear();
         this.invalidateDerivedCaches();
     }

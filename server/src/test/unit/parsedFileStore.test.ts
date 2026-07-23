@@ -1,13 +1,15 @@
 import * as assert from 'assert';
+import { analyzeDependencyStructure } from '../../dependencyStructure';
 import { ParsedFileSnapshot, ParsedFileStore, SourceRevision } from '../../parsedFileStore';
 import { parseCMakeText } from '../../utils';
 
 function createSnapshot(uri: string, revision: SourceRevision, text: string): ParsedFileSnapshot {
+    const parsed = parseCMakeText(text);
     return {
-        ...parseCMakeText(text),
+        ...parsed,
         uri,
         revision,
-        dependencyFingerprint: text,
+        dependencyStructure: analyzeDependencyStructure(parsed.flatCommands),
     };
 }
 

@@ -15,12 +15,16 @@ suite('Builtin Module Index Tests', () => {
         cache.addCommand(new Symbol('my_func', SymbolKind.Function, uri, 1, 2));
         cache.addVariable(new Symbol('MY_VAR', SymbolKind.Variable, uri, 3, 4));
         cache.addDependency('file:///tmp/Other.cmake', 'include');
+        cache.addDependencyInputVariable('ROUTE_FILE');
+        cache.addVariableValueReference('ROUTE_FILE', 'ROUTE_ROOT');
 
         const restored = deserializeFileSymbolCache(serializeFileSymbolCache(cache));
 
         assert.strictEqual(restored.commands.get('my_func')?.[0].name, 'my_func');
         assert.strictEqual(restored.variables.get('MY_VAR')?.[0].line, 3);
         assert.deepStrictEqual(restored.dependencies, [{ uri: 'file:///tmp/Other.cmake', type: 'include' }]);
+        assert(restored.dependencyInputVariables.has('ROUTE_FILE'));
+        assert(restored.variableValueReferences.get('ROUTE_FILE')?.has('ROUTE_ROOT'));
     });
 
     test('warmBuiltinModuleCaches should persist and reuse builtin module indexes', async () => {

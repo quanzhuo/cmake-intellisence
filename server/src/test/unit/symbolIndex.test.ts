@@ -156,4 +156,75 @@ suite('Symbol Index Tests', () => {
 
         assert.strictEqual(symbolIndex.findEntryFile(childUri), rootUri);
     });
+
+    test('reports every project entry associated with a shared file', () => {
+        const symbolIndex = new SymbolIndex();
+        const sharedUri = 'file:///workspace/shared.cmake';
+        const firstEntry = 'file:///workspace/first/CMakeLists.txt';
+        const secondEntry = 'file:///workspace/second/CMakeLists.txt';
+        const cache = new FileSymbolCache(sharedUri);
+
+        symbolIndex.setCache(sharedUri, cache, 'disk:1', firstEntry);
+        symbolIndex.setCache(sharedUri, cache, 'disk:1', secondEntry);
+
+        assert.deepStrictEqual(
+            symbolIndex.getProjectEntriesForUri(sharedUri).sort(),
+            [firstEntry, secondEntry].sort(),
+        );
+
+        symbolIndex.clearProjectContext(firstEntry);
+        assert.deepStrictEqual(symbolIndex.getProjectEntriesForUri(sharedUri), [secondEntry]);
+        assert.strictEqual(symbolIndex.getCache(sharedUri), cache);
+    });
+
+    test('resolves project dependency input references transitively across files', () => {
+        const symbolIndex = new SymbolIndex();
+        const entryUri = 'file:///workspace/CMakeLists.txt';
+        const childUri = 'file:///workspace/child.cmake';
+        const leafUri = 'file:///workspace/leaf.cmake';
+        const entryCache = new FileSymbolCache(entryUri);
+        const childCache = new FileSymbolCache(childUri);
+        const leafCache = new FileSymbolCache(leafUri);
+        entryCache.addDependency(childUri, 'include');
+        entryCache.addDependencyInputVariable('ROUTE_FILE');
+        childCache.addDependency(leafUri, 'include');
+        childCache.addVariableValueReference('ROUTE_FILE', 'ROUTE_DIR');
+        leafCache.addVariableValueReference('ROUTE_DIR', 'ROUTE_ROOT');
+
+        symbolIndex.setCache(entryUri, entryCache, 'disk:1', entryUri);
+        symbolIndex.setCache(childUri, childCache, 'disk:1', entryUri);
+        symbolIndex.setCache(leafUri, leafCache, 'disk:1', entryUri);
+
+        assert.deepStrictEqual(
+            Array.from(symbolIndex.getProjectDependencyInputVariables(entryUri)).sort(),
+            ['ROUTE_DIR', 'ROUTE_FILE', 'ROUTE_ROOT'],
+        );
+    });
+
+    test('can retain stable dependency edges while replacing a file recovered from syntax errors', () => {
+        const symbolIndex = new SymbolIndex();
+        const rootUri = 'file:///workspace/CMakeLists.txt';
+        const dependencyUri = 'file:///workspace/stable.cmake';
+        const stableCache = new FileSymbolCache(rootUri);
+        stableCache.addDependency(dependencyUri, 'include');
+        symbolIndex.setCache(dependencyUri, new FileSymbolCache(dependencyUri));
+        symbolIndex.setCache(rootUri, stableCache, 'document:1', rootUri);
+
+        symbolIndex.deleteCache(rootUri, { retainDependencyContexts: true });
+        const recoveredCache = new FileSymbolCache(rootUri);
+        symbolIndex.setCache(
+            rootUri,
+            recoveredCache,
+            'document:2',
+            rootUri,
+            { preserveDependencyContexts: true },
+        );
+
+        assert.strictEqual(symbolIndex.getCache(rootUri), recoveredCache);
+        assert.deepStrictEqual(
+            symbolIndex.getAvailableDependencies(rootUri, rootUri).map(dependency => dependency.uri),
+            [dependencyUri],
+        );
+        assert.strictEqual(symbolIndex.hasCurrentCache(rootUri, 'document:2', rootUri), true);
+    });
 });

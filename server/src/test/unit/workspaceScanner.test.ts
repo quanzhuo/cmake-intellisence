@@ -104,4 +104,12 @@ suite('workspace scanner', () => {
         assert.strictEqual(await policy.accepts(generatedFile), false);
         assert.deepStrictEqual(await policy.collectFiles(), [sourceFile]);
     });
+
+    test('accepts CMake files whose names start with two dots', async () => {
+        const hiddenFile = await write('..hidden.cmake');
+        const policy = createPolicy();
+
+        assert.strictEqual(await policy.accepts(hiddenFile), true);
+        assert.deepStrictEqual(await policy.collectFiles(), [hiddenFile]);
+    });
 });

@@ -1,3 +1,4 @@
+import { DependencyStructureAnalysis } from './dependencyStructure';
 import { ParsedCMakeFile } from './utils';
 
 export type SourceRevision =
@@ -18,7 +19,7 @@ export type SourceRevision =
 export interface ParsedFileSnapshot extends ParsedCMakeFile {
     uri: string;
     revision: SourceRevision;
-    dependencyFingerprint: string;
+    dependencyStructure: DependencyStructureAnalysis;
 }
 
 type ParsedFileRequest = {

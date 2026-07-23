@@ -1,6 +1,6 @@
-import * as path from "path";
 import { SymbolKind as LSPSymbolKind, SymbolInformation, WorkspaceSymbolParams } from "vscode-languageserver";
 import { URI } from "vscode-uri";
+import { isPathEqualOrInside } from "./pathUtils";
 import { SymbolIndex } from "./symbolIndex";
 
 export class WorkspaceSymbolResolver {
@@ -16,11 +16,7 @@ export class WorkspaceSymbolResolver {
             return false;
         }
 
-        const relativePath = path.relative(this.workspaceFolder.fsPath, cacheUri.fsPath);
-        return relativePath === ''
-            || (relativePath !== '..'
-                && !relativePath.startsWith(`..${path.sep}`)
-                && !path.isAbsolute(relativePath));
+        return isPathEqualOrInside(this.workspaceFolder.fsPath, cacheUri.fsPath);
     }
 
     public resolve(params: WorkspaceSymbolParams): SymbolInformation[] {

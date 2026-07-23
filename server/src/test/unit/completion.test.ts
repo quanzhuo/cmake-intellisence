@@ -84,6 +84,7 @@ suite('Completion Tests', () => {
 
         assert(snippet !== undefined, 'Should suggest if block snippet');
         assert.strictEqual(snippet?.insertText, 'if(${1:condition})\n\t${0}\nendif()');
+        assert.strictEqual(completion.usedWorkspaceSymbols, true);
     });
 
     test('command completion should preserve specialized snippets for builtin commands', async () => {

@@ -4,6 +4,7 @@ import { Dependency, FileSymbolCache, SymbolIndex, SymbolNamespace, SymbolOccurr
 export interface DefinitionBinding {
     declarations: SymbolOccurrence[];
     symbolIds: string[];
+    /** The result depended on consulting declarations outside the active project. */
     usedWorkspaceFallback: boolean;
 }
 
@@ -160,7 +161,7 @@ export class SymbolBindingResolver {
         const symbolIds = Array.from(new Set(workspaceDeclarations.map(declaration => this.getEffectiveSymbolId(declaration))));
         return symbolIds.length === 1
             ? { declarations: workspaceDeclarations, symbolIds, usedWorkspaceFallback: true }
-            : { declarations: [], symbolIds: [], usedWorkspaceFallback: false };
+            : { declarations: [], symbolIds: [], usedWorkspaceFallback: true };
     }
 
     findReferences(occurrence: SymbolOccurrence, includeDeclaration: boolean): ReferenceBinding {

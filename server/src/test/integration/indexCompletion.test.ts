@@ -271,4 +271,68 @@ suite('Index Completion Integration Tests', () => {
         await routerDiagnostics;
     });
 
+    test('should rebuild only the affected project when a parent variable changes a child dependency', async () => {
+        const entryUri = fileUri('dynamic-variable-entry.cmake');
+        const routerUri = fileUri('dynamic-variable-router.cmake');
+        const firstUri = fileUri('dynamic-variable-first.cmake');
+        const secondUri = fileUri('dynamic-variable-second.cmake');
+        const files = new Map([
+            [entryUri, [
+                'set(DYNAMIC_ROUTE_FILE dynamic-variable-first.cmake)',
+                'include(dynamic-variable-router.cmake)',
+                'message(${DYNAMIC_ROUTED_VALUE})',
+            ].join('\n')],
+            [routerUri, 'include(${DYNAMIC_ROUTE_FILE})'],
+            [firstUri, 'set(DYNAMIC_ROUTED_VALUE first)'],
+            [secondUri, 'set(DYNAMIC_ROUTED_VALUE second)'],
+        ]);
+
+        for (const [uri, content] of files) {
+            fs.writeFileSync(URI.parse(uri).fsPath, content, 'utf8');
+        }
+
+        try {
+            for (const [uri, content] of files) {
+                const diagnostics = waitForDiagnostics(uri);
+                openDocument(uri, content);
+                await diagnostics;
+            }
+
+            const initial = await getDefinition(entryUri, 2, 'message(${DYNAMIC_ROUTED_'.length);
+            const initialLocations = (Array.isArray(initial) ? initial : [initial]) as Location[];
+            assert.strictEqual(initialLocations[0]?.uri, firstUri);
+
+            const updatedDiagnostics = waitForDiagnostics(entryUri);
+            docVersion++;
+            connection.sendNotification(DidChangeTextDocumentNotification.type, {
+                textDocument: { uri: entryUri, version: docVersion },
+                contentChanges: [{
+                    text: [
+                        'set(DYNAMIC_ROUTE_FILE dynamic-variable-second.cmake)',
+                        'include(dynamic-variable-router.cmake)',
+                        'message(${DYNAMIC_ROUTED_VALUE})',
+                    ].join('\n'),
+                }],
+            });
+            await updatedDiagnostics;
+
+            const deadline = Date.now() + 5000;
+            let updatedUri: string | undefined;
+            while (Date.now() < deadline) {
+                const updated = await getDefinition(entryUri, 2, 'message(${DYNAMIC_ROUTED_'.length);
+                const updatedLocations = (Array.isArray(updated) ? updated : [updated]) as Location[];
+                updatedUri = updatedLocations[0]?.uri;
+                if (updatedUri === secondUri) {
+                    break;
+                }
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            assert.strictEqual(updatedUri, secondUri);
+        } finally {
+            for (const uri of files.keys()) {
+                fs.rmSync(URI.parse(uri).fsPath, { force: true });
+            }
+        }
+    });
+
 });

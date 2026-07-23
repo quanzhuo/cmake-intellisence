@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { isPathEqualOrInside } from './pathUtils';
 
 export interface WorkspaceCMakeFilePolicyOptions {
     ignoredDirectoryNames: readonly string[];
@@ -83,16 +84,12 @@ export class WorkspaceCMakeFilePolicy {
     }
 
     private isInsideRoot(candidatePath: string): boolean {
-        const relative = path.relative(this.normalizedRoot, this.normalizePath(candidatePath));
-        return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+        return isPathEqualOrInside(this.normalizedRoot, this.normalizePath(candidatePath));
     }
 
     private async shouldExcludeDirectory(directoryPath: string, entries?: fs.Dirent[]): Promise<boolean> {
         const normalizedDirectory = this.normalizePath(directoryPath);
-        if (this.excludedDirectoryPaths.some(excluded => {
-            const relative = path.relative(excluded, normalizedDirectory);
-            return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-        })) {
+        if (this.excludedDirectoryPaths.some(excluded => isPathEqualOrInside(excluded, normalizedDirectory))) {
             return true;
         }
         if (normalizedDirectory !== this.normalizedRoot

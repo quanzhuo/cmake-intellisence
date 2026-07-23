@@ -131,18 +131,32 @@ type FileApiTargetObject = {
     };
 };
 
-function readJsonFile<T>(filePath: string): T {
+type FileApiIndexIdentity = {
+    replyDirectory: string;
+    indexFile: string;
+    indexFilePath: string;
+    mtimeMs: number;
+    ctimeMs: number;
+    size: number;
+};
+
+const TARGET_LOAD_BATCH_SIZE = 12;
+const MAX_SNAPSHOT_CACHE_ENTRIES = 16;
+const snapshotCacheByIdentity = new Map<string, FileApiRawSnapshot>();
+const snapshotLoadsByIdentity = new Map<string, Promise<FileApiRawSnapshot>>();
+
+async function readJsonFile<T>(filePath: string): Promise<T> {
     try {
-        return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
+        return JSON.parse(await fs.promises.readFile(filePath, 'utf8')) as T;
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to read JSON file ${filePath}: ${message}`);
     }
 }
 
-function tryReadJsonFile<T>(filePath: string): T | null {
+async function tryReadJsonFile<T>(filePath: string): Promise<T | null> {
     try {
-        return readJsonFile<T>(filePath);
+        return await readJsonFile<T>(filePath);
     } catch {
         return null;
     }
@@ -258,7 +272,10 @@ function getBuildDirectoriesBySourcePath(
     return directoriesBySourcePath;
 }
 
-function loadTargetSnapshot(codemodelFilePath: string, targetReference: { id: string; name: string; jsonFile?: string }): FileApiTargetSnapshot {
+async function loadTargetSnapshot(
+    codemodelFilePath: string,
+    targetReference: { id: string; name: string; jsonFile?: string },
+): Promise<FileApiTargetSnapshot> {
     const targetSnapshot: FileApiTargetSnapshot = {
         id: targetReference.id,
         name: targetReference.name,
@@ -270,11 +287,7 @@ function loadTargetSnapshot(codemodelFilePath: string, targetReference: { id: st
     }
 
     const targetFilePath = path.resolve(path.dirname(codemodelFilePath), targetReference.jsonFile);
-    if (!fs.existsSync(targetFilePath)) {
-        return targetSnapshot;
-    }
-
-    const targetObject = tryReadJsonFile<FileApiTargetObject>(targetFilePath);
+    const targetObject = await tryReadJsonFile<FileApiTargetObject>(targetFilePath);
     if (!targetObject) {
         return targetSnapshot;
     }
@@ -326,9 +339,17 @@ function loadTargetSnapshot(codemodelFilePath: string, targetReference: { id: st
     };
 }
 
-function getTargets(codemodelFilePath: string, codemodelObject: FileApiCodeModelObject | null): { byName: Record<string, FileApiTargetSnapshot>; byId: Record<string, FileApiTargetSnapshot> } {
+function yieldToEventLoop(): Promise<void> {
+    return new Promise(resolve => setImmediate(resolve));
+}
+
+async function getTargets(
+    codemodelFilePath: string,
+    codemodelObject: FileApiCodeModelObject | null,
+): Promise<{ byName: Record<string, FileApiTargetSnapshot>; byId: Record<string, FileApiTargetSnapshot> }> {
     const byName: Record<string, FileApiTargetSnapshot> = {};
     const byId: Record<string, FileApiTargetSnapshot> = {};
+    const uniqueTargetReferences = new Map<string, { id: string; name: string; jsonFile?: string }>();
 
     for (const configuration of codemodelObject?.configurations ?? []) {
         const targetReferences = [
@@ -337,13 +358,24 @@ function getTargets(codemodelFilePath: string, codemodelObject: FileApiCodeModel
         ];
 
         for (const targetReference of targetReferences) {
-            if (byId[targetReference.id]) {
-                continue;
+            if (!uniqueTargetReferences.has(targetReference.id)) {
+                uniqueTargetReferences.set(targetReference.id, targetReference);
             }
+        }
+    }
 
-            const targetSnapshot = loadTargetSnapshot(codemodelFilePath, targetReference);
+    const targetReferences = Array.from(uniqueTargetReferences.values());
+    for (let offset = 0; offset < targetReferences.length; offset += TARGET_LOAD_BATCH_SIZE) {
+        const batch = targetReferences.slice(offset, offset + TARGET_LOAD_BATCH_SIZE);
+        const targetSnapshots = await Promise.all(
+            batch.map(targetReference => loadTargetSnapshot(codemodelFilePath, targetReference)),
+        );
+        for (const targetSnapshot of targetSnapshots) {
             byId[targetSnapshot.id] = targetSnapshot;
             byName[targetSnapshot.name] = targetSnapshot;
+        }
+        if (offset + TARGET_LOAD_BATCH_SIZE < targetReferences.length) {
+            await yieldToEventLoop();
         }
     }
 
@@ -354,61 +386,117 @@ export function getFileApiReplyDirectory(buildDirectory: string): string {
     return path.join(buildDirectory, '.cmake', 'api', 'v1', 'reply');
 }
 
-export function findLatestFileApiIndexFile(replyDirectory: string): string | null {
-    if (!fs.existsSync(replyDirectory)) {
-        return null;
+export async function findLatestFileApiIndexFile(replyDirectory: string): Promise<string | null> {
+    let entries: string[];
+    try {
+        entries = await fs.promises.readdir(replyDirectory);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return null;
+        }
+        throw error;
     }
 
-    const candidates = fs.readdirSync(replyDirectory)
+    const candidates = entries
         .filter((entry) => /^index-.*\.json$/i.test(entry))
         .sort((left, right) => left.localeCompare(right));
 
     return candidates.at(-1) ?? null;
 }
 
-export function loadFileApiRawSnapshot(buildDirectory: string): FileApiRawSnapshot | null {
-    const replyDirectory = getFileApiReplyDirectory(buildDirectory);
-    const indexFile = findLatestFileApiIndexFile(replyDirectory);
+function normalizeCacheKey(filePath: string): string {
+    const normalized = path.resolve(filePath);
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function getIndexIdentityKey(identity: FileApiIndexIdentity): string {
+    return [
+        normalizeCacheKey(identity.indexFilePath),
+        identity.mtimeMs,
+        identity.ctimeMs,
+        identity.size,
+    ].join('\0');
+}
+
+function cacheSnapshot(identityKey: string, snapshot: FileApiRawSnapshot): void {
+    snapshotCacheByIdentity.delete(identityKey);
+    snapshotCacheByIdentity.set(identityKey, snapshot);
+    while (snapshotCacheByIdentity.size > MAX_SNAPSHOT_CACHE_ENTRIES) {
+        const oldestKey = snapshotCacheByIdentity.keys().next().value;
+        if (oldestKey === undefined) {
+            break;
+        }
+        snapshotCacheByIdentity.delete(oldestKey);
+    }
+}
+
+async function getLatestIndexIdentity(replyDirectory: string): Promise<FileApiIndexIdentity | null> {
+    const indexFile = await findLatestFileApiIndexFile(replyDirectory);
     if (!indexFile) {
         return null;
     }
 
     const indexFilePath = path.join(replyDirectory, indexFile);
-    const indexStat = fs.statSync(indexFilePath);
-    const replyIndex = readJsonFile<FileApiReplyIndex>(indexFilePath);
+    try {
+        const stat = await fs.promises.stat(indexFilePath);
+        return {
+            replyDirectory,
+            indexFile,
+            indexFilePath,
+            mtimeMs: stat.mtimeMs,
+            ctimeMs: stat.ctimeMs,
+            size: stat.size,
+        };
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return null;
+        }
+        throw error;
+    }
+}
+
+async function loadSnapshotForIndex(
+    buildDirectory: string,
+    identity: FileApiIndexIdentity,
+): Promise<FileApiRawSnapshot> {
+    const replyIndex = await readJsonFile<FileApiReplyIndex>(identity.indexFilePath);
 
     const cacheReference = findObjectReference(replyIndex, 'cache', 2);
     const cmakeFilesReference = findObjectReference(replyIndex, 'cmakeFiles', 1);
     const toolchainsReference = findObjectReference(replyIndex, 'toolchains', 1);
     const codemodelReference = findObjectReference(replyIndex, 'codemodel', 2);
+    const resolveReplyObject = (jsonFile: string): string => {
+        return path.resolve(path.dirname(identity.indexFilePath), jsonFile);
+    };
 
-    const cacheObject = cacheReference?.jsonFile
-        ? tryReadJsonFile<FileApiCacheObject>(path.resolve(path.dirname(indexFilePath), cacheReference.jsonFile))
-        : null;
-    const cmakeFilesObject = cmakeFilesReference?.jsonFile
-        ? tryReadJsonFile<FileApiCMakeFilesObject>(path.resolve(path.dirname(indexFilePath), cmakeFilesReference.jsonFile))
-        : null;
-    const toolchainsObject = toolchainsReference?.jsonFile
-        ? tryReadJsonFile<FileApiToolchainsObject>(path.resolve(path.dirname(indexFilePath), toolchainsReference.jsonFile))
-        : null;
+    const [cacheObject, cmakeFilesObject, toolchainsObject, codemodelObject] = await Promise.all([
+        cacheReference?.jsonFile
+            ? tryReadJsonFile<FileApiCacheObject>(resolveReplyObject(cacheReference.jsonFile))
+            : Promise.resolve(null),
+        cmakeFilesReference?.jsonFile
+            ? tryReadJsonFile<FileApiCMakeFilesObject>(resolveReplyObject(cmakeFilesReference.jsonFile))
+            : Promise.resolve(null),
+        toolchainsReference?.jsonFile
+            ? tryReadJsonFile<FileApiToolchainsObject>(resolveReplyObject(toolchainsReference.jsonFile))
+            : Promise.resolve(null),
+        codemodelReference?.jsonFile
+            ? tryReadJsonFile<FileApiCodeModelObject>(resolveReplyObject(codemodelReference.jsonFile))
+            : Promise.resolve(null),
+    ]);
 
-    let codemodelFilePath: string | null = null;
-    let codemodelObject: FileApiCodeModelObject | null = null;
-    if (codemodelReference?.jsonFile) {
-        codemodelFilePath = path.resolve(path.dirname(indexFilePath), codemodelReference.jsonFile);
-        codemodelObject = tryReadJsonFile<FileApiCodeModelObject>(codemodelFilePath);
-    }
-
+    const codemodelFilePath = codemodelReference?.jsonFile
+        ? resolveReplyObject(codemodelReference.jsonFile)
+        : null;
     const targets = codemodelFilePath && codemodelObject
-        ? getTargets(codemodelFilePath, codemodelObject)
+        ? await getTargets(codemodelFilePath, codemodelObject)
         : { byName: {}, byId: {} };
     const sourceRoot = getCacheEntryValue(cacheObject, 'CMAKE_HOME_DIRECTORY')
         ?? getCacheEntryValue(cacheObject, 'CMAKE_SOURCE_DIR');
 
     return {
-        replyDirectory,
-        indexFile,
-        indexMtimeMs: indexStat.mtimeMs,
+        replyDirectory: identity.replyDirectory,
+        indexFile: identity.indexFile,
+        indexMtimeMs: identity.mtimeMs,
         cacheEntriesByName: getCacheEntriesByName(cacheObject),
         cmakeInputs: getCMakeInputs(cmakeFilesObject),
         globDependencies: getGlobDependencies(cmakeFilesObject),
@@ -417,4 +505,35 @@ export function loadFileApiRawSnapshot(buildDirectory: string): FileApiRawSnapsh
         targetsById: targets.byId,
         buildDirectoriesBySourcePath: getBuildDirectoriesBySourcePath(codemodelObject, sourceRoot, buildDirectory),
     };
+}
+
+export async function loadFileApiRawSnapshot(buildDirectory: string): Promise<FileApiRawSnapshot | null> {
+    const replyDirectory = getFileApiReplyDirectory(buildDirectory);
+    const identity = await getLatestIndexIdentity(replyDirectory);
+    if (!identity) {
+        return null;
+    }
+
+    const identityKey = getIndexIdentityKey(identity);
+    const cached = snapshotCacheByIdentity.get(identityKey);
+    if (cached) {
+        cacheSnapshot(identityKey, cached);
+        return cached;
+    }
+
+    let load = snapshotLoadsByIdentity.get(identityKey);
+    if (!load) {
+        load = loadSnapshotForIndex(buildDirectory, identity);
+        snapshotLoadsByIdentity.set(identityKey, load);
+    }
+
+    try {
+        const snapshot = await load;
+        cacheSnapshot(identityKey, snapshot);
+        return snapshot;
+    } finally {
+        if (snapshotLoadsByIdentity.get(identityKey) === load) {
+            snapshotLoadsByIdentity.delete(identityKey);
+        }
+    }
 }

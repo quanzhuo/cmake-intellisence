@@ -11,7 +11,7 @@ function normalizeDirectoryMapKeyForTest(filePath: string): string {
 }
 
 suite('File API Loader Tests', () => {
-    test('should load the latest reply index and referenced objects', () => {
+    test('should load the latest reply index and referenced objects', async () => {
         const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-file-api-'));
         const replyDir = getFileApiReplyDirectory(buildDir);
         fs.mkdirSync(replyDir, { recursive: true });
@@ -116,10 +116,15 @@ suite('File API Loader Tests', () => {
                 ],
             }), 'utf8');
 
-            assert.strictEqual(findLatestFileApiIndexFile(replyDir), 'index-zzz.json');
+            assert.strictEqual(await findLatestFileApiIndexFile(replyDir), 'index-zzz.json');
 
-            const snapshot = loadFileApiRawSnapshot(buildDir);
+            const [snapshot, concurrentSnapshot] = await Promise.all([
+                loadFileApiRawSnapshot(buildDir),
+                loadFileApiRawSnapshot(buildDir),
+            ]);
             assert.ok(snapshot !== null);
+            assert.strictEqual(concurrentSnapshot, snapshot);
+            assert.strictEqual(await loadFileApiRawSnapshot(buildDir), snapshot);
             assert.strictEqual(snapshot!.indexFile, 'index-zzz.json');
             assert.strictEqual(snapshot!.cacheEntriesByName.CMAKE_BUILD_TYPE.type, 'STRING');
             assert.strictEqual(snapshot!.cacheEntriesByName.CMAKE_BUILD_TYPE.help, 'Build type');
@@ -151,12 +156,33 @@ suite('File API Loader Tests', () => {
                 snapshot!.buildDirectoriesBySourcePath?.[normalizeDirectoryMapKeyForTest(path.join(buildDir, 'src'))],
                 path.join(buildDir, 'build-src'),
             );
+
+            fs.writeFileSync(path.join(replyDir, 'cache-v3.json'), JSON.stringify({
+                entries: [
+                    {
+                        name: 'CMAKE_BUILD_TYPE',
+                        value: 'Release',
+                        type: 'STRING',
+                    },
+                ],
+            }), 'utf8');
+            fs.writeFileSync(path.join(replyDir, 'index-zzzz.json'), JSON.stringify({
+                objects: [
+                    { kind: 'cache', version: { major: 2, minor: 0 }, jsonFile: 'cache-v3.json' },
+                ],
+            }), 'utf8');
+
+            const updatedSnapshot = await loadFileApiRawSnapshot(buildDir);
+            assert.ok(updatedSnapshot !== null);
+            assert.notStrictEqual(updatedSnapshot, snapshot);
+            assert.strictEqual(updatedSnapshot!.indexFile, 'index-zzzz.json');
+            assert.strictEqual(updatedSnapshot!.cacheEntriesByName.CMAKE_BUILD_TYPE.value, 'Release');
         } finally {
             fs.rmSync(buildDir, { recursive: true, force: true });
         }
     });
 
-    test('should preserve drive-less rooted source directories when building codemodel directory maps on Windows', () => {
+    test('should preserve drive-less rooted source directories when building codemodel directory maps on Windows', async () => {
         if (process.platform !== 'win32') {
             return;
         }
@@ -194,7 +220,7 @@ suite('File API Loader Tests', () => {
                 ],
             }), 'utf8');
 
-            const snapshot = loadFileApiRawSnapshot(buildDir);
+            const snapshot = await loadFileApiRawSnapshot(buildDir);
             assert.ok(snapshot !== null);
             assert.strictEqual(snapshot!.buildDirectoriesBySourcePath?.[path.normalize(sourceRoot).toLowerCase()], path.normalize(buildDir));
             assert.strictEqual(snapshot!.buildDirectoriesBySourcePath?.[path.join(sourceRoot, 'src').toLowerCase()], path.join(buildDir, 'src-build'));

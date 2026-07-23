@@ -7,7 +7,7 @@ import { extractSymbols } from './symbolExtractor';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
 import { parseCMakeText } from './utils';
 
-const BUILTIN_MODULE_CACHE_VERSION = 2;
+const BUILTIN_MODULE_CACHE_VERSION = 3;
 const BUILTIN_MODULE_YIELD_INTERVAL = 8;
 
 type SerializedSymbol = {
@@ -27,6 +27,8 @@ type SerializedFileSymbolCache = {
     policies: SerializedSymbol[];
     properties: SerializedSymbol[];
     dependencies: FileSymbolCache['dependencies'];
+    dependencyInputVariables: string[];
+    variableReferences: Array<[string, string[]]>;
 };
 
 type PersistedBuiltinModuleEntry = {
@@ -91,6 +93,11 @@ export function serializeFileSymbolCache(cache: FileSymbolCache): SerializedFile
         policies: flattenSymbols(cache.policies),
         properties: flattenSymbols(cache.properties),
         dependencies: [...cache.dependencies],
+        dependencyInputVariables: Array.from(cache.dependencyInputVariables),
+        variableReferences: Array.from(
+            cache.variableValueReferences,
+            ([variableName, references]) => [variableName, Array.from(references)],
+        ),
     };
 }
 
@@ -110,6 +117,14 @@ export function deserializeFileSymbolCache(serialized: SerializedFileSymbolCache
     restoreSymbols(serialized.properties, symbol => cache.addProperty(symbol));
     for (const dependency of serialized.dependencies) {
         cache.addDependency(dependency.uri, dependency.type, dependency.order, dependency.uncertain);
+    }
+    for (const variableName of serialized.dependencyInputVariables) {
+        cache.addDependencyInputVariable(variableName);
+    }
+    for (const [variableName, references] of serialized.variableReferences) {
+        for (const referencedVariable of references) {
+            cache.addVariableValueReference(variableName, referencedVariable);
+        }
     }
     return cache;
 }

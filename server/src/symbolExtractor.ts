@@ -2,6 +2,7 @@ import { CommonTokenStream, Token } from 'antlr4';
 import { URI } from 'vscode-uri';
 import * as builtinCmds from './builtin-cmds.json';
 import { getTargetOccurrencesInArgument, isCommandArgumentIndex } from './argumentSemantics';
+import { analyzeDependencyStructure, DependencyStructureAnalysis } from './dependencyStructure';
 import { FlatCommand } from './flatCommands';
 import { ArgumentContext } from './generated/CMakeParser';
 import CMakeLexer from './generated/CMakeLexer';
@@ -13,6 +14,7 @@ import { findVariableReferences } from './variableReferences';
 
 export interface ExtractSymbolsOptions extends SourceDependencyOptions {
     tokenStream?: CommonTokenStream;
+    dependencyStructure?: DependencyStructureAnalysis;
 }
 
 type ActiveScope = SemanticScope & { kind: SemanticScopeKind };
@@ -60,6 +62,15 @@ export async function extractSymbols(
     options?: ExtractSymbolsOptions,
 ): Promise<FileSymbolCache> {
     const cache = new FileSymbolCache(uri);
+    const dependencyStructure = options?.dependencyStructure ?? analyzeDependencyStructure(commands);
+    for (const variableName of dependencyStructure.dependencyInputVariables) {
+        cache.addDependencyInputVariable(variableName);
+    }
+    for (const [variableName, references] of dependencyStructure.variableReferences) {
+        for (const referencedVariable of references) {
+            cache.addVariableValueReference(variableName, referencedVariable);
+        }
+    }
     const pathExpressionResolver = options
         ? new PathExpressionResolver({
             symbolIndex,

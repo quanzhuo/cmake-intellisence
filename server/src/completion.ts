@@ -916,6 +916,11 @@ function getGeneratorExpressionContext(argText: string, cursorOffset: number): G
 
 export default class Completion {
     private completionParams?: CompletionParams;
+    private workspaceSymbolsUsed = false;
+
+    public get usedWorkspaceSymbols(): boolean {
+        return this.workspaceSymbolsUsed;
+    }
 
     constructor(
         private flatCommandsSource: FlatCommand[] | Map<string, FlatCommand[]>,
@@ -947,7 +952,20 @@ export default class Completion {
             return [];
         }
 
+        this.workspaceSymbolsUsed = true;
         return Array.from(this.symbolIndex.getAllWorkspaceSymbols(kind));
+    }
+
+    private getUserCommandSymbols(): string[] {
+        if (!this.symbolIndex) {
+            return [
+                ...this.getIndexedSymbols(SymbolKind.Function),
+                ...this.getIndexedSymbols(SymbolKind.Macro),
+            ];
+        }
+
+        this.workspaceSymbolsUsed = true;
+        return Array.from(this.symbolIndex.getAllUserCommandSymbols());
     }
 
     private getProjectTargetNames(): string[] {
@@ -1100,12 +1118,7 @@ export default class Completion {
         const internalCommands = this.symbolIndex
             ? Array.from(this.symbolIndex.getAllBuiltinCommands())
             : [];
-        const userCommands = this.symbolIndex
-            ? Array.from(this.symbolIndex.getAllUserCommandSymbols())
-            : Array.from(new Set<string>([
-                ...this.getIndexedSymbols(SymbolKind.Function),
-                ...this.getIndexedSymbols(SymbolKind.Macro),
-            ]));
+        const userCommands = this.getUserCommandSymbols();
         const allCommands = [
             ...internalCommands.map(value => { return { name: value, type: CompletionItemType.BuiltInCommand }; }),
             ...userCommands.map(value => { return { name: value, type: CompletionItemType.UserDefinedCommand }; }),
@@ -1179,12 +1192,7 @@ export default class Completion {
             : [];
         const commandNames = Array.from(new Set<string>([
             ...internalCommands,
-            ...(this.symbolIndex
-                ? Array.from(this.symbolIndex.getAllUserCommandSymbols())
-                : [
-                    ...this.getIndexedSymbols(SymbolKind.Function),
-                    ...this.getIndexedSymbols(SymbolKind.Macro),
-                ]),
+            ...this.getUserCommandSymbols(),
         ])).filter(name => matchesCompletionQuery(name, word));
 
         return commandNames.map(name => {

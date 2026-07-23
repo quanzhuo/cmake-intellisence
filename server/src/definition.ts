@@ -13,6 +13,11 @@ import { getFindPackageUri, getIncludeFileUri, getIncludeModuleUri } from './uti
 
 export class DefinitionResolver extends SymbolResolverBase {
     private pathExpressionResolver?: PathExpressionResolver;
+    private workspaceFallbackUsed = false;
+
+    public get usedWorkspaceFallback(): boolean {
+        return this.workspaceFallbackUsed;
+    }
 
     constructor(
         documents: SymbolResolverBase['documents'],
@@ -218,6 +223,7 @@ export class DefinitionResolver extends SymbolResolverBase {
         }
 
         const binding = bindingResolver.resolveDefinitions(occurrence);
+        this.workspaceFallbackUsed = binding.usedWorkspaceFallback;
         const results = binding.declarations.map(declaration => ({
             uri: declaration.uri,
             range: declaration.range,
