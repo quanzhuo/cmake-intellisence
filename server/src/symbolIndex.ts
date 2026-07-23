@@ -272,7 +272,10 @@ export class SymbolIndex {
     private readonly workspaceSymbolNamesCache = new Map<SymbolKind, { generation: number; value: string[] }>();
     private userCommandNamesCache?: { generation: number; value: string[] };
 
-    constructor(private readonly maxFileCaches: number = DEFAULT_MAX_FILE_CACHES) {
+    constructor(
+        private readonly maxFileCaches: number = DEFAULT_MAX_FILE_CACHES,
+        private readonly onDidChange?: (generation: number) => void,
+    ) {
     }
 
     setSystemCache(cache: FileSymbolCache): void {
@@ -314,6 +317,7 @@ export class SymbolIndex {
         this.visibleFilesCache.clear();
         this.workspaceSymbolNamesCache.clear();
         this.userCommandNamesCache = undefined;
+        this.onDidChange?.(this.generation);
     }
 
     setCache(

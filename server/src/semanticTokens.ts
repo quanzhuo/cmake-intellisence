@@ -1,17 +1,28 @@
-import { Token } from "antlr4";
-import { InitializeParams, SemanticTokens, SemanticTokensBuilder } from "vscode-languageserver";
+import { Token } from 'antlr4';
+import {
+    InitializeParams,
+    Range,
+    SemanticTokens,
+    SemanticTokensBuilder,
+    SemanticTokensDelta,
+} from 'vscode-languageserver';
 import * as builtinCmds from './builtin-cmds.json';
-import { CONDITION_BINARY_KEYWORDS, CONDITION_UNARY_KEYWORDS, getConditionExpectation } from "./completion";
-import { GENERATOR_EXPRESSION_TARGET_ROOTS, splitTopLevelGeneratorExpressionSegments } from './generatorExpressions';
-import { ArgumentContext, ElseIfCmdContext, FunctionCmdContext, IfCmdContext, MacroCmdContext, OtherCmdContext, WhileCmdContext } from "./generated/CMakeParser";
-import CMakeParserListener from "./generated/CMakeParserListener";
-import { positionAtTextOffset, tokenStartPosition } from './sourcePosition';
-import { SymbolBindingResolver } from "./symbolBinding";
-import { FileSymbolCache, SymbolIndex, SymbolKind, SymbolOccurrence } from "./symbolIndex";
+import { ArgumentSemanticKind, getArgumentSemanticKinds } from './argumentSemantics';
+import { isBracketArgumentText } from './argumentText';
+import { FlatCommand } from './flatCommands';
+import { ArgumentContext } from './generated/CMakeParser';
+import CMakeLexer from './generated/CMakeLexer';
+import { GENERATOR_EXPRESSION_TARGET_ROOTS } from './generatorExpressions';
+import { rangeForTokenOffsets } from './sourcePosition';
+import { SymbolBindingResolver } from './symbolBinding';
+import {
+    FileSymbolCache,
+    SymbolIndex,
+    SymbolKind,
+    SymbolOccurrence,
+} from './symbolIndex';
 
 const defaultTokenTypes = [
-    'namespace',
-    'type',
     'class',
     'enum',
     'parameter',
@@ -20,37 +31,25 @@ const defaultTokenTypes = [
     'function',
     'macro',
     'keyword',
-    'modifier',
-    'comment',
-    'string',
-    'number',
-    'regexp',
-    'operator',
 ];
 
 const defaultTokenModifiers = [
     'declaration',
     'definition',
-    'readonly',
-    'deprecated',
-    'documentation',
+    'modification',
 ];
 
 let tokenTypes = [...defaultTokenTypes];
 let tokenModifiers = [...defaultTokenModifiers];
 
-enum TokenModifiers {
+enum TokenModifier {
     declaration = 'declaration',
     definition = 'definition',
-    readonly = 'readonly',
-    deprecated = 'deprecated',
-    documentation = 'documentation',
-};
+    modification = 'modification',
+}
 
-enum TokenTypes {
-    namespace = 'namespace',
-    type = 'type',
-    class = 'class',
+enum TokenType {
+    target = 'class',
     enum = 'enum',
     parameter = 'parameter',
     variable = 'variable',
@@ -58,55 +57,141 @@ enum TokenTypes {
     function = 'function',
     macro = 'macro',
     keyword = 'keyword',
-    modifier = 'modifier',
-    comment = 'comment',
-    string = 'string',
-    number = 'number',
-    regexp = 'regexp',
-    operator = 'operator'
 }
 
-const tokenBuilders: Map<string, SemanticTokensBuilder> = new Map();
-
-export function createTokenBuilder(uri: string): SemanticTokensBuilder {
-    const builder = new SemanticTokensBuilder();
-    tokenBuilders.set(uri, builder);
-    return builder;
+enum TokenPriority {
+    contextualKeyword = 100,
+    contextualSymbol = 200,
+    resolvedSymbol = 300,
 }
 
-export function getTokenBuilder(uri: string): SemanticTokensBuilder {
-    let builder = tokenBuilders.get(uri);
-    if (builder !== undefined) {
-        return builder;
-    }
-    builder = new SemanticTokensBuilder();
-    tokenBuilders.set(uri, builder);
-    return builder;
+const tokenTypeRank = new Map<string, number>([
+    [TokenType.function, 80],
+    [TokenType.macro, 70],
+    [TokenType.parameter, 60],
+    [TokenType.variable, 50],
+    [TokenType.target, 40],
+    [TokenType.property, 30],
+    [TokenType.enum, 20],
+    [TokenType.keyword, 10],
+]);
+
+type BuiltinCommandDefinition = {
+    keyword?: string[];
+};
+
+const builtinCommandsByCanonicalName = new Map<string, BuiltinCommandDefinition>(
+    Object.entries(builtinCmds as Record<string, BuiltinCommandDefinition>)
+        .map(([name, definition]) => [name.toLowerCase(), definition]),
+);
+
+const textMateContextualCommands = new Set([
+    'if',
+    'elseif',
+    'while',
+    'foreach',
+    'set',
+    'unset',
+    'function',
+    'macro',
+]);
+
+const textMateBooleanLiterals = new Set([
+    'ON',
+    'YES',
+    'TRUE',
+    'Y',
+    'OFF',
+    'NO',
+    'FALSE',
+    'N',
+    'IGNORE',
+    'NOTFOUND',
+]);
+
+const firstArgumentKeywordOnlyCommands = new Set([
+    'cmake_language',
+    'cmake_path',
+    'cmake_policy',
+    'file',
+    'list',
+    'math',
+    'message',
+    'string',
+]);
+
+const generatorExpressionEnumRoots = new Set([
+    'CONFIG',
+    'PLATFORM_ID',
+    'COMPILE_FEATURES',
+    'COMPILE_LANGUAGE',
+    'LINK_LANGUAGE',
+    'C_COMPILER_ID',
+    'CXX_COMPILER_ID',
+    'CUDA_COMPILER_ID',
+    'OBJC_COMPILER_ID',
+    'OBJCXX_COMPILER_ID',
+    'Fortran_COMPILER_ID',
+    'HIP_COMPILER_ID',
+    'ISPC_COMPILER_ID',
+    'COMPILE_LANG_AND_ID',
+    'LINK_LANG_AND_ID',
+]);
+
+const generatorExpressionOperationRoots = new Set([
+    'LIST',
+    'PATH',
+    'STRING',
+]);
+
+interface TextSegment {
+    text: string;
+    startOffset: number;
+    endOffset: number;
 }
 
-export function deleteTokenBuilder(uri: string): void {
-    tokenBuilders.delete(uri);
+interface SemanticTokenCandidate {
+    line: number;
+    character: number;
+    length: number;
+    tokenType: string;
+    modifiers: Set<string>;
+    priority: TokenPriority;
+}
+
+interface ResolvedCommandKind {
+    kind: SymbolKind.Function | SymbolKind.Macro;
+    userDefined: boolean;
+}
+
+export interface SemanticTokenDescriptor {
+    line: number;
+    character: number;
+    length: number;
+    tokenType: string;
+    modifiers: readonly string[];
+}
+
+export interface SemanticHighlightInput {
+    uri: string;
+    entryUri: string;
+    symbolIndex: SymbolIndex;
+    commands: readonly FlatCommand[];
 }
 
 export function getTokenTypes(initParams: InitializeParams): string[] {
     const supportedTokenTypes = initParams.capabilities.textDocument?.semanticTokens?.tokenTypes;
-    if (!supportedTokenTypes) {
-        tokenTypes = [...defaultTokenTypes];
-        return tokenTypes;
-    }
-
-    tokenTypes = defaultTokenTypes.filter(value => supportedTokenTypes.includes(value));
+    tokenTypes = supportedTokenTypes
+        ? defaultTokenTypes.filter(value => supportedTokenTypes.includes(value))
+        : [...defaultTokenTypes];
     return tokenTypes;
 }
 
 export function getTokenModifiers(initParams: InitializeParams): string[] {
     const supportedTokenModifiers = initParams.capabilities.textDocument?.semanticTokens?.tokenModifiers;
-    if (!supportedTokenModifiers) {
-        tokenModifiers = [...defaultTokenModifiers];
-        return tokenModifiers;
-    }
-
-    tokenModifiers = defaultTokenModifiers.filter(value => supportedTokenModifiers.includes(value));
+    tokenModifiers = supportedTokenModifiers
+        ? defaultTokenModifiers.filter(value => supportedTokenModifiers.includes(value))
+        : [...defaultTokenModifiers];
     return tokenModifiers;
 }
 
@@ -121,227 +206,348 @@ export function encodeTokenModifiers(modifiers: readonly string[]): number {
     return result;
 }
 
-export class SemanticTokenListener extends CMakeParserListener {
-    private _builder: SemanticTokensBuilder;
-    private _uri: string;
-    private symbolIndex: SymbolIndex;
-    private readonly bindingResolver: SymbolBindingResolver;
-    private readonly pendingTokens = new Map<string, {
-        line: number;
-        column: number;
-        length: number;
-        tokenTypeIndex: number;
-        modifiersValue: number;
-    }>();
-    private builderPopulated = false;
+function rangeKey(range: Range): string {
+    return `${range.start.line}:${range.start.character}:${range.end.line}:${range.end.character}`;
+}
 
-    constructor(
-        uri: string,
-        symbolIndex: SymbolIndex,
-        entryUri: string,
-        builder: SemanticTokensBuilder = new SemanticTokensBuilder(),
-    ) {
-        super();
-        this._uri = uri;
-        this.symbolIndex = symbolIndex;
-        this._builder = builder;
-        this.bindingResolver = new SymbolBindingResolver(symbolIndex, entryUri, uri);
-    }
+function rangesOverlap(left: SemanticTokenCandidate, right: SemanticTokenCandidate): boolean {
+    return left.line === right.line
+        && left.character < right.character + right.length
+        && right.character < left.character + left.length;
+}
 
-    private pushTextToken(argCtx: ArgumentContext, text: string, fromOffset: number, tokenType: string): void {
-        const argumentText = argCtx.getText();
-        const textOffset = argumentText.indexOf(text, fromOffset);
-        if (textOffset === -1) {
-            return;
-        }
-
-        const position = positionAtTextOffset(tokenStartPosition(argCtx.start), argumentText, textOffset);
-
-        this.pushToken(
-            position.line,
-            position.character,
-            text.length,
-            tokenType,
-            []
-        );
-    }
-
-    private pushTrimmedSegmentToken(argCtx: ArgumentContext, segment: string, fromOffset: number, tokenType: string): number {
-        const trimmed = segment.trim();
-        if (trimmed.length === 0) {
-            return fromOffset + segment.length + 1;
-        }
-
-        const argumentText = argCtx.getText();
-        const textOffset = argumentText.indexOf(trimmed, fromOffset);
-        if (textOffset === -1) {
-            return fromOffset + segment.length + 1;
-        }
-
-        const position = positionAtTextOffset(tokenStartPosition(argCtx.start), argumentText, textOffset);
-
-        this.pushToken(
-            position.line,
-            position.character,
-            trimmed.length,
-            tokenType,
-            []
-        );
-        return textOffset + trimmed.length + 1;
-    }
-
-    private tokenGeneratorExpressionArguments(argCtx: ArgumentContext, root: string, args: string[], argsOffset: number): void {
-        let searchOffset = argsOffset;
-        if (root === 'STRING' || root === 'LIST' || root === 'PATH') {
-            for (const arg of args) {
-                const trimmed = arg.trim();
-                if (/^[A-Z][A-Z0-9_]*(?::[A-Z0-9_]+)?$/.test(trimmed)) {
-                    searchOffset = this.pushTrimmedSegmentToken(argCtx, arg, searchOffset, TokenTypes.keyword);
-                } else {
-                    searchOffset += arg.length + 1;
-                }
-            }
-            return;
-        }
-
-        if (root === 'CONFIG' || root === 'COMPILE_LANGUAGE' || root === 'LINK_LANGUAGE' || root === 'C_COMPILER_ID' || root === 'CXX_COMPILER_ID') {
-            for (const arg of args) {
-                searchOffset = this.pushTrimmedSegmentToken(argCtx, arg, searchOffset, TokenTypes.enum);
-            }
-            return;
-        }
-
-        if (root === 'TARGET_PROPERTY') {
-            if (args.length === 1) {
-                this.pushTrimmedSegmentToken(argCtx, args[0], searchOffset, TokenTypes.property);
-                return;
-            }
-
-            searchOffset = this.pushTrimmedSegmentToken(argCtx, args[0], searchOffset, TokenTypes.string);
-            this.pushTrimmedSegmentToken(argCtx, args[1], searchOffset, TokenTypes.property);
-            return;
-        }
-
-        if (GENERATOR_EXPRESSION_TARGET_ROOTS.has(root) && args.length > 0) {
-            this.pushTrimmedSegmentToken(argCtx, args[0], searchOffset, TokenTypes.string);
+function splitTopLevelSegments(text: string, separator: ','): TextSegment[] {
+    const segments: TextSegment[] = [];
+    let startOffset = 0;
+    let depth = 0;
+    for (let offset = 0; offset < text.length; offset++) {
+        if (text[offset] === '$' && text[offset + 1] === '<') {
+            depth++;
+            offset++;
+        } else if (text[offset] === '>' && depth > 0) {
+            depth--;
+        } else if (text[offset] === separator && depth === 0) {
+            segments.push({
+                text: text.slice(startOffset, offset),
+                startOffset,
+                endOffset: offset,
+            });
+            startOffset = offset + 1;
         }
     }
+    segments.push({
+        text: text.slice(startOffset),
+        startOffset,
+        endOffset: text.length,
+    });
+    return segments;
+}
 
-    private tokenGeneratorExpression(argCtx: ArgumentContext, content: string, baseOffset: number): void {
-        const colonSegments = splitTopLevelGeneratorExpressionSegments(content, ':');
-        if (colonSegments.length === 0) {
-            return;
-        }
-
-        const root = colonSegments[0].trim();
-        if (!/^[A-Z][A-Z0-9_]*$/.test(root)) {
-            return;
-        }
-
-        this.pushTextToken(argCtx, root, baseOffset, TokenTypes.function);
-
-        if (colonSegments.length === 1) {
-            return;
-        }
-
-        const argumentText = colonSegments.slice(1).join(':');
-        const args = splitTopLevelGeneratorExpressionSegments(argumentText, ',');
-        this.tokenGeneratorExpressionArguments(argCtx, root, args, baseOffset + root.length + 1);
-    }
-
-    private tokenGeneratorExpressions(argCtx: ArgumentContext): void {
-        const text = argCtx.getText();
-        const stack: number[] = [];
-
-        for (let index = 0; index < text.length; index++) {
-            if (text[index] === '$' && text[index + 1] === '<') {
-                stack.push(index);
-                index++;
-                continue;
-            }
-
-            if (text[index] === '>' && stack.length > 0) {
-                const start = stack.pop()!;
-                const content = text.slice(start + 2, index);
-                this.tokenGeneratorExpression(argCtx, content, start + 2);
-            }
+function findTopLevelColon(text: string): number {
+    let depth = 0;
+    for (let offset = 0; offset < text.length; offset++) {
+        if (text[offset] === '$' && text[offset + 1] === '<') {
+            depth++;
+            offset++;
+        } else if (text[offset] === '>' && depth > 0) {
+            depth--;
+        } else if (text[offset] === ':' && depth === 0) {
+            return offset;
         }
     }
+    return -1;
+}
 
-    private getModifiers(modifiers: TokenModifiers[]): number {
-        return encodeTokenModifiers(modifiers);
-    }
-
-    private pushToken(line: number, column: number, length: number, tokenType: string, modifiers: TokenModifiers[]): void {
-        const tokenTypeIndex = tokenTypes.indexOf(tokenType);
-        if (tokenTypeIndex === -1) {
-            return;
-        }
-
-        const modifiersValue = this.getModifiers(modifiers);
-        const key = `${line}:${column}:${length}`;
-        if (this.pendingTokens.has(key)) {
-            return;
-        }
-
-        this.pendingTokens.set(key, { line, column, length, tokenTypeIndex, modifiersValue });
-    }
-
-    private getCommandKind(cache: FileSymbolCache, occurrence: SymbolOccurrence): SymbolKind.Function | SymbolKind.Macro | undefined {
-        const localSymbol = cache.commands.get(occurrence.canonicalName)?.find(symbol =>
-            symbol.line === occurrence.range.start.line
-            && symbol.column === occurrence.range.start.character
-            && (symbol.kind === SymbolKind.Function || symbol.kind === SymbolKind.Macro)
-        );
-        if (localSymbol?.kind === SymbolKind.Function || localSymbol?.kind === SymbolKind.Macro) {
-            return localSymbol.kind;
-        }
-
-        for (const declaration of this.bindingResolver.resolveDefinitions(occurrence, false).declarations) {
-            const declarationCache = this.symbolIndex.getCache(declaration.uri);
-            const symbol = declarationCache?.commands.get(declaration.canonicalName)?.find(candidate =>
-                candidate.line === declaration.range.start.line
-                && candidate.column === declaration.range.start.character
-            );
-            if (symbol?.kind === SymbolKind.Function || symbol?.kind === SymbolKind.Macro) {
-                return symbol.kind;
-            }
-        }
+function trimSegment(segment: TextSegment, baseOffset: number): TextSegment | undefined {
+    const leadingWhitespace = segment.text.length - segment.text.trimStart().length;
+    const trailingWhitespace = segment.text.length - segment.text.trimEnd().length;
+    const startOffset = baseOffset + segment.startOffset + leadingWhitespace;
+    const endOffset = baseOffset + segment.endOffset - trailingWhitespace;
+    if (endOffset <= startOffset) {
         return undefined;
     }
+    return {
+        text: segment.text.slice(leadingWhitespace, segment.text.length - trailingWhitespace),
+        startOffset,
+        endOffset,
+    };
+}
 
-    private addIndexedSymbolTokens(): void {
-        const cache = this.symbolIndex.getCache(this._uri);
+function getArgumentLeafTokens(argument: ArgumentContext): Token[] {
+    const nestedArguments = argument.argument_list();
+    if (nestedArguments.length === 0) {
+        return argument.start ? [argument.start] : [];
+    }
+    return nestedArguments.flatMap(getArgumentLeafTokens);
+}
+
+function literalTokenOffsets(token: Token): { startOffset: number; endOffset: number } | undefined {
+    if (token.type === CMakeLexer.BracketArgument || isBracketArgumentText(token.text) || !token.text) {
+        return undefined;
+    }
+    if (token.type === CMakeLexer.QuotedArgument) {
+        return token.text.length >= 2
+            ? { startOffset: 1, endOffset: token.text.length - 1 }
+            : undefined;
+    }
+    return { startOffset: 0, endOffset: token.text.length };
+}
+
+class SemanticTokenCollector {
+    private readonly candidates = new Map<string, SemanticTokenCandidate>();
+    private readonly bindingResolver: SymbolBindingResolver;
+    private readonly parameterSymbolIds = new Set<string>();
+    private readonly parameterNames = new Set<string>();
+    private readonly resolvableCommandNames: Set<string>;
+    private readonly resolvedUserCommandRanges = new Set<string>();
+
+    constructor(private readonly input: SemanticHighlightInput) {
+        this.bindingResolver = new SymbolBindingResolver(input.symbolIndex, input.entryUri, input.uri);
+        this.resolvableCommandNames = new Set(
+            Array.from(input.symbolIndex.getAllUserCommandSymbols(), name => name.toLowerCase()),
+        );
+        for (const command of input.symbolIndex.getAllBuiltinCommands()) {
+            if (!input.symbolIndex.hasCoreBuiltinCommand(command)) {
+                this.resolvableCommandNames.add(command.toLowerCase());
+            }
+        }
+    }
+
+    collect(): SemanticTokenDescriptor[] {
+        this.collectParameterSymbolIds();
+        this.addIndexedSymbols();
+        for (const command of this.input.commands) {
+            this.addContextualBuiltinKeywords(command);
+            this.addContextualProperties(command);
+            this.addGeneratorExpressionOperands(command);
+        }
+        return this.finalize();
+    }
+
+    private addRange(
+        range: Range,
+        tokenType: TokenType,
+        modifiers: readonly TokenModifier[],
+        priority: TokenPriority,
+    ): void {
+        if (!tokenTypes.includes(tokenType)
+            || range.start.line !== range.end.line
+            || range.end.character <= range.start.character) {
+            return;
+        }
+
+        const key = rangeKey(range);
+        const candidate: SemanticTokenCandidate = {
+            line: range.start.line,
+            character: range.start.character,
+            length: range.end.character - range.start.character,
+            tokenType,
+            modifiers: new Set(modifiers),
+            priority,
+        };
+        const existing = this.candidates.get(key);
+        if (!existing) {
+            this.candidates.set(key, candidate);
+            return;
+        }
+        if (existing.tokenType === candidate.tokenType) {
+            for (const modifier of candidate.modifiers) {
+                existing.modifiers.add(modifier);
+            }
+            existing.priority = Math.max(existing.priority, candidate.priority);
+            return;
+        }
+
+        const existingRank = tokenTypeRank.get(existing.tokenType) ?? 0;
+        const candidateRank = tokenTypeRank.get(candidate.tokenType) ?? 0;
+        if (candidate.priority > existing.priority
+            || (candidate.priority === existing.priority && candidateRank > existingRank)) {
+            this.candidates.set(key, candidate);
+        }
+    }
+
+    private addTokenOffsets(
+        token: Token,
+        startOffset: number,
+        endOffset: number,
+        tokenType: TokenType,
+        priority: TokenPriority,
+    ): void {
+        if (startOffset < 0 || endOffset > token.text.length || endOffset <= startOffset) {
+            return;
+        }
+        this.addRange(
+            rangeForTokenOffsets(token, startOffset, endOffset),
+            tokenType,
+            [],
+            priority,
+        );
+    }
+
+    private addPlainSegment(
+        token: Token,
+        segment: TextSegment | undefined,
+        tokenType: TokenType,
+        priority: TokenPriority,
+        pattern?: RegExp,
+    ): void {
+        if (!segment
+            || segment.text.includes('$<')
+            || segment.text.includes('${')
+            || segment.text.includes('\n')
+            || segment.text.includes('\r')
+            || (pattern && !pattern.test(segment.text))) {
+            return;
+        }
+        this.addTokenOffsets(token, segment.startOffset, segment.endOffset, tokenType, priority);
+    }
+
+    private collectParameterSymbolIds(): void {
+        const cache = this.input.symbolIndex.getCache(this.input.uri);
+        if (!cache) {
+            return;
+        }
+
+        const parameterRanges = new Set<string>();
+        for (const command of this.input.commands) {
+            const commandName = command.commandName.toLowerCase();
+            if (commandName !== 'function' && commandName !== 'macro') {
+                continue;
+            }
+            for (const argument of command.argument_list().slice(1)) {
+                const token = argument.start;
+                const offsets = token ? literalTokenOffsets(token) : undefined;
+                if (token && offsets && argument.getText() === token.text) {
+                    parameterRanges.add(rangeKey(rangeForTokenOffsets(token, offsets.startOffset, offsets.endOffset)));
+                }
+            }
+        }
+
+        for (const occurrence of cache.occurrences) {
+            if (occurrence.namespace === 'variable'
+                && occurrence.role === 'declaration'
+                && occurrence.symbolId
+                && parameterRanges.has(rangeKey(occurrence.range))) {
+                this.parameterSymbolIds.add(occurrence.symbolId);
+                this.parameterNames.add(occurrence.canonicalName);
+            }
+        }
+    }
+
+    private symbolKindForDeclaration(declaration: SymbolOccurrence): SymbolKind.Function | SymbolKind.Macro | undefined {
+        const cache = this.input.symbolIndex.getCache(declaration.uri);
+        const symbols = cache?.commands.get(declaration.canonicalName) ?? [];
+        const symbol = symbols.find(candidate =>
+            candidate.id === declaration.symbolId
+            || (candidate.line === declaration.range.start.line
+                && candidate.column === declaration.range.start.character),
+        );
+        return symbol?.kind === SymbolKind.Function || symbol?.kind === SymbolKind.Macro
+            ? symbol.kind
+            : undefined;
+    }
+
+    private commandKind(
+        cache: FileSymbolCache,
+        occurrence: SymbolOccurrence,
+    ): ResolvedCommandKind | undefined {
+        const localSymbol = cache.commands.get(occurrence.canonicalName)?.find(symbol =>
+            symbol.id === occurrence.symbolId
+            || (symbol.line === occurrence.range.start.line
+                && symbol.column === occurrence.range.start.character),
+        );
+        if (localSymbol?.kind === SymbolKind.Function || localSymbol?.kind === SymbolKind.Macro) {
+            return {
+                kind: localSymbol.kind,
+                userDefined: !this.input.symbolIndex.isBuiltinModuleUri(occurrence.uri),
+            };
+        }
+        if (!this.resolvableCommandNames.has(occurrence.canonicalName)) {
+            return undefined;
+        }
+
+        const declarations = this.bindingResolver.resolveDefinitions(occurrence, false).declarations;
+        const kinds = new Set(
+            declarations
+                .map(declaration => this.symbolKindForDeclaration(declaration))
+                .filter((kind): kind is SymbolKind.Function | SymbolKind.Macro => kind !== undefined),
+        );
+        if (kinds.size !== 1) {
+            return undefined;
+        }
+        return {
+            kind: kinds.values().next().value,
+            userDefined: declarations.some(declaration =>
+                !this.input.symbolIndex.isBuiltinModuleUri(declaration.uri)),
+        };
+    }
+
+    private variableTokenType(occurrence: SymbolOccurrence): TokenType {
+        if (occurrence.symbolId && this.parameterSymbolIds.has(occurrence.symbolId)) {
+            return TokenType.parameter;
+        }
+        if (!this.parameterNames.has(occurrence.canonicalName)) {
+            return TokenType.variable;
+        }
+        const binding = this.bindingResolver.resolveDefinitions(occurrence, false);
+        return binding.symbolIds.length > 0
+            && binding.symbolIds.every(symbolId => this.parameterSymbolIds.has(symbolId))
+            ? TokenType.parameter
+            : TokenType.variable;
+    }
+
+    private modifiersForOccurrence(
+        occurrence: SymbolOccurrence,
+        isDefinition: boolean,
+    ): TokenModifier[] {
+        if (occurrence.role === 'declaration') {
+            return isDefinition
+                ? [TokenModifier.declaration, TokenModifier.definition]
+                : [TokenModifier.declaration];
+        }
+        return occurrence.role === 'write' ? [TokenModifier.modification] : [];
+    }
+
+    private addIndexedSymbols(): void {
+        const cache = this.input.symbolIndex.getCache(this.input.uri);
         if (!cache) {
             return;
         }
 
         for (const occurrence of cache.occurrences) {
-            const { start, end } = occurrence.range;
-            if (start.line !== end.line || end.character <= start.character) {
-                continue;
-            }
-            const modifiers = occurrence.role === 'declaration'
-                ? [TokenModifiers.declaration, TokenModifiers.definition]
-                : [];
             switch (occurrence.namespace) {
                 case 'variable':
                 case 'cache-variable':
                 case 'environment-variable':
-                    this.pushToken(start.line, start.character, end.character - start.character, TokenTypes.variable, modifiers);
+                    if (occurrence.name.includes('$<')) {
+                        break;
+                    }
+                    this.addRange(
+                        occurrence.range,
+                        this.variableTokenType(occurrence),
+                        this.modifiersForOccurrence(occurrence, false),
+                        TokenPriority.resolvedSymbol,
+                    );
                     break;
                 case 'target':
-                    this.pushToken(start.line, start.character, end.character - start.character, TokenTypes.string, modifiers);
+                    this.addRange(
+                        occurrence.range,
+                        TokenType.target,
+                        this.modifiersForOccurrence(occurrence, true),
+                        TokenPriority.resolvedSymbol,
+                    );
                     break;
                 case 'command': {
-                    const kind = this.getCommandKind(cache, occurrence);
-                    if (kind !== undefined) {
-                        this.pushToken(
-                            start.line,
-                            start.character,
-                            end.character - start.character,
-                            kind === SymbolKind.Macro ? TokenTypes.macro : TokenTypes.function,
-                            modifiers,
+                    const resolved = this.commandKind(cache, occurrence);
+                    if (resolved !== undefined) {
+                        if (resolved.userDefined) {
+                            this.resolvedUserCommandRanges.add(rangeKey(occurrence.range));
+                        }
+                        this.addRange(
+                            occurrence.range,
+                            resolved.kind === SymbolKind.Macro ? TokenType.macro : TokenType.function,
+                            this.modifiersForOccurrence(occurrence, true),
+                            TokenPriority.resolvedSymbol,
                         );
                     }
                     break;
@@ -350,118 +556,259 @@ export class SemanticTokenListener extends CMakeParserListener {
         }
     }
 
-    private populateBuilder(): void {
-        if (this.builderPopulated) {
+    private addContextualBuiltinKeywords(command: FlatCommand): void {
+        const commandName = command.commandName.toLowerCase();
+        if (textMateContextualCommands.has(commandName) || this.isResolvedUserCommand(command)) {
             return;
         }
-        this.addIndexedSymbolTokens();
-        const orderedTokens = Array.from(this.pendingTokens.values()).sort((left, right) =>
-            left.line - right.line
-            || left.column - right.column
-            || left.length - right.length
-        );
-        for (const token of orderedTokens) {
-            this._builder.push(
-                token.line,
-                token.column,
-                token.length,
-                token.tokenTypeIndex,
-                token.modifiersValue,
+        const definition = builtinCommandsByCanonicalName.get(commandName);
+        if (!definition?.keyword?.length) {
+            return;
+        }
+
+        const keywords = new Set(definition.keyword);
+        for (const [argumentIndex, argument] of command.argument_list().entries()) {
+            const token = argument.start;
+            if (!token
+                || argument.getText() !== token.text
+                || token.type === CMakeLexer.QuotedArgument
+                || token.type === CMakeLexer.BracketArgument
+                || isBracketArgumentText(token.text)
+                || textMateBooleanLiterals.has(token.text.toUpperCase())
+                || !keywords.has(token.text)) {
+                continue;
+            }
+            if (firstArgumentKeywordOnlyCommands.has(commandName) && argumentIndex !== 0) {
+                continue;
+            }
+            this.addTokenOffsets(
+                token,
+                0,
+                token.text.length,
+                TokenType.keyword,
+                TokenPriority.contextualKeyword,
             );
         }
-        this.builderPopulated = true;
     }
 
-    public buildEdits() {
-        this.populateBuilder();
-        return this._builder.buildEdits();
-    }
-
-    private tokenInConditional(context: IfCmdContext | ElseIfCmdContext | WhileCmdContext): void {
-        const args = context.argument_list().map(arg => arg.getText());
-        context.argument_list().forEach((argCtx: ArgumentContext, index: number) => {
-            const argToken: Token = argCtx.start;
-            const text = argToken.text;
-            const normalized = text.toUpperCase();
-            const expectation = getConditionExpectation(args, index);
-
-            if ((expectation === 'operand' && normalized === 'NOT') || (expectation === 'operator' && (normalized === 'AND' || normalized === 'OR'))) {
-                this.pushToken(argToken.line - 1, argToken.column, argToken.text.length, TokenTypes.operator, []);
-            } else if (expectation === 'operator' && CONDITION_BINARY_KEYWORDS.includes(normalized)) {
-                this.pushToken(argToken.line - 1, argToken.column, argToken.text.length, TokenTypes.operator, []);
-            } else if (expectation === 'operand' && CONDITION_UNARY_KEYWORDS.includes(normalized)) {
-                this.pushToken(argToken.line - 1, argToken.column, argToken.text.length, TokenTypes.keyword, []);
+    private addContextualProperties(command: FlatCommand): void {
+        if (this.isResolvedUserCommand(command)) {
+            return;
+        }
+        for (const [argumentIndex, argument] of command.argument_list().entries()) {
+            if (!getArgumentSemanticKinds(command, argumentIndex).has(ArgumentSemanticKind.Property)) {
+                continue;
             }
-        });
-    }
-
-    private tokenInFunctionOrMacro(ctx: FunctionCmdContext | MacroCmdContext): void {
-        const argCount = ctx.argument_list().length;
-        if (argCount > 1) {
-            ctx.argument_list().slice(1).forEach(argCtx => {
-                if (argCtx.getChildCount() === 1) {
-                    const argToken: Token = argCtx.start;
-                    this.pushToken(
-                        argToken.line - 1,
-                        argToken.column,
-                        argToken.text.length,
-                        TokenTypes.parameter,
-                        []
-                    );
-                }
-            });
+            const token = argument.start;
+            const offsets = token ? literalTokenOffsets(token) : undefined;
+            if (!token
+                || !offsets
+                || argument.getText() !== token.text
+                || token.text.includes('${')
+                || token.text.includes('$<')) {
+                continue;
+            }
+            this.addTokenOffsets(
+                token,
+                offsets.startOffset,
+                offsets.endOffset,
+                TokenType.property,
+                TokenPriority.contextualSymbol,
+            );
         }
     }
 
-    enterIfCmd = (ctx: IfCmdContext): void => {
-        this.tokenInConditional(ctx);
-    };
-
-    enterElseIfCmd = (ctx: ElseIfCmdContext): void => {
-        this.tokenInConditional(ctx);
-    };
-
-    enterWhileCmd = (ctx: WhileCmdContext): void => {
-        this.tokenInConditional(ctx);
-    };
-
-    enterArgument = (ctx: ArgumentContext): void => {
-        this.tokenGeneratorExpressions(ctx);
-    };
-
-    enterFunctionCmd = (ctx: FunctionCmdContext): void => {
-        this.tokenInFunctionOrMacro(ctx);
-    };
-
-    enterMacroCmd = (ctx: MacroCmdContext): void => {
-        this.tokenInFunctionOrMacro(ctx);
-    };
-
-    enterOtherCmd = (ctx: OtherCmdContext): void => {
-        const commandToken: Token = ctx.ID().symbol;
-        const cmdNameLower: string = commandToken.text.toLowerCase();
-
-        if (cmdNameLower in builtinCmds) {
-            const keywords = (builtinCmds as Record<string, { keyword?: string[] }>)[cmdNameLower].keyword ?? [];
-            const args: ArgumentContext[] = ctx.argument_list();
-            args.forEach(argCtx => {
-                const text = argCtx.getText();
-                const argToken: Token = argCtx.start;
-                if (keywords.includes(text)) {
-                    this.pushToken(
-                        argToken.line - 1,
-                        argToken.column,
-                        argToken.text.length,
-                        TokenTypes.type,
-                        []
-                    );
+    private addGeneratorExpressionOperands(command: FlatCommand): void {
+        const seenTokenIndexes = new Set<number>();
+        for (const argument of command.argument_list()) {
+            if (argument.start
+                && (argument.start.type === CMakeLexer.BracketArgument
+                    || isBracketArgumentText(argument.getText()))) {
+                continue;
+            }
+            for (const token of getArgumentLeafTokens(argument)) {
+                if (seenTokenIndexes.has(token.tokenIndex)
+                    || token.type === CMakeLexer.BracketArgument
+                    || isBracketArgumentText(token.text)) {
+                    continue;
                 }
-            });
+                seenTokenIndexes.add(token.tokenIndex);
+                this.scanGeneratorExpressions(token);
+            }
         }
-    };
+    }
 
-    public getSemanticTokens(): SemanticTokens {
-        this.populateBuilder();
-        return this._builder.build();
+    private isResolvedUserCommand(command: FlatCommand): boolean {
+        const token = command.ID().symbol;
+        return this.resolvedUserCommandRanges.has(
+            rangeKey(rangeForTokenOffsets(token, 0, token.text.length)),
+        );
+    }
+
+    private scanGeneratorExpressions(token: Token): void {
+        const stack: number[] = [];
+        for (let offset = 0; offset < token.text.length; offset++) {
+            if (token.text[offset] === '$' && token.text[offset + 1] === '<') {
+                stack.push(offset);
+                offset++;
+            } else if (token.text[offset] === '>' && stack.length > 0) {
+                const startOffset = stack.pop()!;
+                this.addGeneratorExpression(token, startOffset + 2, offset);
+            }
+        }
+    }
+
+    private addGeneratorExpression(token: Token, contentStart: number, contentEnd: number): void {
+        const content = token.text.slice(contentStart, contentEnd);
+        const colonOffset = findTopLevelColon(content);
+        if (colonOffset === -1) {
+            return;
+        }
+        const root = content.slice(0, colonOffset).trim();
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(root)) {
+            return;
+        }
+
+        const argumentText = content.slice(colonOffset + 1);
+        const argumentBaseOffset = contentStart + colonOffset + 1;
+        const arguments_ = splitTopLevelSegments(argumentText, ',')
+            .map(segment => trimSegment(segment, argumentBaseOffset));
+
+        if (generatorExpressionOperationRoots.has(root)) {
+            this.addPlainSegment(
+                token,
+                arguments_[0],
+                TokenType.keyword,
+                TokenPriority.contextualKeyword,
+                /^[A-Z][A-Z0-9_]*$/,
+            );
+            return;
+        }
+        if (generatorExpressionEnumRoots.has(root)) {
+            for (const argument of arguments_) {
+                this.addPlainSegment(
+                    token,
+                    argument,
+                    TokenType.enum,
+                    TokenPriority.contextualSymbol,
+                    /^[A-Za-z0-9_.+-]+$/,
+                );
+            }
+            return;
+        }
+        if (root === 'TARGET_PROPERTY') {
+            if (arguments_.length === 1) {
+                this.addPlainSegment(token, arguments_[0], TokenType.property, TokenPriority.contextualSymbol);
+            } else {
+                this.addPlainSegment(token, arguments_[0], TokenType.target, TokenPriority.contextualSymbol);
+                this.addPlainSegment(token, arguments_[1], TokenType.property, TokenPriority.contextualSymbol);
+            }
+            return;
+        }
+        if (root === 'TARGET_GENEX_EVAL') {
+            this.addPlainSegment(token, arguments_[0], TokenType.target, TokenPriority.contextualSymbol);
+            return;
+        }
+        if (GENERATOR_EXPRESSION_TARGET_ROOTS.has(root)) {
+            this.addPlainSegment(token, arguments_[0], TokenType.target, TokenPriority.contextualSymbol);
+        }
+    }
+
+    private finalize(): SemanticTokenDescriptor[] {
+        const orderedByPriority = Array.from(this.candidates.values()).sort((left, right) =>
+            right.priority - left.priority
+            || (tokenTypeRank.get(right.tokenType) ?? 0) - (tokenTypeRank.get(left.tokenType) ?? 0)
+            || left.length - right.length
+            || left.line - right.line
+            || left.character - right.character,
+        );
+        const accepted: SemanticTokenCandidate[] = [];
+        for (const candidate of orderedByPriority) {
+            if (!accepted.some(existing => rangesOverlap(existing, candidate))) {
+                accepted.push(candidate);
+            }
+        }
+        return accepted
+            .sort((left, right) =>
+                left.line - right.line
+                || left.character - right.character
+                || left.length - right.length,
+            )
+            .map(candidate => ({
+                line: candidate.line,
+                character: candidate.character,
+                length: candidate.length,
+                tokenType: candidate.tokenType,
+                modifiers: Array.from(candidate.modifiers).sort(),
+            }));
+    }
+}
+
+export function collectSemanticTokens(input: SemanticHighlightInput): SemanticTokenDescriptor[] {
+    return new SemanticTokenCollector(input).collect();
+}
+
+function appendTokens(builder: SemanticTokensBuilder, tokens: readonly SemanticTokenDescriptor[]): void {
+    for (const token of tokens) {
+        const tokenTypeIndex = tokenTypes.indexOf(token.tokenType);
+        if (tokenTypeIndex !== -1) {
+            builder.push(
+                token.line,
+                token.character,
+                token.length,
+                tokenTypeIndex,
+                encodeTokenModifiers(token.modifiers),
+            );
+        }
+    }
+}
+
+export class SemanticTokensService {
+    private readonly builders = new Map<string, SemanticTokensBuilder>();
+    private readonly analyses = new Map<string, {
+        key: string;
+        tokens: SemanticTokenDescriptor[];
+    }>();
+
+    analyze(uri: string, key: string, input: SemanticHighlightInput): readonly SemanticTokenDescriptor[] {
+        const cached = this.analyses.get(uri);
+        if (cached?.key === key) {
+            return cached.tokens;
+        }
+        const tokens = collectSemanticTokens(input);
+        this.analyses.set(uri, { key, tokens });
+        return tokens;
+    }
+
+    buildFull(uri: string, tokens: readonly SemanticTokenDescriptor[]): SemanticTokens {
+        const builder = new SemanticTokensBuilder();
+        appendTokens(builder, tokens);
+        const result = builder.build();
+        this.builders.set(uri, builder);
+        return result;
+    }
+
+    buildDelta(
+        uri: string,
+        previousResultId: string,
+        tokens: readonly SemanticTokenDescriptor[],
+    ): SemanticTokens | SemanticTokensDelta {
+        const builder = this.builders.get(uri);
+        if (!builder) {
+            return this.buildFull(uri, tokens);
+        }
+        builder.previousResult(previousResultId);
+        appendTokens(builder, tokens);
+        return builder.buildEdits();
+    }
+
+    delete(uri: string): void {
+        this.builders.delete(uri);
+        this.analyses.delete(uri);
+    }
+
+    clear(): void {
+        this.builders.clear();
+        this.analyses.clear();
     }
 }

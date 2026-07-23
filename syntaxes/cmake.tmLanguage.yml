@@ -1,89 +1,275 @@
 fileTypes:
   - cmake
   - CMakeLists.txt
+name: CMake
 scopeName: source.cmake
-# a dictionary (i.e. key/value pairs) of rules which can be included from other
-# places in the grammar. The key is the name of the rule and the value is the actual rule.
-repository:
-  variable-reference:
-    name: storage.other.cmake
-    begin: \$(ENV|CACHE)?{
-    beginCaptures:
-      "0": { name: punctuation.definition.variable-ref.start.cmake }
-    end: "}"
-    endCaptures:
-      "0": { name: punctuation.definition.variable-ref.end.cmake }
-    patterns:
-      - include: "#variable-reference"
-  generator-expression:
-    name: storage.other.cmake
-    begin: \$\<
-    beginCaptures:
-      "0": { name: punctuation.definition.generator-exp.start.cmake }
-    end: \>
-    endCaptures:
-      "0": { name: punctuation.definition.generator-exp.end.cmake }
-    patterns:
-      - include: "#generator-expression"
+
 patterns:
-  # bracket comment
-  - name: comment.block.bracket.cmake
+  - include: "#bracket-comment"
+  - include: "#line-comment"
+  - include: "#bracket-argument"
+  - include: "#quoted-string"
+  - include: "#generator-expression"
+  - include: "#variable-reference"
+  - include: "#environment-variable-reference"
+  - include: "#cache-variable-reference"
+  - include: "#escape"
+  - include: "#scoped-condition-command"
+  - include: "#scoped-foreach-command"
+  - include: "#scoped-command-definition"
+  - include: "#scoped-set-command"
+  - include: "#command-control"
+  - include: "#conditional-control"
+  - include: "#loop-control"
+  - include: "#block-control"
+  - include: "#return-control"
+  - include: "#builtin-command"
+  - include: "#command-invocation"
+  - include: "#boolean"
+  - include: "#number"
+  - include: "#unquoted-argument"
+
+repository:
+  bracket-comment:
+    name: comment.block.bracket.cmake
     begin: '#\[(=*)\['
-    end: \]\1\]
-  # line comment
-  - name: comment.line.number-sign.cmake
-    match: "#(.*$)"
-  # escaped string
-  - name: string.escaped.quoted.double.cmake
-    begin: '\\"'
-    end: '\\"'
-  # string
-  - name: string.quoted.double.cmake
+    beginCaptures:
+      "0": { name: punctuation.definition.comment.begin.cmake }
+    end: '\]\1\]'
+    endCaptures:
+      "0": { name: punctuation.definition.comment.end.cmake }
+
+  line-comment:
+    name: comment.line.number-sign.cmake
+    match: '#.*$'
+
+  bracket-argument:
+    name: string.quoted.other.cmake
+    begin: '\[(=*)\['
+    beginCaptures:
+      "0": { name: punctuation.definition.string.begin.cmake }
+    end: '\]\1\]'
+    endCaptures:
+      "0": { name: punctuation.definition.string.end.cmake }
+
+  escape:
+    name: constant.character.escape.cmake
+    match: '\\(.|$)'
+
+  quoted-string:
+    name: string.quoted.double.cmake
     begin: '"'
+    beginCaptures:
+      "0": { name: punctuation.definition.string.begin.cmake }
     end: '"'
+    endCaptures:
+      "0": { name: punctuation.definition.string.end.cmake }
+    patterns:
+      - include: "#escape"
+      - include: "#generator-expression"
+      - include: "#variable-reference"
+      - include: "#environment-variable-reference"
+      - include: "#cache-variable-reference"
+
+  variable-reference:
+    name: variable.other.cmake
+    begin: '\$\{'
+    beginCaptures:
+      "0": { name: punctuation.section.variable.begin.cmake }
+    end: '\}'
+    endCaptures:
+      "0": { name: punctuation.section.variable.end.cmake }
     patterns:
       - include: "#variable-reference"
+      - include: "#environment-variable-reference"
+      - include: "#cache-variable-reference"
+
+  environment-variable-reference:
+    name: variable.other.environment.cmake
+    begin: '\$ENV\{'
+    beginCaptures:
+      "0": { name: punctuation.section.variable.begin.cmake }
+    end: '\}'
+    endCaptures:
+      "0": { name: punctuation.section.variable.end.cmake }
+    patterns:
+      - include: "#variable-reference"
+      - include: "#environment-variable-reference"
+      - include: "#cache-variable-reference"
+
+  cache-variable-reference:
+    name: variable.other.cache.cmake
+    begin: '\$CACHE\{'
+    beginCaptures:
+      "0": { name: punctuation.section.variable.begin.cmake }
+    end: '\}'
+    endCaptures:
+      "0": { name: punctuation.section.variable.end.cmake }
+    patterns:
+      - include: "#variable-reference"
+      - include: "#environment-variable-reference"
+      - include: "#cache-variable-reference"
+
+  generator-expression:
+    name: meta.generator-expression.cmake
+    begin: '(\$<)([A-Za-z_][A-Za-z0-9_]*)?'
+    beginCaptures:
+      "1": { name: punctuation.definition.generator-expression.begin.cmake }
+      "2": { name: support.function.generator-expression.cmake }
+    end: '>'
+    endCaptures:
+      "0": { name: punctuation.definition.generator-expression.end.cmake }
+    patterns:
       - include: "#generator-expression"
-      - name: constant.character.escape.cmake # escaped character in quoted string
-        match: \\.
-  # bracket argument
-  - name: meta.function.variable.parameter.cmake
-    begin: \[(=*)\[
-    end: \]\1\]
-  # variable reference
-  - include: "#variable-reference"
-  # generator expression
-  - include: "#generator-expression"
-  # numbers
-  - name: constant.numeric.cmake
-    match: \b[0-9\.]+\b
-  # bool constant
-  - name: constant.language.bool.cmake
-    match: \b(?i:ON|YES|TRUE|Y|OFF|NO|FALSE|N|IGNORE|NOTFOUND|\w*-NOTFOUND)\b
-  # Deprecated Commands
-  - name: invalid.deprecated.command.cmake
-    match: ^\s*\b(?i:build_name|exec_program|export_library_dependencies|install_files|install_programs|install_targets|load_command|make_directory|output_required_files|qt_wrap_cpp|qt_wrap_ui|remove|subdir_depends|subdirs|use_mangled_mesa|utility_source|variable_requires|write_file)\b
-  # flow control commands in cmake
-  - name: keyword.control.cmake
-    match: ^\s*\b(?i:block|endblock|if|elseif|else|endif|while|endwhile|break|continue|foreach|endforeach|return|function|endfunction|macro|endmacro)\b
-  # unary tests operators
-  - name: keyword.other.unary.cmake
-    match: \b(EXISTS|COMMAND|DEFINED)\b
-  # binary tests operators
-  - name: keyword.other.binary.cmake
-    match: \b(EQUAL|LESS|LESS_EQUAL|GREATER|GREATER_EQUAL|STREQUAL|STRLESS|STRLESS_EQUAL|STRGREATER|STRGREATER_EQUAL|VERSION_EQUAL|VERSION_LESS|VERSION_LESS_EQUAL|VERSION_GREATER|VERSION_GREATER_EQUAL|MATCHES)\b
-  # logical operators
-  - name: keyword.other.logical.cmake
-    match: \b(NOT|AND|OR)\b
-  # CACHE variable type
-  - name: entity.name.type.cmake
-    match: \b(BOOL|FILEPATH|PATH|STRING|INTERNAL)\b
-  # variable declaration
-  - name: entity.name.function.cmake
-  - match: \b(?i:(set)\s*\(\s*(\w+)\s+)
-    captures:
-      "1": { name: entity.name.function.cmake }
-      "2": { name: variable.cmake }
-  # cmake builtin functions
-  - name: entity.name.function.cmake
-    match: \b(?i:cmake_host_system_information|cmake_language|cmake_pkg_config|cmake_minimum_required|cmake_parse_arguments|cmake_path|cmake_policy|configure_file|execute_process|file|find_file|find_library|find_package|find_path|find_program|get_cmake_property|get_directory_property|get_filename_component|get_property|include|include_guard|list|mark_as_advanced|math|message|option|separate_arguments|set|set_directory_properties|set_property|site_name|string|unset|variable_watch|add_compile_definitions|add_compile_options|add_custom_command|add_custom_target|add_definitions|add_dependencies|add_executable|add_library|add_link_options|add_subdirectory|add_test|aux_source_directory|build_command|create_test_sourcelist|define_property|enable_language|enable_testing|export|fltk_wrap_ui|get_source_file_property|get_target_property|get_test_property|include_directories|include_external_msproject|include_regular_expression|install|link_directories|link_libraries|load_cache|project|remove_definitions|set_source_files_properties|set_target_properties|set_tests_properties|source_group|target_compile_definitions|target_compile_features|target_compile_options|target_include_directories|target_link_directories|target_link_libraries|target_link_options|target_precompile_headers|target_sources|try_compile|try_run|ctest_build|ctest_configure|ctest_coverage|ctest_empty_binary_directory|ctest_memcheck|ctest_read_custom_files|ctest_run_script|ctest_sleep|ctest_start|ctest_submit|ctest_test|ctest_update|ctest_upload)\b
+      - include: "#variable-reference"
+      - include: "#environment-variable-reference"
+      - include: "#cache-variable-reference"
+      - include: "#escape"
+
+  boolean:
+    name: constant.language.boolean.cmake
+    match: '\b(?i:ON|YES|TRUE|Y|OFF|NO|FALSE|N|IGNORE|NOTFOUND|[A-Za-z_][A-Za-z0-9_]*-NOTFOUND)\b'
+
+  number:
+    name: constant.numeric.cmake
+    match: '(?<![A-Za-z0-9_.])[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?(?![A-Za-z0-9_.])'
+
+  unquoted-argument:
+    match: '(?:\$(?!\{|ENV\{|CACHE\{|<)|[^\s()#"$\\])+'
+
+  common-argument-patterns:
+    patterns:
+      - include: "#bracket-comment"
+      - include: "#line-comment"
+      - include: "#bracket-argument"
+      - include: "#quoted-string"
+      - include: "#generator-expression"
+      - include: "#variable-reference"
+      - include: "#environment-variable-reference"
+      - include: "#cache-variable-reference"
+      - include: "#escape"
+      - include: "#boolean"
+      - include: "#number"
+
+  nested-parentheses:
+    begin: '\('
+    beginCaptures:
+      "0": { name: punctuation.section.arguments.begin.cmake }
+    end: '\)'
+    endCaptures:
+      "0": { name: punctuation.section.arguments.end.cmake }
+    patterns:
+      - include: "#nested-parentheses"
+      - include: "#common-argument-patterns"
+      - include: "#unquoted-argument"
+
+  conditional-operator:
+    name: keyword.operator.wordlike.cmake
+    match: '\b(?i:NOT|AND|OR|COMMAND|POLICY|TARGET|TEST|DEFINED|IN_LIST|EXISTS|IS_READABLE|IS_WRITABLE|IS_EXECUTABLE|IS_ABSOLUTE|IS_DIRECTORY|IS_SYMLINK|IS_NEWER_THAN|MATCHES|LESS|GREATER|EQUAL|LESS_EQUAL|GREATER_EQUAL|STRLESS|STRGREATER|STREQUAL|STRLESS_EQUAL|STRGREATER_EQUAL|VERSION_LESS|VERSION_GREATER|VERSION_EQUAL|VERSION_LESS_EQUAL|VERSION_GREATER_EQUAL|PATH_EQUAL)\b'
+
+  nested-condition-parentheses:
+    begin: '\('
+    beginCaptures:
+      "0": { name: punctuation.section.arguments.begin.cmake }
+    end: '\)'
+    endCaptures:
+      "0": { name: punctuation.section.arguments.end.cmake }
+    patterns:
+      - include: "#nested-condition-parentheses"
+      - include: "#common-argument-patterns"
+      - include: "#conditional-operator"
+      - include: "#unquoted-argument"
+
+  scoped-condition-command:
+    begin: '^\s*\b(?i:(if|elseif)|(while))\b\s*(\()'
+    beginCaptures:
+      "1": { name: keyword.control.conditional.cmake }
+      "2": { name: keyword.control.loop.cmake }
+      "3": { name: punctuation.section.arguments.begin.cmake }
+    end: '\)'
+    endCaptures:
+      "0": { name: punctuation.section.arguments.end.cmake }
+    patterns:
+      - include: "#nested-condition-parentheses"
+      - include: "#common-argument-patterns"
+      - include: "#conditional-operator"
+      - include: "#unquoted-argument"
+
+  scoped-foreach-command:
+    begin: '^\s*\b(?i:(foreach))\b\s*(\()'
+    beginCaptures:
+      "1": { name: keyword.control.loop.cmake }
+      "2": { name: punctuation.section.arguments.begin.cmake }
+    end: '\)'
+    endCaptures:
+      "0": { name: punctuation.section.arguments.end.cmake }
+    patterns:
+      - include: "#nested-parentheses"
+      - include: "#common-argument-patterns"
+      - name: keyword.other.cmake
+        match: '\b(?i:IN|RANGE|ZIP_LISTS|LISTS|ITEMS)\b'
+      - include: "#unquoted-argument"
+
+  scoped-command-definition:
+    begin: '^\s*\b(?i:(function)|(macro))\b\s*(\()\s*([A-Za-z_][A-Za-z0-9_]*)?'
+    beginCaptures:
+      "1": { name: keyword.control.command.cmake }
+      "2": { name: keyword.control.command.cmake }
+      "3": { name: punctuation.section.arguments.begin.cmake }
+      "4": { name: entity.name.function.cmake }
+    end: '\)'
+    endCaptures:
+      "0": { name: punctuation.section.arguments.end.cmake }
+    patterns:
+      - include: "#nested-parentheses"
+      - name: variable.parameter.cmake
+        match: '\b[A-Za-z_][A-Za-z0-9_]*\b'
+      - include: "#common-argument-patterns"
+      - include: "#unquoted-argument"
+
+  scoped-set-command:
+    begin: '\b(?i:(set|unset))\b\s*(\()\s*(?:((?i:CACHE)\{([^}]*)\})|((?i:ENV)\{([^}]*)\})|([A-Za-z_][A-Za-z0-9_]*))?'
+    beginCaptures:
+      "1": { name: support.function.cmake }
+      "2": { name: punctuation.section.arguments.begin.cmake }
+      "3": { name: variable.other.cache.cmake }
+      "5": { name: variable.other.environment.cmake }
+      "7": { name: variable.other.cmake }
+    end: '\)'
+    endCaptures:
+      "0": { name: punctuation.section.arguments.end.cmake }
+    patterns:
+      - include: "#nested-parentheses"
+      - include: "#common-argument-patterns"
+      - name: keyword.other.cmake
+        match: '\b(?i:CACHE|PARENT_SCOPE|FORCE|TYPE|HELP|VALUE|BOOL|STRING|FILEPATH|PATH|INTERNAL)\b'
+      - include: "#unquoted-argument"
+
+  command-control:
+    name: keyword.control.command.cmake
+    match: '^\s*\b(?i:function|endfunction|macro|endmacro)\b'
+
+  conditional-control:
+    name: keyword.control.conditional.cmake
+    match: '^\s*\b(?i:if|elseif|else|endif)\b'
+
+  loop-control:
+    name: keyword.control.loop.cmake
+    match: '^\s*\b(?i:foreach|endforeach|while|endwhile|break|continue)\b'
+
+  block-control:
+    name: keyword.control.block.cmake
+    match: '^\s*\b(?i:block|endblock)\b'
+
+  return-control:
+    name: keyword.control.return.cmake
+    match: '^\s*\b(?i:return)\b'
+
+  builtin-command:
+    name: support.function.cmake
+    # Replaced at build time from server/src/builtin-cmds.json.
+    match: __CMAKE_BUILTIN_COMMAND_PATTERN__
+
+  command-invocation:
+    name: entity.name.function.cmake
+    match: '\b[A-Za-z_][A-Za-z0-9_]*\b(?=\s*\()'

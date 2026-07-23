@@ -1,5 +1,12 @@
 import * as assert from 'assert';
-import { positionAtTextOffset, rangeForTextOffsets, textOffsetAtPosition } from '../../sourcePosition';
+import {
+    positionAtTextOffset,
+    rangeForTextOffsets,
+    rangeForTokenOffsets,
+    textOffsetAtPosition,
+    tokenStartPosition,
+} from '../../sourcePosition';
+import { parseCMakeText } from '../../utils';
 
 suite('Source Position Tests', () => {
     test('offset conversion should preserve CRLF and multiline columns', () => {
@@ -17,5 +24,20 @@ suite('Source Position Tests', () => {
                 end: { line: 4, character: 7 },
             },
         );
+    });
+
+    test('ANTLR code-point columns should be converted to LSP UTF-16 columns', () => {
+        const text = 'message("😀" $<CONFIG:Debug>)';
+        const token = parseCMakeText(text).tokenStream.tokens
+            .find(candidate => candidate.text.startsWith('$<CONFIG'))!;
+
+        assert.deepStrictEqual(tokenStartPosition(token), {
+            line: 0,
+            character: text.indexOf('$<CONFIG'),
+        });
+        assert.deepStrictEqual(rangeForTokenOffsets(token, 2, 8), {
+            start: { line: 0, character: text.indexOf('CONFIG') },
+            end: { line: 0, character: text.indexOf('CONFIG') + 'CONFIG'.length },
+        });
     });
 });

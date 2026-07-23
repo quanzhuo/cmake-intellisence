@@ -1,8 +1,9 @@
 import { Position } from 'vscode-languageserver';
+import { isBracketArgumentText } from './argumentText';
 import { FlatCommand } from './flatCommands';
 import { GENERATOR_EXPRESSION_TARGET_ROOTS, isNamedGeneratorExpression, splitTopLevelGeneratorExpressionSegments } from './generatorExpressions';
 import CMakeLexer from './generated/CMakeLexer';
-import { positionAtTextOffset, textOffsetAtPosition } from './sourcePosition';
+import { positionAtTextOffset, textOffsetAtPosition, tokenStartPosition } from './sourcePosition';
 import { normalizeQuotedArgument } from './utils';
 import { findVariableReferences } from './variableReferences';
 
@@ -159,7 +160,11 @@ function extractIdentifierAtOffset(argumentText: string, offset: number): string
 
 function resolveCursorWord(command: FlatCommand, pos: Position, argumentSpan: ArgumentSpan | null): string {
     const commandToken = command.ID().symbol;
-    if ((pos.line + 1 === commandToken.line) && (pos.character >= commandToken.column) && (pos.character <= commandToken.column + commandToken.text.length)) {
+    const commandStart = tokenStartPosition(commandToken);
+    const commandEnd = positionAtTextOffset(commandStart, commandToken.text, commandToken.text.length);
+    if (pos.line === commandStart.line
+        && pos.character >= commandStart.character
+        && pos.character <= commandEnd.character) {
         return commandToken.text;
     }
 
@@ -358,7 +363,7 @@ export function getArgumentSpanAtPosition(command: FlatCommand, pos: Position): 
         }
 
         const text = arg.getText();
-        const start = { line: token.line - 1, character: token.column };
+        const start = tokenStartPosition(token);
         const end = positionAtTextOffset(start, text, text.length);
         if (textOffsetAtPosition(start, text, pos) === null) {
             continue;
@@ -369,7 +374,8 @@ export function getArgumentSpanAtPosition(command: FlatCommand, pos: Position): 
             text,
             start,
             end,
-            allowsVariableExpansion: token.type !== CMakeLexer.BracketArgument,
+            allowsVariableExpansion: token.type !== CMakeLexer.BracketArgument
+                && !isBracketArgumentText(token.text),
         };
     }
 
@@ -384,8 +390,8 @@ export function getArgumentSlotAtPosition(command: FlatCommand, pos: Position): 
 
     const args = command.argument_list();
     for (const [index, arg] of args.entries()) {
-        const startLine = arg.start.line - 1;
-        if (pos.line < startLine || (pos.line === startLine && pos.character < arg.start.column)) {
+        const start = tokenStartPosition(arg.start);
+        if (pos.line < start.line || (pos.line === start.line && pos.character < start.character)) {
             return index;
         }
     }
@@ -395,7 +401,9 @@ export function getArgumentSlotAtPosition(command: FlatCommand, pos: Position): 
 
 function isCommandPosition(command: FlatCommand, _word: string, pos: Position): boolean {
     const commandToken = command.ID().symbol;
-    if ((pos.line + 1 === commandToken.line) && (pos.character <= commandToken.column + commandToken.text.length)) {
+    const commandStart = tokenStartPosition(commandToken);
+    const commandEnd = positionAtTextOffset(commandStart, commandToken.text, commandToken.text.length);
+    if (pos.line === commandStart.line && pos.character <= commandEnd.character) {
         return true;
     }
 
@@ -756,6 +764,6 @@ export function resolveArgumentTarget(command: FlatCommand, argIndex: number): R
     return resolveCursorTarget(
         command,
         arg.getText(),
-        { line: token.line - 1, character: token.column },
+        tokenStartPosition(token),
     );
 }

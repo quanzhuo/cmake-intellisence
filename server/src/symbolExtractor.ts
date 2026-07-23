@@ -1,5 +1,6 @@
 import { CommonTokenStream, Token } from 'antlr4';
 import { URI } from 'vscode-uri';
+import { isBracketArgumentText } from './argumentText';
 import * as builtinCmds from './builtin-cmds.json';
 import { getTargetOccurrencesInArgument, isCommandArgumentIndex } from './argumentSemantics';
 import { analyzeDependencyStructure, DependencyStructureAnalysis } from './dependencyStructure';
@@ -8,7 +9,7 @@ import { ArgumentContext } from './generated/CMakeParser';
 import CMakeLexer from './generated/CMakeLexer';
 import { PathExpressionResolver } from './pathExpressionResolver';
 import { extractIncludeDependency, extractSubdirectoryDependency, SourceDependencyOptions } from './sourceDependencyResolver';
-import { rangeForTokenOffsets } from './sourcePosition';
+import { rangeForTokenOffsets, tokenStartPosition } from './sourcePosition';
 import { FileSymbolCache, SemanticScope, SemanticScopeKind, Symbol, SymbolIndex, SymbolKind, SymbolNamespace, SymbolOccurrenceRole, SymbolWriteKind } from './symbolIndex';
 import { findVariableReferences } from './variableReferences';
 
@@ -547,7 +548,8 @@ function addExplicitVariableReferences(cache: FileSymbolCache, cmd: FlatCommand,
 
             for (const reference of findVariableReferences(
                 token.text,
-                token.type !== CMakeLexer.BracketArgument,
+                token.type !== CMakeLexer.BracketArgument
+                    && !isBracketArgumentText(token.text),
             )) {
                 addOccurrence(
                     cache,
@@ -978,9 +980,10 @@ function markPotentiallyUnclassifiedVariableNames(
         if (!token || !literal || !/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(literal.name)) {
             continue;
         }
+        const tokenPosition = tokenStartPosition(token);
         if (classifiedOccurrences.some(occurrence => occurrence.name === literal.name
-            && occurrence.range.start.line === token.line - 1
-            && occurrence.range.start.character === token.column + literal.startOffset)) {
+            && occurrence.range.start.line === tokenPosition.line
+            && occurrence.range.start.character === tokenPosition.character + literal.startOffset)) {
             continue;
         }
         cache.markRenameUnsafe('variable', literal.name);

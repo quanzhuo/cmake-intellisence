@@ -29,7 +29,7 @@ import { PathDiagnosticsProvider } from './pathDiagnostics';
 import { ReferenceResolver } from './references';
 import { RenameResolver } from './rename';
 import { rstToMarkdown } from './rstToMarkdown';
-import { SemanticTokenListener, createTokenBuilder, deleteTokenBuilder, getTokenBuilder, getTokenModifiers, getTokenTypes } from './semanticTokens';
+import { SemanticTokensService, getTokenModifiers, getTokenTypes } from './semanticTokens';
 import { buildSignatureHelp, buildSignatureHelpForInvocation } from './signatureHelp';
 import { textOffsetAtPosition } from './sourcePosition';
 import { ReferenceBinding, SymbolBindingResolver } from './symbolBinding';
@@ -113,6 +113,7 @@ type HelpCacheEntry = {
 const CMAKE_HELP_NULL_CACHE_TTL_MS = 5 * 60 * 1000;
 const DIAGNOSTICS_DEBOUNCE_MS = 220;
 const PROJECT_REINDEX_DEBOUNCE_MS = 220;
+const SEMANTIC_TOKENS_REFRESH_DEBOUNCE_MS = 250;
 const WATCHED_FILES_DEBOUNCE_MS = 400;
 const MAX_CLOSED_PARSED_FILE_SNAPSHOTS = 128;
 const ALL_PROJECT_ENTRIES = '\0all-project-entries';
@@ -154,6 +155,10 @@ export class CMakeLanguageServer {
     private diagnosticsDroppedStaleSequenceCount = 0;
     private diagnosticsDroppedStaleVersionCount = 0;
     private diagnosticsPublishedCount = 0;
+    private semanticTokensService = new SemanticTokensService();
+    private semanticTokensRefreshSupported = false;
+    private semanticTokensRefreshPending = false;
+    private semanticTokensRefreshTimer?: ReturnType<typeof setTimeout>;
 
     private readonly defaultExtSettings: ExtensionSettings = {
         cmakePath: 'cmake',
@@ -208,10 +213,39 @@ export class CMakeLanguageServer {
         }
     }
 
+    private scheduleSemanticTokensRefresh(reason: string): void {
+        if (!this.semanticTokensRefreshSupported) {
+            return;
+        }
+        this.semanticTokensRefreshPending = true;
+        if (Array.from(this.workspaceStates.values()).some(state =>
+            state.workspaceIndexing !== undefined || state.projectReindexing !== undefined)) {
+            return;
+        }
+        if (this.semanticTokensRefreshTimer) {
+            clearTimeout(this.semanticTokensRefreshTimer);
+        }
+        this.semanticTokensRefreshTimer = setTimeout(() => {
+            this.semanticTokensRefreshTimer = undefined;
+            if (!this.semanticTokensRefreshPending) {
+                return;
+            }
+            if (Array.from(this.workspaceStates.values()).some(state =>
+                state.workspaceIndexing !== undefined || state.projectReindexing !== undefined)) {
+                return;
+            }
+            this.semanticTokensRefreshPending = false;
+            this.logger.debug(`Requesting semantic tokens refresh: ${reason}`);
+            this.connection.languages.semanticTokens.refresh();
+        }, SEMANTIC_TOKENS_REFRESH_DEBOUNCE_MS);
+    }
+
     private createWorkspaceState(workspaceFolder: URI): WorkspaceState {
         return {
             workspaceFolder,
-            symbolIndex: new SymbolIndex(),
+            symbolIndex: new SymbolIndex(undefined, () => {
+                this.scheduleSemanticTokensRefresh('symbol index changed');
+            }),
             cmakeToolsUpdateSequence: 0,
             cmakeHelpCache: new Map<string, HelpCacheEntry>(),
             environmentGeneration: 0,
@@ -308,6 +342,7 @@ export class CMakeLanguageServer {
 
     private async onInitialize(params: InitializeParams): Promise<InitializeResult> {
         this.initParams = params;
+        this.semanticTokensRefreshSupported = params.capabilities.workspace?.semanticTokens?.refreshSupport === true;
         this.workspaceFolders = params.workspaceFolders?.map(folder => URI.parse(folder.uri))
             ?? (params.rootUri ? [URI.parse(params.rootUri)] : []);
         localizeInitializer.init(params.locale || 'en');
@@ -1604,13 +1639,20 @@ export class CMakeLanguageServer {
                 continue;
             }
 
-            const docUri = URI.parse(document.uri);
             const entryUri = this.getEntryFilePath(document.uri);
-            const builder = createTokenBuilder(document.uri);
-            const semanticListener = new SemanticTokenListener(docUri.toString(), workspaceState.symbolIndex, entryUri, builder);
-            ParseTreeWalker.DEFAULT.walk(semanticListener, snapshot.fileContext);
+            const analysisKey = [
+                sourceRevisionKey(snapshot.revision),
+                entryUri,
+                workspaceState.symbolIndex.getGeneration(),
+            ].join('\0');
+            const semanticTokens = this.semanticTokensService.analyze(document.uri, analysisKey, {
+                uri: document.uri,
+                entryUri,
+                symbolIndex: workspaceState.symbolIndex,
+                commands: snapshot.flatCommands,
+            });
             throwIfCancelled(token);
-            return semanticListener.getSemanticTokens();
+            return this.semanticTokensService.buildFull(document.uri, semanticTokens);
         }
 
         return { data: [] };
@@ -1637,14 +1679,24 @@ export class CMakeLanguageServer {
                 continue;
             }
 
-            const builder = getTokenBuilder(document.uri);
-            builder.previousResult(params.previousResultId);
-            const docUri = URI.parse(document.uri);
             const entryUri = this.getEntryFilePath(document.uri);
-            const semanticListener = new SemanticTokenListener(docUri.toString(), workspaceState.symbolIndex, entryUri, builder);
-            ParseTreeWalker.DEFAULT.walk(semanticListener, snapshot.fileContext);
+            const analysisKey = [
+                sourceRevisionKey(snapshot.revision),
+                entryUri,
+                workspaceState.symbolIndex.getGeneration(),
+            ].join('\0');
+            const semanticTokens = this.semanticTokensService.analyze(document.uri, analysisKey, {
+                uri: document.uri,
+                entryUri,
+                symbolIndex: workspaceState.symbolIndex,
+                commands: snapshot.flatCommands,
+            });
             throwIfCancelled(token);
-            return semanticListener.buildEdits();
+            return this.semanticTokensService.buildDelta(
+                document.uri,
+                params.previousResultId,
+                semanticTokens,
+            );
         }
 
         return { edits: [] };
@@ -1963,7 +2015,7 @@ export class CMakeLanguageServer {
             this.diagnosticsTimerByUri.delete(uri);
         }
         this.diagnosticsSequenceByUri.delete(uri);
-        deleteTokenBuilder(uri);
+        this.semanticTokensService.delete(uri);
         this.parsedFiles.delete(uri);
         const docUri = URI.parse(uri);
         const workspaceFolderUri = this.getWorkspaceFolderForUri(uri);
@@ -2293,6 +2345,8 @@ export class CMakeLanguageServer {
             }
             if (workspaceState.pendingProjectReindexEntries.size > 0) {
                 this.enqueueProjectReindex(workspaceState);
+            } else {
+                this.scheduleSemanticTokensRefresh('project reindexing completed');
             }
         });
         workspaceState.projectReindexing = processing;
@@ -2327,6 +2381,13 @@ export class CMakeLanguageServer {
     }
 
     private onShutdown() {
+        this.semanticTokensRefreshSupported = false;
+        if (this.semanticTokensRefreshTimer) {
+            clearTimeout(this.semanticTokensRefreshTimer);
+            this.semanticTokensRefreshTimer = undefined;
+        }
+        this.semanticTokensRefreshPending = false;
+        this.semanticTokensService.clear();
         for (const timer of this.diagnosticsTimerByUri.values()) {
             clearTimeout(timer);
         }
@@ -2499,6 +2560,7 @@ export class CMakeLanguageServer {
                     workspaceState.workspaceIndexingTrigger = undefined;
                     workspaceState.workspaceIndexingGeneration = undefined;
                 }
+                this.scheduleSemanticTokensRefresh(`workspace scan #${scanId} completed`);
             });
         workspaceState.workspaceIndexing = indexing;
         workspaceState.workspaceIndexingId = scanId;

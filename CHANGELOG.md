@@ -1,5 +1,15 @@
 # Change Log
 
+## v0.8.1
+
+Improvements:
+
+* 工作区存在多个文件夹时，避免多次执行 pkg-config 命令
+* 修复 wordPattern 中的字符集，确保正确匹配
+* 扫描 cmake文件时忽略构建目录
+* 跳转到定义增强
+* 高亮重构
+
 ## v0.8.0
 
 Bug Fixes:

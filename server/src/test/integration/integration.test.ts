@@ -43,6 +43,16 @@ suite('LSP Integration Tests', () => {
     let serverProcess: cp.ChildProcess;
     let symbolIndex: SymbolIndex;
     let docVersion = 0;
+    const semanticTokenTypes = [
+        'class',
+        'enum',
+        'parameter',
+        'variable',
+        'property',
+        'function',
+        'macro',
+        'keyword',
+    ];
     const diagnosticEmitter = new EventEmitter();
     const configurationPullWaiters: Array<() => void> = [];
     const extSettings: ExtensionSettings = {
@@ -77,6 +87,7 @@ suite('LSP Integration Tests', () => {
 
         // Handle server-initiated requests that would otherwise crash the server
         connection.onRequest(RegistrationRequest.type, () => { });
+        connection.onRequest('workspace/semanticTokens/refresh', () => { });
         connection.onRequest('workspace/configuration', () => {
             configurationRequested();
             configurationPullWaiters.shift()?.();
@@ -91,10 +102,26 @@ suite('LSP Integration Tests', () => {
         const initParams: InitializeParams = {
             processId: process.pid,
             capabilities: {
+                workspace: {
+                    semanticTokens: {
+                        refreshSupport: true,
+                    },
+                },
                 textDocument: {
                     completion: {
                         completionItem: { snippetSupport: true }
-                    }
+                    },
+                    semanticTokens: {
+                        requests: {
+                            range: false,
+                            full: { delta: true },
+                        },
+                        tokenTypes: semanticTokenTypes,
+                        tokenModifiers: ['declaration', 'definition', 'modification'],
+                        formats: ['relative'],
+                        overlappingTokenSupport: false,
+                        multilineTokenSupport: false,
+                    },
                 }
             },
             rootUri: 'file:///test-workspace',
@@ -1864,6 +1891,33 @@ suite('LSP Integration Tests', () => {
 
     //#region ── Semantic Tokens ────────────────────────────────────────
 
+    function decodeSemanticTokens(data: number[]): Array<{
+        line: number;
+        character: number;
+        length: number;
+        type: string;
+    }> {
+        const decoded: Array<{
+            line: number;
+            character: number;
+            length: number;
+            type: string;
+        }> = [];
+        let line = 0;
+        let character = 0;
+        for (let index = 0; index < data.length; index += 5) {
+            line += data[index];
+            character = data[index] === 0 ? character + data[index + 1] : data[index + 1];
+            decoded.push({
+                line,
+                character,
+                length: data[index + 2],
+                type: semanticTokenTypes[data[index + 3]],
+            });
+        }
+        return decoded;
+    }
+
     test('should provide semantic tokens', async function () {
         const uri = 'file:///test-workspace/semantic.txt';
         openDocument(uri, 'set(MY_VAR "hello")\nmessage(STATUS ${MY_VAR})');
@@ -1915,18 +1969,9 @@ suite('LSP Integration Tests', () => {
         });
 
         assert(result !== null && result.data !== undefined);
-        // data array format: [line_delta, char_delta, length, token_type, token_modifiers]
-        // You usually map these back, but for a simple structural check we scan the payload 
-        // to see if at least one function type index (7) and macro type index (8) were output.
-        // Based on SemanticTokenListener: defaultTokenTypes.indexOf('function') = 7, 'macro' = 8
-        const typesUsed = new Set<number>();
-        for (let i = 3; i < result.data.length; i += 5) {
-            typesUsed.add(result.data[i]);
-        }
-
-        // Assert that both function (7) and macro (8) indices exist in the serialized token data.
-        assert(typesUsed.has(7), 'Should have generated a function token');
-        assert(typesUsed.has(8), 'Should have generated a macro token');
+        const typesUsed = new Set(decodeSemanticTokens(result.data).map(token => token.type));
+        assert(typesUsed.has('function'), 'Should have generated a function token');
+        assert(typesUsed.has('macro'), 'Should have generated a macro token');
     });
 
     test('should provide semantic tokens for scoped visible variables', async function () {
@@ -1951,13 +1996,8 @@ suite('LSP Integration Tests', () => {
 
         assert(result !== null && result.data !== undefined);
 
-        // Default variable index is 5
-        let variableTokens = 0;
-        for (let i = 3; i < result.data.length; i += 5) {
-            if (result.data[i] === 5) { // 'variable' type
-                variableTokens++;
-            }
-        }
+        const variableTokens = decodeSemanticTokens(result.data)
+            .filter(token => token.type === 'variable').length;
 
         // Expected: GLOBAL_VAR should be highlighted as a variable.
         // Notice we might have multiple tokens, but we expect at least 1 since we have "GLOBAL_VAR".
@@ -1965,7 +2005,7 @@ suite('LSP Integration Tests', () => {
         assert(variableTokens > 0, 'Should generate variable token for GLOBAL_VAR derived from parent via SymbolIndex');
     });
 
-    test('should classify condition predicates and operators in semantic tokens', async function () {
+    test('should leave condition syntax to TextMate while retaining symbol roles', async function () {
         const uri = 'file:///test-workspace/semantic_condition.txt';
         const content = [
             'set(VAR hello)',
@@ -1986,17 +2026,26 @@ suite('LSP Integration Tests', () => {
 
         assert(result !== null && result.data !== undefined);
 
-        const typesUsed = new Set<number>();
-        for (let i = 3; i < result.data.length; i += 5) {
-            typesUsed.add(result.data[i]);
+        const decoded = decodeSemanticTokens(result.data);
+        const conditionLine = content.split('\n')[2];
+        for (const syntax of ['COMMAND', 'AND', 'TARGET', 'STREQUAL']) {
+            const character = conditionLine.indexOf(syntax);
+            assert(
+                !decoded.some(token => token.line === 2 && token.character === character),
+                `${syntax} should remain a TextMate token`,
+            );
         }
-
-        assert(typesUsed.has(9), 'Should emit keyword tokens for condition predicates');
-        assert(typesUsed.has(15), 'Should emit operator tokens for logical/comparison operators');
-        assert(typesUsed.has(5), 'Should emit variable tokens for bare condition variables');
+        assert(decoded.some(token =>
+            token.line === 2
+            && token.character === conditionLine.indexOf('my_target')
+            && token.type === 'class'));
+        assert(decoded.some(token =>
+            token.line === 2
+            && token.character === conditionLine.indexOf('VAR')
+            && token.type === 'variable'));
     });
 
-    test('should classify generator expression names and namespace keywords in semantic tokens', async function () {
+    test('should leave generator expression names to TextMate and classify contextual operations', async function () {
         const uri = 'file:///test-workspace/semantic_genex.txt';
         const content = 'target_compile_definitions(tgt PRIVATE $<STRING:HASH,value,ALGORITHM:SHA256>)';
         openDocument(uri, content);
@@ -2006,13 +2055,11 @@ suite('LSP Integration Tests', () => {
         });
 
         assert(result !== null && result.data !== undefined);
-        const typesUsed = new Set<number>();
-        for (let i = 3; i < result.data.length; i += 5) {
-            typesUsed.add(result.data[i]);
-        }
-
-        assert(typesUsed.has(7), 'Should emit function tokens for generator expression names');
-        assert(typesUsed.has(9), 'Should emit keyword tokens for STRING/LIST/PATH namespace arguments');
+        const decoded = decodeSemanticTokens(result.data);
+        assert(!decoded.some(token => token.character === content.indexOf('STRING')));
+        assert(decoded.some(token =>
+            token.character === content.indexOf('HASH')
+            && token.type === 'keyword'));
     });
 
     test('should classify generator expression argument roles in semantic tokens', async function () {
@@ -2032,14 +2079,10 @@ suite('LSP Integration Tests', () => {
         });
 
         assert(result !== null && result.data !== undefined);
-        const typesUsed = new Set<number>();
-        for (let i = 3; i < result.data.length; i += 5) {
-            typesUsed.add(result.data[i]);
-        }
-
-        assert(typesUsed.has(6), 'Should emit property tokens for TARGET_PROPERTY property names');
-        assert(typesUsed.has(3), 'Should emit enum tokens for CONFIG and COMPILE_LANGUAGE arguments');
-        assert(typesUsed.has(12), 'Should emit string tokens for target-name style generator expression arguments');
+        const typesUsed = new Set(decodeSemanticTokens(result.data).map(token => token.type));
+        assert(typesUsed.has('property'), 'Should emit property tokens for TARGET_PROPERTY property names');
+        assert(typesUsed.has('enum'), 'Should emit enum tokens for CONFIG and COMPILE_LANGUAGE arguments');
+        assert(typesUsed.has('class'), 'Should emit class tokens for target-name generator expression arguments');
     });
 
     test('should provide semantic token deltas after document changes', async function () {
@@ -2061,9 +2104,22 @@ suite('LSP Integration Tests', () => {
         });
 
         assert(delta !== null, 'Semantic token delta response should not be null');
-        const deltaLike = delta as { edits?: Array<unknown>; data?: number[] };
+        const deltaLike = delta as {
+            edits?: Array<{ start: number; deleteCount: number; data?: number[] }>;
+            data?: number[];
+        };
         assert(Array.isArray(deltaLike.edits), 'A delta request after a full response should reuse the stored baseline');
         assert(deltaLike.edits.length > 0, 'Semantic token delta should include edits after a document change');
+
+        const reconstructed = [...full.data];
+        for (const edit of [...deltaLike.edits].sort((left, right) => right.start - left.start)) {
+            reconstructed.splice(edit.start, edit.deleteCount, ...(edit.data ?? []));
+        }
+        const fresh = await connection.sendRequest(SemanticTokensRequest.type, {
+            textDocument: { uri }
+        });
+        assert(fresh !== null);
+        assert.deepStrictEqual(reconstructed, fresh.data, 'Applying delta edits should reproduce a fresh full result');
     });
 
     //#endregion ── Semantic Tokens ────────────────────────────────────────
