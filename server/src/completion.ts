@@ -3,12 +3,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CompletionItem, CompletionItemKind, CompletionItemTag, CompletionList, CompletionParams, InsertTextFormat, Position } from "vscode-languageserver";
 import { URI } from "vscode-uri";
-import { ArgumentSemanticKind, getArgumentSemanticKinds, getTargetLinkLibraryKeywords, isTargetArgumentIndex } from './argumentSemantics';
+import { ArgumentSemanticKind, getArgumentSemanticKinds, getArgumentSlotAtPosition, getArgumentSpanAtPosition, getTargetLinkLibraryKeywords, isTargetArgumentIndex } from './argumentSemantics';
 import * as builtinCmds from './builtin-cmds.json';
 import { FlatCommand } from "./flatCommands";
 import { GENERATOR_EXPRESSION_TARGET_ROOTS, isNamedGeneratorExpression, splitTopLevelGeneratorExpressionSegments } from './generatorExpressions';
 import CMakeLexer from "./generated/CMakeLexer";
 import { Logger } from "./logging";
+import { textOffsetAtPosition } from './sourcePosition';
 import { SymbolIndex, SymbolKind } from "./symbolIndex";
 
 export { builtinCmds };
@@ -333,34 +334,27 @@ export function getCompletionInfoAtCursor(commands: FlatCommand[], pos: Position
 
     // Check if the cursor is within the parentheses
     if (isCursorWithinParentheses(pos, lParenLine, lParenColumn, rParenLine, rParenColumn)) {
-        // Get the current argument index
-        const args = currentCommand.argument_list();
-        let index = 0;
-        for (let i = 0; i < args.length; i++) {
-            const arg = args[i];
-            const argStart = arg.start;
-
-            // Check if the cursor is within the current argument
-            if (pos.line === argStart.line - 1 && pos.character >= argStart.column && pos.character <= argStart.column + argStart.text.length) {
-                const argText = argStart.text;
-                for (const variableRange of findVariableRanges(argText, argStart.column)) {
-                    if (pos.character >= variableRange.start && pos.character <= variableRange.end) {
+        const activeArgument = getArgumentSpanAtPosition(currentCommand, pos);
+        if (activeArgument) {
+            const cursorOffset = textOffsetAtPosition(activeArgument.start, activeArgument.text, pos);
+            if (cursorOffset !== null && activeArgument.allowsVariableExpansion) {
+                for (const variableRange of findVariableRanges(activeArgument.text)) {
+                    if (cursorOffset >= variableRange.start && cursorOffset <= variableRange.end) {
                         return { type: CMakeCompletionType.Variable };
                     }
                 }
-                index = i;
-                break;
             }
-            // Check if the cursor is before the current argument
-            else if (pos.line < argStart.line - 1 || (pos.line === argStart.line - 1 && pos.character < argStart.column)) {
-                index = i;
-                break;
-            }
-            // If the cursor is after the current argument
-            else {
-                index = i + 1;
-            }
+
+            return {
+                type: CMakeCompletionType.Argument,
+                context: currentCommand,
+                command: currentCommand.ID().symbol.text,
+                index: activeArgument.argumentIndex,
+            };
         }
+
+        // The cursor is in whitespace between arguments. Select the next slot.
+        const index = getArgumentSlotAtPosition(currentCommand, pos);
         return { type: CMakeCompletionType.Argument, context: currentCommand, command: currentCommand.ID().symbol.text, index: index };
     } else {
         return { type: CMakeCompletionType.Command };
@@ -371,8 +365,6 @@ type TokenArgument = {
     text: string,
     line: number,
     column: number,
-    endLine: number,
-    endColumn: number,
 };
 
 type TokenCommand = {
@@ -472,8 +464,6 @@ function findTokenCommandAtPosition(tokens: Token[], pos: Position, allowCommand
                 text: token.text,
                 line: token.line - 1,
                 column: token.column,
-                endLine: token.line - 1,
-                endColumn: token.column + token.text.length,
             });
         }
     }
@@ -484,7 +474,6 @@ function findTokenCommandAtPosition(tokens: Token[], pos: Position, allowCommand
 function collectNestedArgument(tokens: Token[], startIndex: number): { argument: TokenArgument, lastIndex: number } {
     const startToken = tokens[startIndex];
     let depth = 0;
-    let endToken = startToken;
     let text = '';
 
     for (let index = startIndex; index < tokens.length; index++) {
@@ -495,15 +484,12 @@ function collectNestedArgument(tokens: Token[], startIndex: number): { argument:
                     text,
                     line: startToken.line - 1,
                     column: startToken.column,
-                    endLine: endToken.line - 1,
-                    endColumn: endToken.column + endToken.text.length,
                 },
                 lastIndex: index,
             };
         }
 
         text += token.text;
-        endToken = token;
         if (token.type === CMakeLexer.LP) {
             depth++;
         } else if (token.type === CMakeLexer.RP) {
@@ -514,8 +500,6 @@ function collectNestedArgument(tokens: Token[], startIndex: number): { argument:
                         text,
                         line: startToken.line - 1,
                         column: startToken.column,
-                        endLine: endToken.line - 1,
-                        endColumn: endToken.column + endToken.text.length,
                     },
                     lastIndex: index,
                 };
@@ -528,8 +512,6 @@ function collectNestedArgument(tokens: Token[], startIndex: number): { argument:
             text,
             line: startToken.line - 1,
             column: startToken.column,
-            endLine: endToken.line - 1,
-            endColumn: endToken.column + endToken.text.length,
         },
         lastIndex: tokens.length - 1,
     };
@@ -564,16 +546,20 @@ function getCompletionInfoFromTokenCommand(command: TokenCommand, pos: Position)
 
     for (let argIndex = 0; argIndex < command.args.length; argIndex++) {
         const arg = command.args[argIndex];
-        const isWithinLine = pos.line === arg.line || pos.line === arg.endLine;
-        if (isWithinLine && pos.line === arg.line && pos.character >= arg.column && pos.character <= arg.endColumn) {
-            for (const variableRange of findVariableRanges(arg.text, arg.column)) {
-                if (pos.character >= variableRange.start && pos.character <= variableRange.end) {
+        const cursorOffset = textOffsetAtPosition(
+            { line: arg.line, character: arg.column },
+            arg.text,
+            pos,
+        );
+        if (cursorOffset !== null) {
+            for (const variableRange of findVariableRanges(arg.text)) {
+                if (cursorOffset >= variableRange.start && cursorOffset <= variableRange.end) {
                     return {
                         type: CMakeCompletionType.Variable,
                         command: command.name,
                         arguments: argumentTexts,
                         currentArgumentText: arg.text,
-                        currentArgumentCursorOffset: Math.max(0, pos.character - arg.column),
+                        currentArgumentCursorOffset: cursorOffset,
                     };
                 }
             }
@@ -583,7 +569,7 @@ function getCompletionInfoFromTokenCommand(command: TokenCommand, pos: Position)
                 index: argIndex,
                 arguments: argumentTexts,
                 currentArgumentText: arg.text,
-                currentArgumentCursorOffset: Math.max(0, pos.character - arg.column),
+                currentArgumentCursorOffset: cursorOffset,
             };
         }
 
@@ -598,7 +584,7 @@ function getCompletionInfoFromTokenCommand(command: TokenCommand, pos: Position)
     return { type: CMakeCompletionType.Argument, command: command.name, index, arguments: argumentTexts };
 }
 
-function findVariableRanges(argText: string, baseColumn: number): Array<{ start: number, end: number }> {
+function findVariableRanges(argText: string): Array<{ start: number, end: number }> {
     const ranges: Array<{ start: number, end: number }> = [];
     for (let index = 0; index < argText.length - 1; index++) {
         if (argText[index] !== '$' || argText[index + 1] !== '{') {
@@ -611,8 +597,8 @@ function findVariableRanges(argText: string, baseColumn: number): Array<{ start:
         }
 
         ranges.push({
-            start: baseColumn + index + 2,
-            end: baseColumn + closingBraceIndex,
+            start: index + 2,
+            end: closingBraceIndex,
         });
         index = closingBraceIndex;
     }

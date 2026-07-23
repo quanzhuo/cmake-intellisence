@@ -3,8 +3,10 @@ import { SymbolNamespace } from './symbolIndex';
 export interface VariableReferenceSpan {
     name: string;
     namespace: Extract<SymbolNamespace, 'variable' | 'cache-variable' | 'environment-variable'>;
+    referenceStartOffset: number;
     startOffset: number;
     endOffset: number;
+    referenceEndOffset: number;
 }
 
 const OPENINGS: ReadonlyArray<{
@@ -72,8 +74,10 @@ export function findVariableReferences(
             references.push({
                 name,
                 namespace: opening.namespace,
+                referenceStartOffset: offset,
                 startOffset,
                 endOffset: closingOffset,
+                referenceEndOffset: closingOffset + 1,
             });
         }
     }

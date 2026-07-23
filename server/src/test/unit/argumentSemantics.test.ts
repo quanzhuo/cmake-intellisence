@@ -44,6 +44,18 @@ suite('Argument Semantics Tests', () => {
         assert.strictEqual(result.argumentSpan?.text, 'Threads');
     });
 
+    test('resolveCursorTarget should classify property-name slots as properties', () => {
+        const command = parseCMakeText('set_target_properties(app PROPERTIES POSITION_INDEPENDENT_CODE ON)').flatCommands[0];
+        const property = command.argument_list()[2];
+        const position = { line: property.start.line - 1, character: property.start.column + 4 };
+
+        const result = resolveCursorTarget(command, 'POSITION_INDEPENDENT_CODE', position);
+
+        assert.strictEqual(result.subject, DefinitionSubject.Property);
+        assert.strictEqual(result.semanticKind, ArgumentSemanticKind.Property);
+        assert.strictEqual(result.text, 'POSITION_INDEPENDENT_CODE');
+    });
+
     test('resolveCursorTarget should normalize quoted include module and find_package arguments', () => {
         const includeCommand = parseCMakeText('include("CMakePrintHelpers")\n').flatCommands[0];
         const includeArg = includeCommand.argument_list()[0];

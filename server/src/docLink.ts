@@ -1,12 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { DocumentLink, Range } from "vscode-languageserver";
+import { DocumentLink } from "vscode-languageserver";
 import { URI } from 'vscode-uri';
 import { DefinitionSubject, resolveArgumentTarget } from './argumentSemantics';
 import { FileApiRawSnapshot } from './fileApiSnapshot';
 import { FlatCommand } from './flatCommands';
 import { ArgumentContext } from './generated/CMakeParser';
 import { PathExpressionRequest, PathExpressionResolver } from './pathExpressionResolver';
+import { rangeForTextOffsets, tokenStartPosition } from './sourcePosition';
 import { SymbolIndex } from './symbolIndex';
 import { getFindPackageUri, getIncludeModuleUri } from './utils';
 
@@ -65,7 +66,7 @@ export class DocumentLinkInfo {
     private createLink(argCtx: ArgumentContext, targetUri: URI): DocumentLink {
         const argText = argCtx.getText();
         return {
-            range: Range.create(argCtx.start.line - 1, argCtx.start.column, argCtx.stop!.line - 1, argCtx.stop!.column + argText.length),
+            range: rangeForTextOffsets(tokenStartPosition(argCtx.start), argText, 0, argText.length),
             target: targetUri.toString(),
             tooltip: targetUri.fsPath,
         };
@@ -290,7 +291,7 @@ export class DocumentLinkInfo {
         const modulePath = path.join(this.symbolIndex.cmakeModulePath, moduleName);
         if (await this.fileExists(modulePath)) {
             return [{
-                range: Range.create(arg.start.line - 1, arg.start.column, arg.stop.line - 1, arg.stop.column + argName.length),
+                range: rangeForTextOffsets(tokenStartPosition(arg.start), argName, 0, argName.length),
                 target: URI.file(modulePath).toString(),
                 tooltip: modulePath,
             }];

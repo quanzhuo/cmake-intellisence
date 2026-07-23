@@ -5,6 +5,7 @@ import { CONDITION_BINARY_KEYWORDS, CONDITION_UNARY_KEYWORDS, getConditionExpect
 import { GENERATOR_EXPRESSION_TARGET_ROOTS, splitTopLevelGeneratorExpressionSegments } from './generatorExpressions';
 import { ArgumentContext, ElseIfCmdContext, FunctionCmdContext, IfCmdContext, MacroCmdContext, OtherCmdContext, WhileCmdContext } from "./generated/CMakeParser";
 import CMakeParserListener from "./generated/CMakeParserListener";
+import { positionAtTextOffset, tokenStartPosition } from './sourcePosition';
 import { SymbolBindingResolver } from "./symbolBinding";
 import { FileSymbolCache, SymbolIndex, SymbolKind, SymbolOccurrence } from "./symbolIndex";
 
@@ -39,11 +40,11 @@ let tokenTypes = [...defaultTokenTypes];
 let tokenModifiers = [...defaultTokenModifiers];
 
 enum TokenModifiers {
-    declaration = 2 ** 0,
-    definition = 2 ** 1,
-    readonly = 2 ** 2,
-    deprecated = 2 ** 3,
-    documentation = 2 ** 4,
+    declaration = 'declaration',
+    definition = 'definition',
+    readonly = 'readonly',
+    deprecated = 'deprecated',
+    documentation = 'documentation',
 };
 
 enum TokenTypes {
@@ -89,7 +90,7 @@ export function deleteTokenBuilder(uri: string): void {
 
 export function getTokenTypes(initParams: InitializeParams): string[] {
     const supportedTokenTypes = initParams.capabilities.textDocument?.semanticTokens?.tokenTypes;
-    if (!supportedTokenTypes || supportedTokenTypes.length === 0) {
+    if (!supportedTokenTypes) {
         tokenTypes = [...defaultTokenTypes];
         return tokenTypes;
     }
@@ -100,13 +101,24 @@ export function getTokenTypes(initParams: InitializeParams): string[] {
 
 export function getTokenModifiers(initParams: InitializeParams): string[] {
     const supportedTokenModifiers = initParams.capabilities.textDocument?.semanticTokens?.tokenModifiers;
-    if (!supportedTokenModifiers || supportedTokenModifiers.length === 0) {
+    if (!supportedTokenModifiers) {
         tokenModifiers = [...defaultTokenModifiers];
         return tokenModifiers;
     }
 
     tokenModifiers = defaultTokenModifiers.filter(value => supportedTokenModifiers.includes(value));
     return tokenModifiers;
+}
+
+export function encodeTokenModifiers(modifiers: readonly string[]): number {
+    let result = 0;
+    for (const modifier of modifiers) {
+        const modifierIndex = tokenModifiers.indexOf(modifier);
+        if (modifierIndex !== -1) {
+            result |= 2 ** modifierIndex;
+        }
+    }
+    return result;
 }
 
 export class SemanticTokenListener extends CMakeParserListener {
@@ -137,14 +149,17 @@ export class SemanticTokenListener extends CMakeParserListener {
     }
 
     private pushTextToken(argCtx: ArgumentContext, text: string, fromOffset: number, tokenType: string): void {
-        const textOffset = argCtx.getText().indexOf(text, fromOffset);
+        const argumentText = argCtx.getText();
+        const textOffset = argumentText.indexOf(text, fromOffset);
         if (textOffset === -1) {
             return;
         }
 
+        const position = positionAtTextOffset(tokenStartPosition(argCtx.start), argumentText, textOffset);
+
         this.pushToken(
-            argCtx.start.line - 1,
-            argCtx.start.column + textOffset,
+            position.line,
+            position.character,
             text.length,
             tokenType,
             []
@@ -157,14 +172,17 @@ export class SemanticTokenListener extends CMakeParserListener {
             return fromOffset + segment.length + 1;
         }
 
-        const textOffset = argCtx.getText().indexOf(trimmed, fromOffset);
+        const argumentText = argCtx.getText();
+        const textOffset = argumentText.indexOf(trimmed, fromOffset);
         if (textOffset === -1) {
             return fromOffset + segment.length + 1;
         }
 
+        const position = positionAtTextOffset(tokenStartPosition(argCtx.start), argumentText, textOffset);
+
         this.pushToken(
-            argCtx.start.line - 1,
-            argCtx.start.column + textOffset,
+            position.line,
+            position.character,
             trimmed.length,
             tokenType,
             []
@@ -251,12 +269,7 @@ export class SemanticTokenListener extends CMakeParserListener {
     }
 
     private getModifiers(modifiers: TokenModifiers[]): number {
-        let result = 0;
-        for (let modifier of modifiers) {
-            result |= modifier;
-        }
-
-        return result;
+        return encodeTokenModifiers(modifiers);
     }
 
     private pushToken(line: number, column: number, length: number, tokenType: string, modifiers: TokenModifiers[]): void {

@@ -386,6 +386,30 @@ arg2  arg3          arg4 )
         });
     });
 
+    test('variable completion should use multiline argument offsets', () => {
+        const input = 'mock_command("prefix\n${CMAKE_SOURCE_DIR}")';
+        const parsed = parseCMakeText(input);
+        const result = getCompletionInfoAtCursor(
+            parsed.flatCommands,
+            { line: 1, character: 5 },
+            parsed.tokenStream,
+        );
+
+        assert.strictEqual(result.type, CMakeCompletionType.Variable);
+    });
+
+    test('bracket arguments should not expose variable completion', () => {
+        const input = 'mock_command([=[prefix\n${CMAKE_SOURCE_DIR}]=])';
+        const parsed = parseCMakeText(input);
+        const result = getCompletionInfoAtCursor(
+            parsed.flatCommands,
+            { line: 1, character: 5 },
+            parsed.tokenStream,
+        );
+
+        assert.strictEqual(result.type, CMakeCompletionType.Argument);
+    });
+
     test('findCommandAtPosition should skip malformed commands without aborting search', () => {
         const validBefore = {
             start: { line: 1 },

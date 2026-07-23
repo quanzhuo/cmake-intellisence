@@ -1,4 +1,5 @@
 import { Position, SignatureHelp, SignatureInformation } from 'vscode-languageserver-types';
+import { getArgumentSlotAtPosition } from './argumentSemantics';
 import * as builtinCmds from './builtin-cmds.json';
 import { CMakeCompletionType, getCompletionInfoAtCursor } from './completion';
 import { FlatCommand } from './flatCommands';
@@ -81,25 +82,7 @@ export function findActiveArgumentIndex(command: FlatCommand, position: Position
         return 0;
     }
 
-    for (let index = 0; index < args.length; index++) {
-        const arg = args[index];
-        const startLine = arg.start.line - 1;
-        const startColumn = arg.start.column;
-        const stopToken = arg.stop ?? arg.start;
-        const endLine = stopToken.line - 1;
-        const endColumn = stopToken.column + stopToken.text.length;
-
-        if (position.line < startLine || (position.line === startLine && position.character < startColumn)) {
-            return index;
-        }
-
-        const afterEnd = position.line > endLine || (position.line === endLine && position.character > endColumn);
-        if (!afterEnd) {
-            return index;
-        }
-    }
-
-    return args.length - 1;
+    return Math.min(getArgumentSlotAtPosition(command, position), args.length - 1);
 }
 
 export function findActiveSignature(command: FlatCommand, signatures: string[], activeArgumentIndex: number): number {

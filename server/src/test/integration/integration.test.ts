@@ -892,6 +892,66 @@ suite('LSP Integration Tests', () => {
         assert.match(hoverContents.value, /Build Preset: linux-debug-build/);
     });
 
+    test('target hover should take precedence over an equal builtin property name', async function () {
+        const uri = 'file:///test-workspace/hover-target-property-collision.txt';
+        const targetName = 'POSITION_INDEPENDENT_CODE';
+        openDocument(uri, `target_link_libraries(app PRIVATE ${targetName})`);
+
+        connection.sendNotification(CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, {
+            workspaceFolderUri: 'file:///test-workspace',
+            snapshot: {
+                workspaceFolderUri: 'file:///test-workspace',
+                sourceUri: uri,
+                projectId: 'test-project-target-property-collision',
+                buildDirectory: '/test-workspace/build',
+                useCMakePresets: false,
+                targetNames: [targetName],
+                testNames: [],
+                generation: 1,
+                sourceKind: 'kylin-cmake-tools',
+            },
+        });
+
+        const result = await connection.sendRequest(HoverRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: `target_link_libraries(app PRIVATE POSITION`.length },
+        });
+
+        assert(result !== null, 'Target hover result should not be null');
+        const hoverContents = result!.contents;
+        assert(!Array.isArray(hoverContents) && typeof hoverContents !== 'string' && 'value' in hoverContents);
+        assert.match(hoverContents.value.replace(/\\/g, ''), /Target: POSITION_INDEPENDENT_CODE/);
+        assert.doesNotMatch(hoverContents.value, /property is initialized/);
+    });
+
+    test('builtin variable hover should require a semantic variable occurrence', async function () {
+        const uri = 'file:///test-workspace/hover-variable-literal.txt';
+        openDocument(uri, 'message(STATUS CMAKE_BUILD_TYPE)');
+
+        const result = await connection.sendRequest(HoverRequest.type, {
+            textDocument: { uri },
+            position: { line: 0, character: 'message(STATUS CMAKE_BUILD'.length },
+        });
+
+        assert.strictEqual(result, null);
+    });
+
+    test('a user command shadowing a builtin should not show builtin hover help', async function () {
+        const uri = 'file:///test-workspace/hover-shadowed-command.txt';
+        openDocument(uri, [
+            'function(message)',
+            'endfunction()',
+            'message(STATUS hello)',
+        ].join('\n'));
+
+        const result = await connection.sendRequest(HoverRequest.type, {
+            textDocument: { uri },
+            position: { line: 2, character: 3 },
+        });
+
+        assert.strictEqual(result, null);
+    });
+
     test('should provide hover information for snapshot-backed tests', async function () {
         const uri = 'file:///test-workspace/hover-test.txt';
         openDocument(uri, 'get_test_property(SmokeSuite PROPERTY TIMEOUT)');
@@ -1750,6 +1810,34 @@ suite('LSP Integration Tests', () => {
         const quickFix = actions[0] as { title?: string; edit?: { changes?: Record<string, Array<{ newText: string }>> } };
         assert(quickFix.title?.includes('PROJECT'), 'Quick fix title should reference the offending command');
         assert.strictEqual(quickFix.edit?.changes?.[uri]?.[0]?.newText, 'project');
+    });
+
+    test('command-case quick fixes should edit each diagnostic range instead of the request range', async function () {
+        const uri = 'file:///test-workspace/code-action-multiple-case.txt';
+        const content = 'PROJECT(One)\nMESSAGE(STATUS hello)';
+        const diagPromise = waitForDiagnostics(uri);
+        openDocument(uri, content);
+
+        const diagnostics = await diagPromise;
+        const caseDiagnostics = diagnostics.diagnostics.filter(diagnostic => diagnostic.code === 0);
+        assert.strictEqual(caseDiagnostics.length, 2);
+
+        const actions = await connection.sendRequest(CodeActionRequest.type, {
+            textDocument: { uri },
+            range: {
+                start: { line: 0, character: 0 },
+                end: { line: 1, character: content.split('\n')[1].length },
+            },
+            context: { diagnostics: caseDiagnostics },
+        });
+
+        assert(actions !== null && actions.length === 2);
+        const edits = actions.map(action => {
+            assert('edit' in action && action.edit?.changes);
+            return action.edit!.changes![uri][0];
+        });
+        assert.deepStrictEqual(edits.map(edit => edit.range), caseDiagnostics.map(diagnostic => diagnostic.range));
+        assert.deepStrictEqual(edits.map(edit => edit.newText), ['project', 'message']);
     });
 
     test('should apply changed configuration to subsequent diagnostics', async function () {

@@ -22,6 +22,14 @@ suite('Signature Help Tests', () => {
         assert.strictEqual(lastArgIndex, 5);
     });
 
+    test('findActiveArgumentIndex should locate a multiline argument', () => {
+        const command = parseCMakeText('message("first\nsecond" STATUS)').flatCommands[0];
+
+        const activeIndex = findActiveArgumentIndex(command, { line: 1, character: 3 });
+
+        assert.strictEqual(activeIndex, 0);
+    });
+
     test('findActiveSignature should prefer the overload matching present keywords', () => {
         const command = parseCMakeText('add_library(foo OBJECT bar.cpp)').flatCommands[0];
         const signatures = [

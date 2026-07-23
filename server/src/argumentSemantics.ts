@@ -23,6 +23,7 @@ export enum DefinitionSubject {
     Target = 'target',
     Test = 'test',
     FilePath = 'file-path',
+    Property = 'property',
     IncludeModule = 'include-module',
     FindPackage = 'find-package',
 }
@@ -199,6 +200,7 @@ function resolveCursorText(command: FlatCommand, subject: DefinitionSubject, wor
             case DefinitionSubject.Test:
             case DefinitionSubject.FilePath:
                 return argumentSpan.text;
+            case DefinitionSubject.Property:
             case DefinitionSubject.IncludeModule:
             case DefinitionSubject.FindPackage:
                 return normalizeQuotedArgument(argumentSpan.text);
@@ -372,6 +374,23 @@ export function getArgumentSpanAtPosition(command: FlatCommand, pos: Position): 
     }
 
     return null;
+}
+
+export function getArgumentSlotAtPosition(command: FlatCommand, pos: Position): number {
+    const activeArgument = getArgumentSpanAtPosition(command, pos);
+    if (activeArgument) {
+        return activeArgument.argumentIndex;
+    }
+
+    const args = command.argument_list();
+    for (const [index, arg] of args.entries()) {
+        const startLine = arg.start.line - 1;
+        if (pos.line < startLine || (pos.line === startLine && pos.character < arg.start.column)) {
+            return index;
+        }
+    }
+
+    return args.length;
 }
 
 function isCommandPosition(command: FlatCommand, _word: string, pos: Position): boolean {
@@ -638,6 +657,10 @@ function getDefinitionSubject(command: FlatCommand, word: string, pos: Position)
         return DefinitionSubject.Test;
     }
 
+    if (isPropertyArgumentIndex(command, argumentSpan.argumentIndex)) {
+        return DefinitionSubject.Property;
+    }
+
     const commandName = command.ID().symbol.text.toLowerCase();
     switch (commandName) {
         case 'include':
@@ -711,6 +734,8 @@ export function resolveCursorTarget(command: FlatCommand, word: string, pos: Pos
             return { text, subject, semanticKind: ArgumentSemanticKind.Test, argumentSpan };
         case DefinitionSubject.FilePath:
             return { text, subject, semanticKind: ArgumentSemanticKind.FilePath, argumentSpan };
+        case DefinitionSubject.Property:
+            return { text, subject, semanticKind: ArgumentSemanticKind.Property, argumentSpan };
         case DefinitionSubject.IncludeModule:
             return { text, subject, semanticKind: ArgumentSemanticKind.IncludeModule, argumentSpan };
         case DefinitionSubject.FindPackage:

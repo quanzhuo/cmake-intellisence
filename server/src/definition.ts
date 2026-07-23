@@ -192,6 +192,7 @@ export class DefinitionResolver extends SymbolResolverBase {
             case DefinitionSubject.FindPackage:
                 return this.tryResolveFileDefinition(position);
             case DefinitionSubject.Test:
+            case DefinitionSubject.Property:
                 return null;
             default:
                 break;

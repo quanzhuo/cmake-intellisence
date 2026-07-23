@@ -1,15 +1,15 @@
-import { ParseTreeWalker, Token } from 'antlr4';
+import { ParseTreeWalker } from 'antlr4';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CompletionParams, DefinitionParams, Disposable, DocumentFormattingParams, DocumentLinkParams, DocumentSymbolParams } from 'vscode-languageserver-protocol';
 import { Range, TextDocument, TextEdit } from 'vscode-languageserver-textdocument';
 import { CodeAction, Command, CompletionItem, CompletionList, DocumentLink, DocumentSymbol, Hover, Location, LocationLink, Position, SemanticTokens, SemanticTokensDelta, SignatureHelp, SymbolInformation } from 'vscode-languageserver-types';
-import { CancellationToken, CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, DidChangeWatchedFilesParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, ProposedFeatures, ReferenceParams, RenameParams, SemanticTokensDeltaParams, SemanticTokensParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceFoldersChangeEvent, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
+import { CancellationToken, CodeActionKind, CodeActionParams, DidChangeConfigurationNotification, DidChangeConfigurationParams, DidChangeWatchedFilesParams, HoverParams, InitializeParams, InitializeResult, InitializedParams, LSPErrorCodes, ProposedFeatures, ReferenceParams, RenameParams, ResponseError, SemanticTokensDeltaParams, SemanticTokensParams, SignatureHelpParams, TextDocumentChangeEvent, TextDocumentSyncKind, TextDocuments, WorkspaceEdit, WorkspaceFoldersChangeEvent, WorkspaceSymbolParams, createConnection } from 'vscode-languageserver/node';
 import { URI, Utils } from 'vscode-uri';
 import { ArgumentSemanticKind, DefinitionSubject, resolveCursorTarget } from './argumentSemantics';
 import { loadBuiltinModuleCommandCatalog, warmBuiltinModuleCaches } from './builtinModuleIndex';
-import { isCancellationError, throwIfCancelled } from './cancellation';
+import { isCancellationError, throwIfCancelled, waitForCancellation } from './cancellation';
 import { CMakeCacheEntriesByName, getCacheEntryByName, loadCMakeCacheEntries } from './cmakeCache';
 import { BuiltinEntriesLoadStats, ExtensionSettings, initializeCMakeEnvironment } from './cmakeEnvironment';
 import { CONFIGURATION_SECTION, resolveExtensionSettings } from './config';
@@ -31,6 +31,7 @@ import { RenameResolver } from './rename';
 import { rstToMarkdown } from './rstToMarkdown';
 import { SemanticTokenListener, createTokenBuilder, deleteTokenBuilder, getTokenBuilder, getTokenModifiers, getTokenTypes } from './semanticTokens';
 import { buildSignatureHelp, buildSignatureHelpForInvocation } from './signatureHelp';
+import { textOffsetAtPosition } from './sourcePosition';
 import { ReferenceBinding, SymbolBindingResolver } from './symbolBinding';
 import { extractSymbols } from './symbolExtractor';
 import { SymbolIndex, SymbolOccurrence } from './symbolIndex';
@@ -39,6 +40,7 @@ import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, CMakeToolsProjectSnapshot, C
 import { PathExpressionResolver } from './pathExpressionResolver';
 import { ParsedFileSnapshot, ParsedFileStore, SourceRevision, sourceRevisionKey, sourceRevisionsEqual } from './parsedFileStore';
 import { parseCMakeText } from './utils';
+import { findVariableReferences } from './variableReferences';
 import { WorkspaceSymbolResolver } from './workspaceSymbol';
 import { WorkspaceCMakeFilePolicy } from './workspaceScanner';
 
@@ -148,7 +150,7 @@ export class CMakeLanguageServer {
             this.connection.onInitialized(this.wrapNotification('initialized', this.onInitialized.bind(this))),
             this.connection.onHover(this.wrapRequest('hover', this.onHover.bind(this), null)),
             this.connection.onCompletion(this.wrapRequest('completion', this.onCompletion.bind(this), null)),
-            this.connection.onCompletionResolve(this.wrapRequest('completionResolve', this.onCompletionResolve.bind(this), undefined as unknown as CompletionItem)),
+            this.connection.onCompletionResolve(this.wrapRequest('completionResolve', this.onCompletionResolve.bind(this), item => item)),
             this.connection.onSignatureHelp(this.wrapRequest('signatureHelp', this.onSignatureHelp.bind(this), null)),
             this.connection.onDocumentFormatting(this.wrapRequest('documentFormatting', this.onDocumentFormatting.bind(this), null)),
             this.connection.onDocumentSymbol(this.wrapRequest('documentSymbol', this.onDocumentSymbol.bind(this), null)),
@@ -229,17 +231,24 @@ export class CMakeLanguageServer {
     private wrapRequest<TArgs extends unknown[], TResult>(
         handlerName: string,
         handler: (...args: TArgs) => Promise<TResult> | TResult,
-        fallbackValue: TResult,
+        fallback: TResult | ((...args: TArgs) => TResult),
     ): (...args: TArgs) => Promise<TResult> {
         return async (...args: TArgs): Promise<TResult> => {
             try {
-                return await handler(...args);
+                const token = args[1] as CancellationToken | undefined;
+                throwIfCancelled(token);
+                return await waitForCancellation(Promise.resolve(handler(...args)), token);
             } catch (error) {
                 if (isCancellationError(error)) {
-                    return fallbackValue;
+                    throw new ResponseError(LSPErrorCodes.RequestCancelled, 'Request cancelled');
+                }
+                if (error instanceof ResponseError) {
+                    throw error;
                 }
                 this.logUnhandledHandlerError(handlerName, error);
-                return fallbackValue;
+                return typeof fallback === 'function'
+                    ? (fallback as (...fallbackArgs: TArgs) => TResult)(...args)
+                    : fallback;
             }
         };
     }
@@ -553,89 +562,71 @@ export class CMakeLanguageServer {
             return this.getCacheVariableHover(workspaceState, word);
         }
 
-        const commandToken: Token | null = hoveredCommand?.ID().symbol ?? null;
-        const commandName = (hoveredCommand?.ID().symbol.text ?? recoveredCommandName ?? '').toLowerCase();
-
-        let arg = '', category = '';
         const systemCache = workspaceState.symbolIndex.getSystemCache();
-        const hoveredVariableName = this.getHoveredVariableName(params, hoveredCommand, word);
-        const hoveringCommandToken = commandToken
-            ? ((params.position.line + 1 === commandToken.line) && (params.position.character <= commandToken.column + commandToken.text.length))
-            : (recoveredCommandInfo?.isOnCommandName ?? false);
-
-        if (hoveringCommandToken && systemCache.commands.has(commandName.toLowerCase())) {
-            arg = '--help-command';
-            category = 'command';
-            word = commandName;
-        } else if (commandName === 'include' && systemCache.modules.has(word)) {
-            arg = '--help-module';
-            category = 'module';
-        } else if (commandName === 'cmake_policy' && systemCache.policies.has(word)) {
-            arg = '--help-policy';
-            category = 'policy';
-        } else if (systemCache.variables.has(word)) {
-            arg = '--help-variable';
-            category = 'variable';
-        } else if (systemCache.properties.has(word)) {
-            arg = '--help-property';
-            category = 'property';
+        const commandName = (hoveredCommand?.ID().symbol.text ?? recoveredCommandName ?? '').toLowerCase();
+        const cursorTarget = hoveredCommand
+            ? resolveCursorTarget(hoveredCommand, word, params.position)
+            : null;
+        const hoveredVariableName = cursorTarget?.subject === DefinitionSubject.Variable
+            && cursorTarget.text.length !== 0
+            && this.hasVariableOccurrence(workspaceState, params.textDocument.uri, params.position, cursorTarget)
+            ? cursorTarget.text
+            : null;
+        let helpRequest: { arg: string; category: string; label: string } | null = null;
+        if (recoveredCommandInfo?.isOnCommandName && systemCache.commands.has(commandName)) {
+            helpRequest = { arg: '--help-command', category: 'command', label: commandName };
+        } else if (cursorTarget?.subject === DefinitionSubject.Command) {
+            const label = cursorTarget.text.toLowerCase();
+            if (systemCache.commands.has(label)
+                && !this.hasUserCommandBinding(workspaceState, params.textDocument.uri, params.position)) {
+                helpRequest = { arg: '--help-command', category: 'command', label };
+            }
+        } else if (cursorTarget?.subject === DefinitionSubject.IncludeModule
+            && systemCache.modules.has(cursorTarget.text)) {
+            helpRequest = { arg: '--help-module', category: 'module', label: cursorTarget.text };
+        } else if (commandName === 'cmake_policy' && systemCache.policies.has(cursorTarget?.text ?? word)) {
+            helpRequest = { arg: '--help-policy', category: 'policy', label: cursorTarget?.text ?? word };
+        } else if (cursorTarget?.subject === DefinitionSubject.Variable
+            && hoveredVariableName !== null
+            && systemCache.variables.has(cursorTarget.text)) {
+            helpRequest = { arg: '--help-variable', category: 'variable', label: cursorTarget.text };
+        } else if (cursorTarget?.subject === DefinitionSubject.Property
+            && systemCache.properties.has(cursorTarget.text)) {
+            helpRequest = { arg: '--help-property', category: 'property', label: cursorTarget.text };
         }
 
-        if (arg.length !== 0) {
+        if (helpRequest) {
             try {
                 throwIfCancelled(token);
-                const stdout = await this.getCMakeHelp(workspaceState, arg, word);
+                let helpLabel = helpRequest.label;
+                let stdout = await this.getCMakeHelp(workspaceState, helpRequest.arg, helpLabel);
                 throwIfCancelled(token);
-                if (stdout === null) {
-                    return this.getCacheVariableHover(workspaceState, hoveredVariableName);
+                const languagePlaceholderPattern = /_(CXX|C)(_)?$/;
+                if (stdout === null && languagePlaceholderPattern.test(helpLabel)) {
+                    const modifiedLabel = helpLabel.replace(languagePlaceholderPattern, '_<LANG>$2');
+                    stdout = await this.getCMakeHelp(workspaceState, helpRequest.arg, modifiedLabel);
+                    throwIfCancelled(token);
+                    if (stdout !== null) {
+                        this.logger.debug(`Hover help fallback succeeded for ${helpLabel} -> ${modifiedLabel}`);
+                    }
                 }
 
-                return {
-                    contents: {
-                        kind: 'markdown',
-                        value: category === 'variable'
-                            ? this.appendCacheEntryDetails(stdout, workspaceState, hoveredVariableName)
-                            : stdout,
-                    }
-                };
+                if (stdout !== null) {
+                    return {
+                        contents: {
+                            kind: 'markdown',
+                            value: helpRequest.category === 'variable'
+                                ? this.appendCacheEntryDetails(stdout, workspaceState, hoveredVariableName)
+                                : stdout,
+                        }
+                    };
+                }
 
             } catch (error) {
                 if (isCancellationError(error)) {
                     throw error;
                 }
-
-                const pattern = /_(CXX|C)(_)?$/;
-                if (pattern.test(word)) {
-                    const modifiedWord = word.replace(pattern, '_<LANG>$2');
-                    throwIfCancelled(token);
-                    const modifiedStdout = await this.getCMakeHelp(workspaceState, arg, modifiedWord);
-                    throwIfCancelled(token);
-                    if (modifiedStdout !== null) {
-                        this.logger.debug(`Hover help fallback succeeded for ${word} -> ${modifiedWord}`);
-                        return {
-                            contents: {
-                                kind: 'markdown',
-                                value: category === 'variable'
-                                    ? this.appendCacheEntryDetails(modifiedStdout, workspaceState, hoveredVariableName)
-                                    : modifiedStdout,
-                            }
-                        };
-                    }
-                    return this.getCacheVariableHover(workspaceState, hoveredVariableName);
-                }
-
-                this.logger.debug(`Hover help lookup failed for ${category || 'unknown'} ${word}: ${error instanceof Error ? error.message : String(error)}`);
-                const cacheHover = this.getCacheVariableHover(workspaceState, hoveredVariableName);
-                if (cacheHover) {
-                    return cacheHover;
-                }
-
-                const filePathHover = await this.getResolvedFileHover(params, workspaceState, hoveredCommand, word, token);
-                if (filePathHover) {
-                    return filePathHover;
-                }
-
-                return this.getSnapshotEntityHover(params, workspaceState, hoveredCommand, word);
+                this.logger.debug(`Hover help lookup failed for ${helpRequest.category} ${helpRequest.label}: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
 
@@ -650,6 +641,51 @@ export class CMakeLanguageServer {
         }
 
         return this.getSnapshotEntityHover(params, workspaceState, hoveredCommand, word);
+    }
+
+    private hasUserCommandBinding(
+        workspaceState: WorkspaceState,
+        uri: string,
+        position: Position,
+    ): boolean {
+        const resolver = new SymbolBindingResolver(
+            workspaceState.symbolIndex,
+            this.getEntryFilePath(uri),
+            uri,
+        );
+        const occurrence = resolver.findOccurrenceAt(position, 'command');
+        return !!occurrence && resolver.resolveDefinitions(occurrence, false).declarations.length > 0;
+    }
+
+    private hasVariableOccurrence(
+        workspaceState: WorkspaceState,
+        uri: string,
+        position: Position,
+        cursorTarget: ReturnType<typeof resolveCursorTarget>,
+    ): boolean {
+        const resolver = new SymbolBindingResolver(
+            workspaceState.symbolIndex,
+            this.getEntryFilePath(uri),
+            uri,
+        );
+        const indexedOccurrence = !!resolver.findOccurrenceAt(position, 'variable')
+            || !!resolver.findOccurrenceAt(position, 'cache-variable')
+            || !!resolver.findOccurrenceAt(position, 'environment-variable');
+        if (indexedOccurrence) {
+            return true;
+        }
+
+        const argumentSpan = cursorTarget.argumentSpan;
+        if (!argumentSpan) {
+            return false;
+        }
+        const cursorOffset = textOffsetAtPosition(argumentSpan.start, argumentSpan.text, position);
+        return cursorOffset !== null && findVariableReferences(
+            argumentSpan.text,
+            argumentSpan.allowsVariableExpansion,
+        ).some(reference => reference.name === cursorTarget.text
+            && cursorOffset >= reference.referenceStartOffset
+            && cursorOffset <= reference.referenceEndOffset);
     }
 
     private isPathInsideDirectory(parentPath: string, childPath: string): boolean {
@@ -710,21 +746,6 @@ export class CMakeLanguageServer {
                 value: details.join('  \n'),
             }
         };
-    }
-
-    private getHoveredVariableName(
-        params: HoverParams,
-        hoveredCommand: FlatCommand | null,
-        word: string,
-    ): string | null {
-        if (hoveredCommand) {
-            const cursorTarget = resolveCursorTarget(hoveredCommand, word, params.position);
-            if (cursorTarget.subject === DefinitionSubject.Variable && cursorTarget.text.length !== 0) {
-                return cursorTarget.text;
-            }
-        }
-
-        return word.length !== 0 ? word : null;
     }
 
     private async ensureWorkspaceCacheEntriesLoaded(workspaceState: WorkspaceState): Promise<void> {
@@ -1096,16 +1117,17 @@ export class CMakeLanguageServer {
         }
     }
 
-    private onCompletionResolve(item: CompletionItem): Promise<CompletionItem> {
+    private async onCompletionResolve(item: CompletionItem, token: CancellationToken): Promise<CompletionItem> {
+        throwIfCancelled(token);
         const workspaceState = this.getWorkspaceStateByKey(getCompletionWorkspaceKey(item.data));
         const completionType = getCompletionItemType(item.data);
         if (completionType === undefined) {
-            return Promise.resolve(item);
+            return item;
         }
 
         if (completionType === CompletionItemType.PkgConfigModules) {
             item.documentation = workspaceState?.symbolIndex.pkgConfigModules.get(item.label);
-            return Promise.resolve(item);
+            return item;
         }
 
         let helpArg = '';
@@ -1126,28 +1148,30 @@ export class CMakeLanguageServer {
                 helpArg = '--help-property';
                 break;
             default:
-                return Promise.resolve(item);
+                return item;
         }
         const helpLabel = getCompletionHelpLabel(item.data) ?? item.label;
         if (!workspaceState) {
-            return Promise.resolve(item);
+            return item;
         }
 
-        return this.getCMakeHelp(workspaceState, helpArg, helpLabel, true).then(stdout => {
-            if (stdout !== null) {
-                item.documentation = {
-                    kind: 'markdown',
-                    value: stdout,
-                };
-            }
-            return item;
-        });
+        const stdout = await this.getCMakeHelp(workspaceState, helpArg, helpLabel, true);
+        throwIfCancelled(token);
+        if (stdout !== null) {
+            item.documentation = {
+                kind: 'markdown',
+                value: stdout,
+            };
+        }
+        return item;
     }
 
-    private async onSignatureHelp(params: SignatureHelpParams): Promise<SignatureHelp | null> {
+    private async onSignatureHelp(params: SignatureHelpParams, token: CancellationToken): Promise<SignatureHelp | null> {
+        throwIfCancelled(token);
         const pos = params.position;
         const uri = params.textDocument.uri;
         const snapshot = await this.ensureParsedFile(uri, 'signature help');
+        throwIfCancelled(token);
         const commands = snapshot.flatCommands;
         const tokenStream = snapshot.tokenStream;
         const completionInfo = getCompletionInfoAtCursor(commands, pos, tokenStream);
@@ -1165,7 +1189,8 @@ export class CMakeLanguageServer {
         return buildSignatureHelp(command, pos, commands);
     }
 
-    private async onDocumentFormatting(params: DocumentFormattingParams): Promise<TextEdit[] | null> {
+    private async onDocumentFormatting(params: DocumentFormattingParams, token: CancellationToken): Promise<TextEdit[] | null> {
+        throwIfCancelled(token);
         const uri = params.textDocument.uri;
         const document = this.documents.get(uri);
         if (!document) {
@@ -1175,6 +1200,7 @@ export class CMakeLanguageServer {
         const documentVersion = document.version;
         const originalText = document.getText();
         const snapshot = await this.ensureParsedFile(uri, 'formatting');
+        throwIfCancelled(token);
         const currentDocument = this.documents.get(uri);
         if (
             !currentDocument ||
@@ -1221,10 +1247,13 @@ export class CMakeLanguageServer {
         ];
     }
 
-    private async onDocumentSymbol(params: DocumentSymbolParams): Promise<DocumentSymbol[] | SymbolInformation[] | null> {
+    private async onDocumentSymbol(params: DocumentSymbolParams, token: CancellationToken): Promise<DocumentSymbol[] | SymbolInformation[] | null> {
+        throwIfCancelled(token);
         const snapshot = await this.ensureParsedFile(params.textDocument.uri, 'document symbols');
+        throwIfCancelled(token);
         const symbolListener = new SymbolListener();
         ParseTreeWalker.DEFAULT.walk(symbolListener, snapshot.fileContext);
+        throwIfCancelled(token);
         return symbolListener.getSymbols();
     }
 
@@ -1511,17 +1540,20 @@ export class CMakeLanguageServer {
         }
     }
 
-    private async onSemanticTokens(params: SemanticTokensParams): Promise<SemanticTokens> {
+    private async onSemanticTokens(params: SemanticTokensParams, token: CancellationToken): Promise<SemanticTokens> {
+        throwIfCancelled(token);
         const document = this.documents.get(params.textDocument.uri);
         if (document === undefined) {
             return { data: [] };
         }
 
         while (this.documents.get(document.uri)) {
+            throwIfCancelled(token);
             const workspaceState = this.getWorkspaceStateForUri(document.uri);
             const analysisGeneration = workspaceState.analysisGeneration;
             const requestGeneration = workspaceState.requestGeneration;
             const snapshot = await this.ensureParsedFile(document.uri, 'semantic tokens');
+            throwIfCancelled(token);
             if (!await this.ensureFileIndexedAsync(document.uri, snapshot, analysisGeneration)
                 || workspaceState.analysisGeneration !== analysisGeneration
                 || workspaceState.requestGeneration !== requestGeneration
@@ -1534,23 +1566,27 @@ export class CMakeLanguageServer {
             const builder = createTokenBuilder(document.uri);
             const semanticListener = new SemanticTokenListener(docUri.toString(), workspaceState.symbolIndex, entryUri, builder);
             ParseTreeWalker.DEFAULT.walk(semanticListener, snapshot.fileContext);
+            throwIfCancelled(token);
             return semanticListener.getSemanticTokens();
         }
 
         return { data: [] };
     }
 
-    private async onSemanticTokensDelta(params: SemanticTokensDeltaParams): Promise<SemanticTokens | SemanticTokensDelta> {
+    private async onSemanticTokensDelta(params: SemanticTokensDeltaParams, token: CancellationToken): Promise<SemanticTokens | SemanticTokensDelta> {
+        throwIfCancelled(token);
         const document = this.documents.get(params.textDocument.uri);
         if (document === undefined) {
             return { edits: [] };
         }
 
         while (this.documents.get(document.uri)) {
+            throwIfCancelled(token);
             const workspaceState = this.getWorkspaceStateForUri(document.uri);
             const analysisGeneration = workspaceState.analysisGeneration;
             const requestGeneration = workspaceState.requestGeneration;
             const snapshot = await this.ensureParsedFile(document.uri, 'semantic tokens delta');
+            throwIfCancelled(token);
             if (!await this.ensureFileIndexedAsync(document.uri, snapshot, analysisGeneration)
                 || workspaceState.analysisGeneration !== analysisGeneration
                 || workspaceState.requestGeneration !== requestGeneration
@@ -1564,6 +1600,7 @@ export class CMakeLanguageServer {
             const entryUri = this.getEntryFilePath(document.uri);
             const semanticListener = new SemanticTokenListener(docUri.toString(), workspaceState.symbolIndex, entryUri, builder);
             ParseTreeWalker.DEFAULT.walk(semanticListener, snapshot.fileContext);
+            throwIfCancelled(token);
             return semanticListener.buildEdits();
         }
 
@@ -1571,34 +1608,37 @@ export class CMakeLanguageServer {
     }
 
     private onCodeAction(params: CodeActionParams): (Command | CodeAction)[] | null {
-        const isCmdCaseProblem = params.context.diagnostics.some(value => { return value.code === DIAG_CODE_CMD_CASE; });
-        if (isCmdCaseProblem) {
-            const document = this.documents.get(params.textDocument.uri);
-            if (!document) {
-                return null;
-            }
-            const cmdName: string = document.getText(params.range);
-            return [
-                {
-                    title: localize('codeAction.cmdCase', cmdName),
+        if (params.context.only
+            && !params.context.only.some(kind => kind === CodeActionKind.Empty
+                || kind === CodeActionKind.QuickFix)) {
+            return [];
+        }
+
+        const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+            return null;
+        }
+
+        return params.context.diagnostics
+            .filter(diagnostic => diagnostic.code === DIAG_CODE_CMD_CASE
+                && diagnostic.source === 'cmake-intellisense')
+            .map(diagnostic => {
+                const commandName = document.getText(diagnostic.range);
+                return {
+                    title: localize('codeAction.cmdCase', commandName),
                     kind: CodeActionKind.QuickFix,
-                    diagnostics: params.context.diagnostics,
+                    diagnostics: [diagnostic],
                     isPreferred: true,
                     edit: {
                         changes: {
-                            [params.textDocument.uri]: [
-                                {
-                                    range: params.range,
-                                    newText: cmdName.toLowerCase()
-                                }
-                            ]
+                            [params.textDocument.uri]: [{
+                                range: diagnostic.range,
+                                newText: commandName.toLowerCase(),
+                            }]
                         }
                     }
-                }
-            ];
-        }
-
-        return [];
+                };
+            });
     }
 
     /**
