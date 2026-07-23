@@ -1,0 +1,7 @@
+set(PARENT_NAME global)
+function(update_parent)
+    set(PARENT_NAME local)
+    set(PARENT_NAME propagated PARENT_SCOPE)
+    message("${PARENT_NAME}")
+endfunction()
+message("${PARENT_NAME}")

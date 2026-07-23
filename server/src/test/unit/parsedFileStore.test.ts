@@ -8,7 +8,6 @@ function createSnapshot(uri: string, revision: SourceRevision, text: string): Pa
         uri,
         revision,
         dependencyFingerprint: text,
-        targetInfoFingerprint: text,
     };
 }
 

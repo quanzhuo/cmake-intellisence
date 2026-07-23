@@ -2,15 +2,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { URI } from 'vscode-uri';
 import * as which from 'which';
-import { ProjectTargetInfo } from './completion';
-import { FlatCommand } from './flatCommands';
-import { PathExpressionRequest, PathExpressionResolver } from './pathExpressionResolver';
 import paths, { mkdir_p } from './paths';
 import { execFilePromise } from './processUtils';
 import { FileSymbolCache, Symbol, SymbolIndex, SymbolKind } from './symbolIndex';
-import { getFindPackageUri, getIncludeFileUri, getIncludeModuleUri } from './utils';
 
 export interface ExtensionSettings {
     loggingLevel: string;
@@ -19,9 +14,7 @@ export interface ExtensionSettings {
     cmdCaseDiagnostics: boolean;
     workspaceIgnoreDirectories?: string[];
     excludeCMakeBuildDirectories?: boolean;
-    enableCMakeToolsIntegration: boolean;
 }
-
 const CMAKE_CACHE_FINGERPRINT_SCHEMA_VERSION = 1;
 const builtinEntriesMemo = new Map<string, Promise<[Set<string>, Set<string>, Set<string>, Set<string>, Set<string>]>>();
 const cmakeRootMemo = new Map<string, Promise<string | null>>();
@@ -150,7 +143,7 @@ export async function initializeCMakeEnvironment(
     for (const command of commands) {
         systemCache.addCommand(new Symbol(command, SymbolKind.BuiltinCommand, uri, 0, 0));
     }
-    for (const variable of expandVariables(variables)) {
+    for (const variable of expandTemplateEntries(variables)) {
         systemCache.addVariable(new Symbol(variable, SymbolKind.BuiltinVariable, uri, 0, 0));
     }
     for (const moduleName of modules) {
@@ -159,7 +152,7 @@ export async function initializeCMakeEnvironment(
     for (const policy of policies) {
         systemCache.addPolicy(new Symbol(policy, SymbolKind.Policy, uri, 0, 0));
     }
-    for (const property of expandProperties(properties)) {
+    for (const property of expandTemplateEntries(properties)) {
         systemCache.addProperty(new Symbol(property, SymbolKind.Property, uri, 0, 0));
     }
 
@@ -185,81 +178,23 @@ function resolveExecutablePath(executable: string, label: string): string {
     return absPath;
 }
 
-function expandVariables(variables: Set<string>): Set<string> {
-    const expandedVariables = new Set<string>();
-    const languages = ['C', 'CXX'];
-    const buildTypes = ['DEBUG', 'RELEASE', 'MINSIZEREL', 'RELWITHDEBINFO'];
-
-    const countLeftAngle = (str: string): number => (str.match(/</g)?.length ?? 0);
-
-    for (const variable of variables) {
-        const angleCount = countLeftAngle(variable);
-
-        if (angleCount === 0) {
-            expandedVariables.add(variable);
-        } else if (angleCount === 1) {
-            if (variable.includes('<LANG>')) {
-                for (const lang of languages) {
-                    expandedVariables.add(variable.replace('<LANG>', lang));
-                }
-            } else if (variable.includes('<CONFIG>')) {
-                for (const buildType of buildTypes) {
-                    expandedVariables.add(variable.replace('<CONFIG>', buildType));
-                }
-            } else {
-                // FIXME: <PROJECT-NAME> <PackageName> <FEATURE> <n> <NNNN> <an-attribute>
-                // 这些情况暂不处理
-                expandedVariables.add(variable);
-            }
-        } else if (angleCount === 2) {
-            if (variable.includes('<LANG>') && variable.includes('<CONFIG>')) {
-                for (const lang of languages) {
-                    for (const buildType of buildTypes) {
-                        expandedVariables.add(variable.replace('<LANG>', lang).replace('<CONFIG>', buildType));
-                    }
-                }
-            } else {
-                // FIXME: 其他包含两个尖括号的变量，暂不处理
-                // 1. <LANG> 和 <FEATURE>
-                // 2. <LANG> 和 <TYPE>
-                expandedVariables.add(variable);
-            }
-        } else {
-            // 包含三个或以上尖括号的变量，暂不处理
-            expandedVariables.add(variable);
+function expandTemplateEntries(entries: Set<string>): Set<string> {
+    const placeholders: ReadonlyArray<readonly [string, readonly string[]]> = [
+        ['<LANG>', ['C', 'CXX']],
+        ['<CONFIG>', ['DEBUG', 'RELEASE', 'MINSIZEREL', 'RELWITHDEBINFO']],
+    ];
+    const result = new Set<string>();
+    for (const entry of entries) {
+        let variants = [entry];
+        for (const [placeholder, values] of placeholders) {
+            variants = variants.flatMap(variant => variant.includes(placeholder)
+                ? values.map(value => variant.split(placeholder).join(value))
+                : [variant]
+            );
         }
+        variants.forEach(variant => result.add(variant));
     }
-    return expandedVariables;
-}
-
-function expandProperties(properties: Set<string>): Set<string> {
-    const expandedProperties = new Set<string>();
-    const languages = ['C', 'CXX'];
-    const buildTypes = ['DEBUG', 'RELEASE', 'MINSIZEREL', 'RELWITHDEBINFO'];
-    const countLeftAngle = (str: string): number => (str.match(/</g)?.length ?? 0);
-    for (const property of properties) {
-        const angleCount = countLeftAngle(property);
-        if (angleCount === 0) {
-            expandedProperties.add(property);
-        } else if (angleCount === 1) {
-            if (property.includes('<LANG>')) {
-                for (const lang of languages) {
-                    expandedProperties.add(property.replace('<LANG>', lang));
-                }
-            } else if (property.includes('<CONFIG>')) {
-                for (const buildType of buildTypes) {
-                    expandedProperties.add(property.replace('<CONFIG>', buildType));
-                }
-            } else {
-                // FIXME: <NAME> <LIBRARY> <tagname> <refname> <variable> <section> <tool> <an-attribute>
-                expandedProperties.add(property);
-            }
-        } else {
-            // FIXME: <tagname> 和 <refname> 可能会出现在同一个属性中，暂不处理
-            expandedProperties.add(property);
-        }
-    }
-    return expandedProperties;
+    return result;
 }
 
 async function getCMakeModulePath(cmakePath: string, cacheFingerprint: CMakeCacheFingerprint): Promise<string | undefined> {
@@ -589,137 +524,5 @@ async function getPkgConfigModules(pkgConfigPath: string): Promise<Map<string, s
     } catch (error) {
         pkgConfigModulesMemo.delete(memoKey);
         throw error;
-    }
-}
-
-export class ProjectTargetInfoListener {
-    targetInfo: ProjectTargetInfo;
-    private pathExpressionResolver?: PathExpressionResolver;
-
-    constructor(
-        private symbolIndex: SymbolIndex,
-        private currentCMake: string,
-        private baseDirectory: string,
-        private loadFlatCommands: (uri: string) => Promise<FlatCommand[]>,
-        private parsedFiles: Set<string>,
-        private workspaceFolder: string,
-        targetInfo?: ProjectTargetInfo,
-        private entryCMake: string = currentCMake,
-    ) {
-        this.targetInfo = targetInfo ?? {} as ProjectTargetInfo;
-    }
-
-    private getPathExpressionResolver(): PathExpressionResolver {
-        if (!this.pathExpressionResolver) {
-            this.pathExpressionResolver = new PathExpressionResolver({
-                symbolIndex: this.symbolIndex,
-                getFlatCommands: this.loadFlatCommands,
-                entryFile: URI.parse(this.entryCMake),
-            });
-        }
-
-        return this.pathExpressionResolver;
-    }
-
-    private createPathExpressionRequest(commandName: string, argText: string, maxLine: number): PathExpressionRequest {
-        return {
-            commandName,
-            argText,
-            sourceUri: URI.parse(this.currentCMake),
-            maxLine,
-        };
-    }
-
-    private addExecutable(ctx: FlatCommand): void {
-        const args = ctx.argument_list();
-        if (args.length > 0) {
-            this.targetInfo.executables = this.targetInfo.executables ?? new Set<string>();
-            this.targetInfo.executables.add(args[0].getText());
-        }
-    }
-
-    private addLibrary(ctx: FlatCommand): void {
-        const args = ctx.argument_list();
-        if (args.length > 0) {
-            this.targetInfo.libraries = this.targetInfo.libraries ?? new Set<string>();
-            this.targetInfo.libraries.add(args[0].getText());
-        }
-    }
-
-    private async findPackage(ctx: FlatCommand): Promise<void> {
-        const args = ctx.argument_list();
-        if (args.length <= 0) {
-            return;
-        }
-
-        const packageName = args[0].getText();
-        const targetCMakeUri = await getFindPackageUri(this.symbolIndex, this.workspaceFolder, packageName, {
-            command: ctx,
-            sourceUri: URI.parse(this.currentCMake),
-        });
-        if (!targetCMakeUri) {
-            return;
-        }
-
-        const targetCMakeFile = targetCMakeUri.toString();
-        if (this.parsedFiles.has(targetCMakeFile)) {
-            return;
-        }
-
-        const commands = await this.loadFlatCommands(targetCMakeFile);
-        const nextBaseDirectory = path.dirname(URI.parse(targetCMakeFile).fsPath);
-        const targetInfoListener = new ProjectTargetInfoListener(this.symbolIndex, targetCMakeFile, nextBaseDirectory, this.loadFlatCommands, this.parsedFiles, this.workspaceFolder, this.targetInfo, this.entryCMake);
-        await targetInfoListener.processCommands(commands);
-    }
-
-    private async include(ctx: FlatCommand): Promise<void> {
-        const args = ctx.argument_list();
-        if (args.length !== 1) {
-            return;
-        }
-        const includeFile = args[0].getText();
-        const includeUri = await this.getPathExpressionResolver().resolveFileRequest(this.createPathExpressionRequest(ctx.commandName.toLowerCase(), includeFile, args[0].start.line - 1))
-            ?? getIncludeFileUri(this.symbolIndex, URI.file(this.baseDirectory), includeFile)
-            ?? getIncludeModuleUri(this.symbolIndex, includeFile);
-        if (!includeUri) {
-            return;
-        }
-
-        const targetCMakeFile = includeUri.toString();
-        if (this.parsedFiles.has(targetCMakeFile)) {
-            return;
-        }
-
-        const commands = await this.loadFlatCommands(targetCMakeFile);
-        const nextBaseDirectory = path.dirname(URI.parse(targetCMakeFile).fsPath);
-        const targetInfoListener = new ProjectTargetInfoListener(this.symbolIndex, targetCMakeFile, nextBaseDirectory, this.loadFlatCommands, this.parsedFiles, this.workspaceFolder, this.targetInfo, this.entryCMake);
-        await targetInfoListener.processCommands(commands);
-    }
-
-    async processCommands(commands: FlatCommand[]): Promise<void> {
-        if (this.parsedFiles.has(this.currentCMake)) {
-            return;
-        }
-        this.parsedFiles.add(this.currentCMake);
-
-        for (const cmd of commands) {
-            const commandName: string = cmd.commandName.toLowerCase();
-            switch (commandName) {
-                case 'add_executable':
-                    this.addExecutable(cmd);
-                    break;
-                case 'add_library':
-                    this.addLibrary(cmd);
-                    break;
-                case 'find_package':
-                    await this.findPackage(cmd);
-                    break;
-                case 'include':
-                    await this.include(cmd);
-                    break;
-                default:
-                    break;
-            }
-        }
     }
 }

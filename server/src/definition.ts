@@ -5,11 +5,11 @@ import { URI } from 'vscode-uri';
 import { DefinitionSubject } from './argumentSemantics';
 import { FileApiRawSnapshot } from './fileApiSnapshot';
 import { PathExpressionRequest, PathExpressionResolver } from './pathExpressionResolver';
-import { DestinationType, SymbolResolverBase } from "./symbolResolverBase";
+import { SymbolBindingResolver } from './symbolBinding';
+import { SymbolNamespace } from './symbolIndex';
+import { SymbolResolverBase } from "./symbolResolverBase";
 import { FlatCommand } from './flatCommands';
 import { getFindPackageUri, getIncludeFileUri, getIncludeModuleUri } from './utils';
-
-export { DestinationType };
 
 export class DefinitionResolver extends SymbolResolverBase {
     private pathExpressionResolver?: PathExpressionResolver;
@@ -25,7 +25,7 @@ export class DefinitionResolver extends SymbolResolverBase {
         shouldCancel?: () => boolean,
         private fileApiRawSnapshot?: FileApiRawSnapshot,
         private buildDirectory?: string,
-        ensureFileIndexed?: (uri: string) => Promise<boolean>,
+        ensureFileIndexed?: (uri: string, entryFile: string) => Promise<boolean>,
     ) {
         super(documents, symbolIndex, getFlatCommands, workspaceFolder, curFile, command, logger, shouldCancel, ensureFileIndexed);
     }
@@ -102,7 +102,19 @@ export class DefinitionResolver extends SymbolResolverBase {
                     return includeUri;
                 }
 
+                const normalizedModuleName = includeArg.replace(/^["']|["']$/g, '');
+                const indexedDependency = this.symbolIndex.getAvailableDependencies(
+                    sourceUri.toString(),
+                    this.entryFile.toString(),
+                ).find(dependency => {
+                    if (dependency.type !== 'include' || normalizedModuleName.includes('/') || normalizedModuleName.includes('\\')) {
+                        return false;
+                    }
+                    return path.basename(URI.parse(dependency.uri).fsPath).toLowerCase() === `${normalizedModuleName}.cmake`.toLowerCase();
+                });
+
                 return getIncludeFileUri(this.symbolIndex, sourceBaseDir, includeArg)
+                    ?? (indexedDependency ? URI.parse(indexedDependency.uri) : null)
                     ?? getIncludeModuleUri(this.symbolIndex, includeArg, this.fileApiRawSnapshot);
             case 'add_subdirectory': {
                 if (argIndex !== 0) {
@@ -173,101 +185,43 @@ export class DefinitionResolver extends SymbolResolverBase {
         return uri ? [this.toFileLocation(uri)] : null;
     }
 
-    private getReachableCandidateFiles(): string[] {
-        const candidateFiles = this.symbolIndex.getReachableFiles(this.entryFile.toString());
-        if (!candidateFiles.includes(this.curFile.toString())) {
-            candidateFiles.push(this.curFile.toString());
-        }
-        return candidateFiles;
-    }
-
-    private resolveCommandDefinitions(searchName: string): Location[] {
-        if (this.isBuiltinCommand(searchName)) {
-            return [];
-        }
-
-        const results: Location[] = [];
-        for (const uri of this.getReachableCandidateFiles()) {
-            const cache = this.symbolIndex.getCache(uri);
-            if (!cache) {
-                continue;
-            }
-
-            const symbols = cache.commands.get(searchName);
-            if (symbols) {
-                results.push(...symbols.map(symbol => symbol.getLocation()));
-            }
-        }
-
-        return results;
-    }
-
-    private resolveTargetDefinitions(searchName: string): Location[] {
-        const results: Location[] = [];
-        for (const uri of this.getReachableCandidateFiles()) {
-            const cache = this.symbolIndex.getCache(uri);
-            if (!cache) {
-                continue;
-            }
-
-            const symbols = cache.targets.get(searchName);
-            if (symbols) {
-                results.push(...symbols.map(symbol => symbol.getLocation()));
-            }
-        }
-
-        return results;
-    }
-
-    private resolveVariableDefinitions(searchName: string, currentLine: number): Location[] {
-        const results: Location[] = [];
-        const visibleFiles = this.symbolIndex.getVisibleFilesForVariable(this.entryFile.toString(), this.curFile.toString());
-        if (!visibleFiles.includes(this.curFile.toString())) {
-            visibleFiles.push(this.curFile.toString());
-        }
-
-        for (const uri of visibleFiles) {
-            const cache = this.symbolIndex.getCache(uri);
-            if (!cache) {
-                continue;
-            }
-
-            const symbols = cache.variables.get(searchName);
-            if (!symbols) {
-                continue;
-            }
-
-            const validSymbols = uri === this.curFile.toString()
-                ? symbols.filter(symbol => symbol.line <= currentLine)
-                : symbols;
-            this.logger.info(`Found valid symbols for ${searchName} in ${uri}: ${validSymbols.length}`);
-            results.push(...validSymbols.map(symbol => symbol.getLocation()));
-        }
-
-        results.reverse();
-        return results;
-    }
-
-    private async resolveBySubject(subject: DefinitionSubject, searchName: string, position: Position): Promise<Location[] | null> {
+    private async resolveBySubject(subject: DefinitionSubject, position: Position): Promise<Location[] | null> {
         switch (subject) {
-            case DefinitionSubject.Command: {
-                const results = this.resolveCommandDefinitions(searchName.toLowerCase());
-                return results.length > 0 ? results : null;
-            }
-            case DefinitionSubject.Target: {
-                const results = this.resolveTargetDefinitions(searchName);
-                return results.length > 0 ? results : null;
-            }
             case DefinitionSubject.FilePath:
             case DefinitionSubject.IncludeModule:
             case DefinitionSubject.FindPackage:
                 return this.tryResolveFileDefinition(position);
-            case DefinitionSubject.Variable:
-            default: {
-                const results = this.resolveVariableDefinitions(searchName, position.line);
-                return results.length > 0 ? results : null;
-            }
+            case DefinitionSubject.Test:
+                return null;
+            default:
+                break;
         }
+
+        const bindingResolver = new SymbolBindingResolver(
+            this.symbolIndex,
+            this.entryFile.toString(),
+            this.curFile.toString(),
+        );
+        const namespace: SymbolNamespace = subject === DefinitionSubject.Command
+            ? 'command'
+            : subject === DefinitionSubject.Target
+                ? 'target'
+                : 'variable';
+        let occurrence = bindingResolver.findOccurrenceAt(position, namespace);
+        if (!occurrence && subject === DefinitionSubject.Variable) {
+            occurrence = bindingResolver.findOccurrenceAt(position, 'cache-variable')
+                ?? bindingResolver.findOccurrenceAt(position, 'environment-variable');
+        }
+        if (!occurrence) {
+            return null;
+        }
+
+        const binding = bindingResolver.resolveDefinitions(occurrence);
+        const results = binding.declarations.map(declaration => ({
+            uri: declaration.uri,
+            range: declaration.range,
+        }));
+        return results.length > 0 ? results : null;
     }
 
     public async resolve(params: DefinitionParams): Promise<Location | Location[] | LocationLink[] | null> {
@@ -283,7 +237,7 @@ export class DefinitionResolver extends SymbolResolverBase {
             return null;
         }
 
-        const results = await this.resolveBySubject(resolvedTarget.subject, resolvedTarget.text, params.position);
+        const results = await this.resolveBySubject(resolvedTarget.subject, params.position);
         this.logger.info(`Returning ${results?.length ?? 0} results for ${resolvedTarget.text}`);
         return results;
     }

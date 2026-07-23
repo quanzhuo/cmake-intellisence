@@ -2,43 +2,16 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { TextDocuments } from 'vscode-languageserver';
-import { TextDocument } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
 import { FileApiRawSnapshot } from '../../fileApiSnapshot';
 import { SymbolIndex } from '../../symbolIndex';
-import { getFileContent, getFindPackageUri, getIncludeFileUri, getIncludeModuleUri, normalizeQuotedArgument, parseCMakeText } from '../../utils';
+import { getFindPackageUri, getIncludeFileUri, getIncludeModuleUri, normalizeQuotedArgument, parseCMakeText } from '../../utils';
 
 suite('Utils Tests', () => {
     test('parseCMakeText captures syntax errors without the default console listener', () => {
         const parsed = parseCMakeText('set()');
 
         assert(parsed.syntaxDiagnostics.length > 0);
-    });
-
-    test('getFileContent should return empty text for directories', async () => {
-        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-'));
-        const documents = new TextDocuments(TextDocument);
-
-        try {
-            const result = await getFileContent(documents, URI.file(tempDir));
-            assert.strictEqual(result, '');
-        } finally {
-            fs.rmSync(tempDir, { recursive: true, force: true });
-        }
-    });
-
-    test('getFileContent should return empty text for missing paths', async () => {
-        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-missing-'));
-        const missingPath = path.join(tempDir, '${CMAKE_CURRENT_LIST_DIR}', 'SelectLibraryConfigurations.cmake');
-        const documents = new TextDocuments(TextDocument);
-
-        try {
-            const result = await getFileContent(documents, URI.file(missingPath));
-            assert.strictEqual(result, '');
-        } finally {
-            fs.rmSync(tempDir, { recursive: true, force: true });
-        }
     });
 
     test('getIncludeFileUri should stay file-only and not resolve builtin modules', () => {

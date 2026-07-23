@@ -51,7 +51,7 @@ export class SymbolListener extends CMakeParserListener {
         this.handleFunctionOrMacro(ctx, SymbolKind.Function);
     };
 
-    exitEndFunctionCmd = (ctx: EndFunctionCmdContext): void => {
+    exitEndFunctionCmd = (_ctx: EndFunctionCmdContext): void => {
         this.popSymbol();
     };
 
@@ -59,7 +59,7 @@ export class SymbolListener extends CMakeParserListener {
         this.handleFunctionOrMacro(ctx, SymbolKind.Function);
     };
 
-    exitEndMacroCmd = (ctx: EndMacroCmdContext): void => {
+    exitEndMacroCmd = (_ctx: EndMacroCmdContext): void => {
         this.popSymbol();
     };
 

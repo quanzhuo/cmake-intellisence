@@ -1,8 +1,7 @@
 import { CharStream, CharStreams, CommonTokenStream, ErrorListener, RecognitionException, Recognizer, Token } from 'antlr4';
 import { existsSync, promises as fsPromises, statSync } from 'fs';
 import * as path from 'path';
-import { Diagnostic, DiagnosticSeverity, TextDocuments } from 'vscode-languageserver';
-import { TextDocument } from 'vscode-languageserver-textdocument';
+import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
 import { URI, Utils } from 'vscode-uri';
 import { FileApiRawSnapshot } from './fileApiSnapshot';
 import { FlatCommand, extractFlatCommands } from './flatCommands';
@@ -71,32 +70,6 @@ export function parseCMakeText(text: string): ParsedCMakeFile {
     };
 }
 
-export function getFileContext(text: string): FileContext {
-    return parseCMakeText(text).fileContext;
-}
-
-async function readFileContentOrEmpty(uri: URI): Promise<string> {
-    try {
-        const stats = await fsPromises.stat(uri.fsPath);
-        if (stats.isDirectory()) {
-            return '';
-        }
-
-        return await fsPromises.readFile(uri.fsPath, { encoding: 'utf-8' });
-    } catch {
-        return '';
-    }
-}
-
-export async function getFileContent(documents: TextDocuments<TextDocument>, uri: URI): Promise<string> {
-    const document = documents.get(uri.toString());
-    if (document) {
-        return document.getText();
-    }
-
-    return readFileContentOrEmpty(uri);
-}
-
 export function normalizeQuotedArgument(argText: string): string {
     if ((argText.startsWith('"') && argText.endsWith('"'))
         || (argText.startsWith("'") && argText.endsWith("'"))) {
@@ -157,9 +130,11 @@ export function getIncludeModuleUri(symbolIndex: SymbolIndex, includeFileName: s
         return null;
     }
 
-    const resPath = path.join(symbolIndex.cmakeModulePath ?? '', `${normalizedIncludeFileName}.cmake`);
-    if (existsSync(resPath)) {
-        return URI.file(resPath);
+    if (symbolIndex.cmakeModulePath) {
+        const resPath = path.join(symbolIndex.cmakeModulePath, `${normalizedIncludeFileName}.cmake`);
+        if (existsSync(resPath)) {
+            return URI.file(resPath);
+        }
     }
 
     return getIncludeModuleUriFromFileApiSnapshot(fileApiRawSnapshot, normalizedIncludeFileName);

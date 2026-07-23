@@ -1,0 +1,7 @@
+function(deferred_command)
+endfunction()
+function(command_factory)
+    function(deferred_command)
+    endfunction()
+endfunction()
+deferred_command()

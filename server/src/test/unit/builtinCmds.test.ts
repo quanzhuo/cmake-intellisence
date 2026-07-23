@@ -54,7 +54,6 @@ suite('builtin-cmds.json tests', () => {
             pkgConfigPath: '',
             cmdCaseDiagnostics: false,
             loggingLevel: 'off',
-            enableCMakeToolsIntegration: true,
         }, symbolIndex);
 
         const builtinCommandSet = new Set(Object.keys(commands).map(command => command.toLowerCase()));

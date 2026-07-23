@@ -23,7 +23,7 @@ import {
 import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION } from '../../cmakeToolsSnapshot';
 import { URI } from 'vscode-uri';
 import { ExtensionSettings } from '../../cmakeEnvironment';
-import { createCompatibleConfigurationResponse, waitForServerReady } from './testUtils';
+import { createConfigurationResponse, waitForServerReady } from './testUtils';
 
 /**
  * Integration tests for Go-to-Definition across multiple files.
@@ -47,7 +47,6 @@ suite('Definition Integration Tests', () => {
         pkgConfigPath: '',
         cmdCaseDiagnostics: false,
         loggingLevel: 'off',
-        enableCMakeToolsIntegration: true,
     };
 
     // ── helpers ────────────────────────────────────────────────
@@ -118,7 +117,7 @@ suite('Definition Integration Tests', () => {
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest('workspace/configuration', () => {
             configurationRequested();
-            return createCompatibleConfigurationResponse(extSettings);
+            return createConfigurationResponse(extSettings);
         });
         connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
             diagnosticEmitter.emit(params.uri, params);
@@ -173,6 +172,16 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].range.start.line, 3, 'ROOT_VAR defined at line 3');
     });
 
+    test('list mutation should define a variable when no earlier set exists', async function () {
+        const uri = await openFixture('list-created-variable.cmake');
+        const result = await getDefinition(uri, 1, 15);
+
+        assert(result !== null);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs.length, 1);
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
     // ── Cross-file: include() ──────────────────────────────────
 
     test('function defined in included file, used in root', async function () {
@@ -188,6 +197,90 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].range.start.line, 2, 'helper_func defined at line 2');
     });
 
+    test('function loaded through CMAKE_MODULE_PATH should resolve without File API', async function () {
+        const uri = await openFixture('module-path-entry.cmake');
+        const result = await getDefinition(uri, 2, 5);
+
+        assert(result !== null, 'Definition should not depend on a File API snapshot');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs.length, 1);
+        assert.strictEqual(locs[0].uri, fileUri('custom-modules/NoFileApiHelpers.cmake'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+
+        const includeResult = await getDefinition(uri, 1, 10);
+        assert(includeResult !== null, 'The include() argument should use the same source-derived dependency');
+        const includeLocations = (Array.isArray(includeResult) ? includeResult : [includeResult]) as Location[];
+        assert.strictEqual(includeLocations[0].uri, fileUri('custom-modules/NoFileApiHelpers.cmake'));
+    });
+
+    test('CMAKE_MODULE_PATH set by an earlier include should flow into a subdirectory without File API', async function () {
+        const uri = await openFixture('module-consumer/CMakeLists.txt');
+        const result = await getDefinition(uri, 1, 5);
+
+        assert(result !== null);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs.length, 1);
+        assert.strictEqual(locs[0].uri, fileUri('custom-modules/NoFileApiHelpers.cmake'));
+    });
+
+    test('definition should select the latest unconditional command declaration', async function () {
+        const uri = await openFixture('ordered-command.cmake');
+        const result = await getDefinition(uri, 4, 4);
+
+        assert(result !== null);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs.length, 1);
+        assert.strictEqual(locs[0].range.start.line, 2);
+    });
+
+    test('definition should retain alternatives from conditional command declarations', async function () {
+        const uri = await openFixture('conditional-command.cmake');
+        const result = await getDefinition(uri, 7, 4);
+
+        assert(result !== null);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.deepStrictEqual(locs.map(location => location.range.start.line).sort((a, b) => a - b), [1, 4]);
+    });
+
+    test('definition should retain the prior value when the latest variable write is conditional', async function () {
+        const uri = await openFixture('conditional-variable.cmake');
+        const result = await getDefinition(uri, 4, 15);
+
+        assert(result !== null);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.deepStrictEqual(locs.map(location => location.range.start.line).sort((a, b) => a - b), [0, 2]);
+    });
+
+    test('definition should not treat a nested function body as unconditionally executed', async function () {
+        const uri = await openFixture('deferred-command.cmake');
+        const result = await getDefinition(uri, 6, 5);
+
+        assert(result !== null);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.deepStrictEqual(locs.map(location => location.range.start.line).sort((a, b) => a - b), [0, 3]);
+    });
+
+    test('definition should recover a command call from an incomplete parse', async function () {
+        const uri = await openFixture('incomplete-command.cmake');
+        const result = await getDefinition(uri, 2, 5);
+
+        assert(result !== null);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs.length, 1);
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
+    test('definition should use a unique workspace command when no dependency path is known', async function () {
+        const uri = await openFixture('workspace-fallback.cmake');
+        const result = await getDefinition(uri, 0, 8);
+
+        assert(result !== null, 'A uniquely indexed workspace command should be usable as a definition fallback');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs.length, 1);
+        assert.strictEqual(locs[0].uri, fileUri('workspace-only-command.cmake'));
+        assert.strictEqual(locs[0].range.start.line, 0);
+    });
+
     test('variable defined in included file, used in root', async function () {
         const uri = await openFixture('CMakeLists.txt');
         // line 14: helper_func(${HELPER_VAR})  — cursor on "HELPER_VAR"
@@ -199,6 +292,46 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(locs[0].uri, fileUri('include/helpers.cmake'),
             'Definition should be in include/helpers.cmake');
         assert.strictEqual(locs[0].range.start.line, 0, 'HELPER_VAR defined at line 0');
+    });
+
+    test('variable definition should follow include execution order', async function () {
+        const uri = await openFixture('include-variable-override.cmake');
+        const beforeInclude = await getDefinition(uri, 1, 15);
+        const beforeLocations = (Array.isArray(beforeInclude) ? beforeInclude : [beforeInclude]) as Location[];
+        assert.strictEqual(beforeLocations[0].uri, uri);
+        assert.strictEqual(beforeLocations[0].range.start.line, 0);
+
+        const afterInclude = await getDefinition(uri, 3, 15);
+        const afterLocations = (Array.isArray(afterInclude) ? afterInclude : [afterInclude]) as Location[];
+        assert.strictEqual(afterLocations[0].uri, fileUri('include/variable-override.cmake'));
+        assert.strictEqual(afterLocations[0].range.start.line, 0);
+    });
+
+    test('a source location executed by repeated includes should keep all possible variable bindings', async function () {
+        await openFixture('repeated-include.cmake');
+        const uri = await openFixture('include/repeated-use.cmake');
+        const result = await getDefinition(uri, 0, 19);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.deepStrictEqual(
+            locs.map(location => location.range.start.line).sort(),
+            [0, 2],
+            'Both values reaching the repeated include should remain possible',
+        );
+    });
+
+    test('ordinary variable lookup should fall back to cache before a later include shadows it', async function () {
+        const uri = await openFixture('cache-before-include.cmake');
+        const beforeInclude = await getDefinition(uri, 1, 15);
+        const beforeLocations = (Array.isArray(beforeInclude) ? beforeInclude : [beforeInclude]) as Location[];
+        assert.strictEqual(beforeLocations[0].uri, uri);
+        assert.strictEqual(beforeLocations[0].range.start.line, 0);
+
+        const afterInclude = await getDefinition(uri, 3, 15);
+        const afterLocations = (Array.isArray(afterInclude) ? afterInclude : [afterInclude]) as Location[];
+        assert.strictEqual(afterLocations[0].uri, fileUri('include/cache-shadow.cmake'));
+        assert.strictEqual(afterLocations[0].range.start.line, 0);
     });
 
     test('find_package should resolve to the builtin Find-module when available', async function () {
@@ -573,6 +706,17 @@ suite('Definition Integration Tests', () => {
         assert(locs.length > 0, 'Should find the app target definition');
         assert.strictEqual(locs[0].uri, uri);
         assert.strictEqual(locs[0].range.start.line, 1, 'app target should resolve to add_executable()');
+    });
+
+    test('custom target dependency should resolve through shared target semantics', async function () {
+        const uri = await openFixture('targets.cmake');
+        const lines = fs.readFileSync(path.join(fixtureDir, 'targets.cmake'), 'utf8').split(/\r?\n/);
+        const result = await getDefinition(uri, 10, lines[10].indexOf('generate') + 1);
+
+        assert(result !== null, 'Definition should not be null');
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+        assert.strictEqual(locs[0].uri, uri);
+        assert.strictEqual(locs[0].range.start.line, 9, 'generate should resolve to add_custom_target()');
     });
 
     test('alias target dependency should resolve to the alias definition', async function () {

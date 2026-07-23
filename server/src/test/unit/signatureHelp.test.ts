@@ -1,7 +1,6 @@
 import * as assert from 'assert';
 import { buildSignatureHelp, buildSignatureHelpForInvocation, createSignatureInformation, findActiveArgumentIndex, findActiveSignature } from '../../signatureHelp';
-import { extractFlatCommands } from '../../flatCommands';
-import { getFileContext } from '../../utils';
+import { parseCMakeText } from '../../utils';
 
 suite('Signature Help Tests', () => {
     test('createSignatureInformation should expose parameter ranges and markdown docs', () => {
@@ -14,7 +13,7 @@ suite('Signature Help Tests', () => {
     });
 
     test('findActiveArgumentIndex should track the current argument', () => {
-        const command = extractFlatCommands(getFileContext('add_test(NAME my_test COMMAND my_cmd arg1 arg2)'))[0];
+        const command = parseCMakeText('add_test(NAME my_test COMMAND my_cmd arg1 arg2)').flatCommands[0];
 
         const commandIndex = findActiveArgumentIndex(command, { line: 0, character: 'add_test(NAME my_test COMMAND '.length + 2 });
         const lastArgIndex = findActiveArgumentIndex(command, { line: 0, character: 'add_test(NAME my_test COMMAND my_cmd arg1 arg2'.length });
@@ -24,7 +23,7 @@ suite('Signature Help Tests', () => {
     });
 
     test('findActiveSignature should prefer the overload matching present keywords', () => {
-        const command = extractFlatCommands(getFileContext('add_library(foo OBJECT bar.cpp)'))[0];
+        const command = parseCMakeText('add_library(foo OBJECT bar.cpp)').flatCommands[0];
         const signatures = [
             'add_library(<name> [STATIC | SHARED | MODULE] [EXCLUDE_FROM_ALL] [<source>...])',
             'add_library(<name> OBJECT [<source>...])',
@@ -36,7 +35,7 @@ suite('Signature Help Tests', () => {
     });
 
     test('buildSignatureHelp should compute active signature and parameter', () => {
-        const commands = extractFlatCommands(getFileContext('add_library(foo OBJECT bar.cpp)'));
+        const commands = parseCMakeText('add_library(foo OBJECT bar.cpp)').flatCommands;
         const command = commands[0];
         const result = buildSignatureHelp(command, { line: 0, character: 'add_library(foo OBJECT '.length + 2 }, commands);
 

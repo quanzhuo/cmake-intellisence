@@ -1,6 +1,10 @@
 import { Position } from 'vscode-languageserver';
 import { FlatCommand } from './flatCommands';
+import { GENERATOR_EXPRESSION_TARGET_ROOTS, isNamedGeneratorExpression, splitTopLevelGeneratorExpressionSegments } from './generatorExpressions';
+import CMakeLexer from './generated/CMakeLexer';
+import { positionAtTextOffset, textOffsetAtPosition } from './sourcePosition';
 import { normalizeQuotedArgument } from './utils';
+import { findVariableReferences } from './variableReferences';
 
 export enum ArgumentSemanticKind {
     Command = 'command',
@@ -28,6 +32,7 @@ export interface ArgumentSpan {
     text: string;
     start: Position;
     end: Position;
+    allowsVariableExpansion: boolean;
 }
 
 export interface ResolvedCursorTarget {
@@ -43,76 +48,18 @@ export interface TargetOccurrence {
     endOffset: number;
 }
 
-const GENERATOR_EXPRESSION_TARGET_ROOTS = new Set([
-    'TARGET_EXISTS',
-    'TARGET_NAME_IF_EXISTS',
-    'TARGET_FILE',
-    'TARGET_FILE_NAME',
-    'TARGET_FILE_DIR',
-    'TARGET_IMPORT_FILE',
-    'TARGET_IMPORT_FILE_NAME',
-    'TARGET_IMPORT_FILE_DIR',
-    'TARGET_LINKER_FILE',
-    'TARGET_LINKER_FILE_NAME',
-    'TARGET_LINKER_FILE_DIR',
-]);
-
 function isIdentifierCharacter(char: string): boolean {
     return /[a-zA-Z0-9_]/.test(char);
 }
 
 function getArgumentOffset(argumentSpan: ArgumentSpan, pos: Position): number {
-    return Math.max(0, Math.min(pos.character - argumentSpan.start.character, argumentSpan.text.length));
+    return textOffsetAtPosition(argumentSpan.start, argumentSpan.text, pos) ?? 0;
 }
 
-function extractVariableReferenceAtOffset(argumentText: string, offset: number): string | null {
-    const matches = argumentText.matchAll(/\$\{([^{}]+)\}/g);
-    for (const match of matches) {
-        const start = match.index ?? 0;
-        const end = start + match[0].length;
-        if (offset >= start && offset <= end) {
-            return match[1];
-        }
-    }
-
-    return null;
-}
-
-function isNamedGeneratorExpression(text: string): boolean {
-    return /^[A-Z][A-Z0-9_]*$/.test(text.trim());
-}
-
-function splitTopLevelGenexSegments(text: string, separator: ':' | ','): string[] {
-    const segments: string[] = [];
-    let current = '';
-    let depth = 0;
-
-    for (let index = 0; index < text.length; index++) {
-        const char = text[index];
-        if (char === '$' && text[index + 1] === '<') {
-            depth++;
-            current += '$<';
-            index++;
-            continue;
-        }
-
-        if (char === '>' && depth > 0) {
-            depth--;
-            current += char;
-            continue;
-        }
-
-        if (char === separator && depth === 0) {
-            segments.push(current);
-            current = '';
-            continue;
-        }
-
-        current += char;
-    }
-
-    segments.push(current);
-    return segments;
+function extractVariableReferenceAtOffset(argumentText: string, offset: number, allowsVariableExpansion = true): string | null {
+    const reference = findVariableReferences(argumentText, allowsVariableExpansion)
+        .find(candidate => offset >= candidate.startOffset && offset <= candidate.endOffset);
+    return reference?.name ?? null;
 }
 
 function findTrimmedSegmentRange(text: string, segment: string, searchOffset: number): TargetOccurrence | null {
@@ -150,7 +97,7 @@ function getGeneratorExpressionTargetOccurrences(argumentText: string): TargetOc
 
         const start = stack.pop()!;
         const content = argumentText.slice(start + 2, index);
-        const colonSegments = splitTopLevelGenexSegments(content, ':');
+        const colonSegments = splitTopLevelGeneratorExpressionSegments(content, ':');
         if (colonSegments.length <= 1) {
             continue;
         }
@@ -161,7 +108,7 @@ function getGeneratorExpressionTargetOccurrences(argumentText: string): TargetOc
         }
 
         const argumentPortion = colonSegments.slice(1).join(':');
-        const args = splitTopLevelGenexSegments(argumentPortion, ',');
+        const args = splitTopLevelGeneratorExpressionSegments(argumentPortion, ',');
         const argumentBaseOffset = start + 2 + root.length + 1;
 
         if (GENERATOR_EXPRESSION_TARGET_ROOTS.has(root) && args.length > 0) {
@@ -220,7 +167,11 @@ function resolveCursorWord(command: FlatCommand, pos: Position, argumentSpan: Ar
     }
 
     const offset = getArgumentOffset(argumentSpan, pos);
-    const variableReference = extractVariableReferenceAtOffset(argumentSpan.text, offset);
+    const variableReference = extractVariableReferenceAtOffset(
+        argumentSpan.text,
+        offset,
+        argumentSpan.allowsVariableExpansion,
+    );
     return variableReference ?? extractIdentifierAtOffset(argumentSpan.text, offset);
 }
 
@@ -231,7 +182,9 @@ function extractVariableName(argumentText: string): string {
 
 function resolveCursorText(command: FlatCommand, subject: DefinitionSubject, word: string, argumentSpan: ArgumentSpan | null): string {
     if (subject === DefinitionSubject.Command) {
-        if (argumentSpan && (command.commandName.toLowerCase() === 'function' || command.commandName.toLowerCase() === 'macro') && argumentSpan.argumentIndex === 0) {
+        if (argumentSpan && ((command.commandName.toLowerCase() === 'function' || command.commandName.toLowerCase() === 'macro')
+            && argumentSpan.argumentIndex === 0
+            || isCommandArgumentIndex(command, argumentSpan.argumentIndex))) {
             return argumentSpan.text;
         }
 
@@ -264,6 +217,16 @@ const TARGET_LINK_LIBRARY_KEYWORDS = new Set([
     'LINK_INTERFACE_LIBRARIES',
     'LINK_PRIVATE',
     'LINK_PUBLIC',
+]);
+const INSTALL_TARGET_SECTION_KEYWORDS = new Set([
+    'EXPORT', 'RUNTIME', 'LIBRARY', 'ARCHIVE', 'OBJECTS', 'FRAMEWORK', 'BUNDLE',
+    'PRIVATE_HEADER', 'PUBLIC_HEADER', 'RESOURCE', 'FILE_SET', 'CXX_MODULES_BMI',
+    'INCLUDES', 'DESTINATION', 'PERMISSIONS', 'CONFIGURATIONS', 'COMPONENT',
+    'NAMELINK_COMPONENT', 'OPTIONAL', 'EXCLUDE_FROM_ALL', 'NAMELINK_ONLY',
+    'NAMELINK_SKIP', 'TYPE',
+]);
+const EXPORT_TARGET_SECTION_KEYWORDS = new Set([
+    'NAMESPACE', 'APPEND', 'FILE', 'EXPORT_LINK_INTERFACE_LIBRARIES', 'CXX_MODULES_DIRECTORY',
 ]);
 
 const ADD_EXECUTABLE_KEYWORDS = new Set(['WIN32', 'MACOSX_BUNDLE', 'EXCLUDE_FROM_ALL', 'IMPORTED', 'ALIAS']);
@@ -348,7 +311,7 @@ function getPropertyKeywordIndex(args: ReturnType<FlatCommand['argument_list']>)
     return -1;
 }
 
-export function isPropertyArgumentIndex(command: FlatCommand, argIndex: number): boolean {
+function isPropertyArgumentIndex(command: FlatCommand, argIndex: number): boolean {
     const args = command.argument_list();
     const commandName = command.ID().symbol.text.toLowerCase();
 
@@ -385,33 +348,33 @@ export function isPropertyArgumentIndex(command: FlatCommand, argIndex: number):
 
 export function getArgumentSpanAtPosition(command: FlatCommand, pos: Position): ArgumentSpan | null {
     const args = command.argument_list();
-    const targetLine = pos.line + 1;
 
     for (const [index, arg] of args.entries()) {
         const token = arg.start;
-        if (!token || token.line !== targetLine) {
+        if (!token) {
             continue;
         }
 
         const text = arg.getText();
-        const startColumn = token.column;
-        const endColumn = startColumn + text.length;
-        if (pos.character < startColumn || pos.character > endColumn) {
+        const start = { line: token.line - 1, character: token.column };
+        const end = positionAtTextOffset(start, text, text.length);
+        if (textOffsetAtPosition(start, text, pos) === null) {
             continue;
         }
 
         return {
             argumentIndex: index,
             text,
-            start: { line: token.line - 1, character: startColumn },
-            end: { line: token.line - 1, character: endColumn },
+            start,
+            end,
+            allowsVariableExpansion: token.type !== CMakeLexer.BracketArgument,
         };
     }
 
     return null;
 }
 
-export function isCommandPosition(command: FlatCommand, _word: string, pos: Position): boolean {
+function isCommandPosition(command: FlatCommand, _word: string, pos: Position): boolean {
     const commandToken = command.ID().symbol;
     if ((pos.line + 1 === commandToken.line) && (pos.character <= commandToken.column + commandToken.text.length)) {
         return true;
@@ -428,6 +391,32 @@ export function isCommandPosition(command: FlatCommand, _word: string, pos: Posi
     return false;
 }
 
+export function isCommandArgumentIndex(command: FlatCommand, argIndex: number): boolean {
+    const args = command.argument_list();
+    const commandName = command.ID().symbol.text.toLowerCase();
+    switch (commandName) {
+        case 'if':
+        case 'elseif':
+        case 'while':
+            return argIndex > 0 && args[argIndex - 1]?.getText().toUpperCase() === 'COMMAND';
+        case 'variable_watch':
+            return argIndex === 1;
+        case 'cmake_language': {
+            const mode = args[0]?.getText().toUpperCase();
+            if (mode === 'CALL' || mode === 'SET_DEPENDENCY_PROVIDER') {
+                return argIndex === 1;
+            }
+            if (mode === 'DEFER') {
+                const callIndex = args.findIndex(arg => arg.getText().toUpperCase() === 'CALL');
+                return callIndex !== -1 && argIndex === callIndex + 1;
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
 export function isTargetArgumentIndex(command: FlatCommand, argIndex: number): boolean {
     const args = command.argument_list();
     const argText = args[argIndex]?.getText();
@@ -436,7 +425,13 @@ export function isTargetArgumentIndex(command: FlatCommand, argIndex: number): b
     switch (commandName) {
         case 'add_executable':
         case 'add_library':
+            return argIndex === 0 || (argIndex === 2 && args[1]?.getText().toUpperCase() === 'ALIAS');
+        case 'add_custom_target':
             return argIndex === 0;
+        case 'add_dependencies':
+            return argIndex >= 0;
+        case 'add_custom_command':
+            return args[0]?.getText().toUpperCase() === 'TARGET' && argIndex === 1;
         case 'target_compile_definitions':
         case 'target_compile_features':
         case 'target_compile_options':
@@ -454,6 +449,26 @@ export function isTargetArgumentIndex(command: FlatCommand, argIndex: number): b
             return !!argText && !TARGET_LINK_LIBRARY_KEYWORDS.has(argText);
         case 'get_target_property':
             return argIndex === 1;
+        case 'get_property':
+            return args[1]?.getText().toUpperCase() === 'TARGET' && argIndex === 2;
+        case 'set_target_properties': {
+            const propertyKeywordIndex = getPropertyKeywordIndex(args);
+            return argIndex >= 0 && (propertyKeywordIndex === -1 || argIndex < propertyKeywordIndex);
+        }
+        case 'set_property': {
+            const propertyKeywordIndex = getPropertyKeywordIndex(args);
+            return args[0]?.getText().toUpperCase() === 'TARGET'
+                && argIndex > 0
+                && (propertyKeywordIndex === -1 || argIndex < propertyKeywordIndex);
+        }
+        case 'install':
+            return args[0]?.getText().toUpperCase() === 'TARGETS'
+                && argIndex > 0
+                && !args.slice(1, argIndex + 1).some(arg => INSTALL_TARGET_SECTION_KEYWORDS.has(arg.getText().toUpperCase()));
+        case 'export':
+            return args[0]?.getText().toUpperCase() === 'TARGETS'
+                && argIndex > 0
+                && !args.slice(1, argIndex + 1).some(arg => EXPORT_TARGET_SECTION_KEYWORDS.has(arg.getText().toUpperCase()));
         case 'if':
         case 'elseif':
         case 'while':
@@ -463,7 +478,7 @@ export function isTargetArgumentIndex(command: FlatCommand, argIndex: number): b
     }
 }
 
-export function isTestArgumentIndex(command: FlatCommand, argIndex: number): boolean {
+function isTestArgumentIndex(command: FlatCommand, argIndex: number): boolean {
     const args = command.argument_list();
     const commandName = command.ID().symbol.text.toLowerCase();
 
@@ -489,11 +504,22 @@ export function getTargetOccurrencesInArgument(command: FlatCommand, argIndex: n
         return [];
     }
 
+    const generatorExpressionOccurrences = getGeneratorExpressionTargetOccurrences(argText);
     if (isTargetArgumentIndex(command, argIndex)) {
-        return [{ text: argText, startOffset: 0, endOffset: argText.length }];
+        if (findVariableReferences(argText).length > 0 || argText.includes('$<')) {
+            return generatorExpressionOccurrences;
+        }
+
+        const normalized = normalizeQuotedArgument(argText);
+        const startOffset = normalized === argText ? 0 : 1;
+        return [{
+            text: normalized,
+            startOffset,
+            endOffset: startOffset + normalized.length,
+        }];
     }
 
-    return getGeneratorExpressionTargetOccurrences(argText);
+    return generatorExpressionOccurrences;
 }
 
 function getTargetOccurrenceAtPosition(command: FlatCommand, argumentSpan: ArgumentSpan, pos: Position): TargetOccurrence | null {
@@ -532,6 +558,9 @@ export function getArgumentSemanticKinds(command: FlatCommand, argIndex: number)
     const argText = args[argIndex]?.getText();
 
     if (argText) {
+        if (isCommandArgumentIndex(command, argIndex)) {
+            kinds.add(ArgumentSemanticKind.Command);
+        }
         if (isTargetArgumentIndex(command, argIndex)) {
             kinds.add(ArgumentSemanticKind.Target);
         }
@@ -583,7 +612,7 @@ export function getArgumentSemanticKinds(command: FlatCommand, argIndex: number)
     return kinds;
 }
 
-export function getDefinitionSubject(command: FlatCommand, word: string, pos: Position): DefinitionSubject {
+function getDefinitionSubject(command: FlatCommand, word: string, pos: Position): DefinitionSubject {
     if (isCommandPosition(command, word, pos)) {
         return DefinitionSubject.Command;
     }
@@ -591,6 +620,10 @@ export function getDefinitionSubject(command: FlatCommand, word: string, pos: Po
     const argumentSpan = getArgumentSpanAtPosition(command, pos);
     if (!argumentSpan) {
         return DefinitionSubject.Variable;
+    }
+
+    if (isCommandArgumentIndex(command, argumentSpan.argumentIndex)) {
+        return DefinitionSubject.Command;
     }
 
     if (getTargetOccurrenceAtPosition(command, argumentSpan, pos)) {
@@ -636,6 +669,24 @@ export function getDefinitionSubject(command: FlatCommand, word: string, pos: Po
 export function resolveCursorTarget(command: FlatCommand, word: string, pos: Position): ResolvedCursorTarget {
     const argumentSpan = getArgumentSpanAtPosition(command, pos);
     if (argumentSpan) {
+        const variableReference = extractVariableReferenceAtOffset(
+            argumentSpan.text,
+            getArgumentOffset(argumentSpan, pos),
+            argumentSpan.allowsVariableExpansion,
+        );
+        const argumentSubject = getDefinitionSubject(command, variableReference ?? '', pos);
+        if (variableReference
+            && argumentSubject !== DefinitionSubject.FilePath
+            && argumentSubject !== DefinitionSubject.IncludeModule
+            && argumentSubject !== DefinitionSubject.FindPackage) {
+            return {
+                text: variableReference,
+                subject: DefinitionSubject.Variable,
+                semanticKind: ArgumentSemanticKind.Variable,
+                argumentSpan,
+            };
+        }
+
         const targetOccurrence = getTargetOccurrenceAtPosition(command, argumentSpan, pos);
         if (targetOccurrence) {
             return {

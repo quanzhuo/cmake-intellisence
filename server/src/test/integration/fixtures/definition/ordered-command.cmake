@@ -1,0 +1,5 @@
+function(ordered_command)
+endfunction()
+function(ordered_command)
+endfunction()
+ordered_command()

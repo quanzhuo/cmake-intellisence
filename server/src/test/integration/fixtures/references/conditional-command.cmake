@@ -1,0 +1,8 @@
+if(ENABLE_FIRST)
+    function(branch_command)
+    endfunction()
+else()
+    function(branch_command)
+    endfunction()
+endif()
+branch_command()

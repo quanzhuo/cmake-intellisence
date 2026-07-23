@@ -1,0 +1,1 @@
+message(STATUS ${SHARED_VALUE})

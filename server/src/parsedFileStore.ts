@@ -19,7 +19,6 @@ export interface ParsedFileSnapshot extends ParsedCMakeFile {
     uri: string;
     revision: SourceRevision;
     dependencyFingerprint: string;
-    targetInfoFingerprint: string;
 }
 
 type ParsedFileRequest = {

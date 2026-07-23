@@ -1,46 +1,114 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const CMAKE_CACHE_FILE = 'CMakeCache.txt';
+export interface WorkspaceCMakeFilePolicyOptions {
+    ignoredDirectoryNames: readonly string[];
+    excludeCMakeBuildDirectories?: boolean;
+    excludedDirectoryPaths?: readonly string[];
+}
 
-export async function collectWorkspaceCMakeFiles(
-    rootPath: string,
-    ignoredDirectoryNames: readonly string[],
-    excludeCMakeBuildDirectories = true,
-): Promise<string[]> {
-    const results: string[] = [];
-    const ignoredDirectories = new Set(ignoredDirectoryNames);
+export class WorkspaceCMakeFilePolicy {
+    private readonly normalizedRoot: string;
+    private readonly ignoredDirectoryNames: Set<string>;
+    private readonly excludedDirectoryPaths: string[];
 
-    const visit = async (dirPath: string): Promise<void> => {
-        const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
-        const isCMakeBuildDirectory = excludeCMakeBuildDirectories
-            && entries.some(entry => entry.isFile() && entry.name === CMAKE_CACHE_FILE)
-            && entries.some(entry => entry.isDirectory() && entry.name === 'CMakeFiles');
-        if (isCMakeBuildDirectory) {
-            return;
+    constructor(
+        private readonly rootPath: string,
+        private readonly options: WorkspaceCMakeFilePolicyOptions,
+    ) {
+        this.normalizedRoot = this.normalizePath(rootPath);
+        this.ignoredDirectoryNames = new Set(options.ignoredDirectoryNames.map(name => this.normalizeName(name)));
+        this.excludedDirectoryPaths = (options.excludedDirectoryPaths ?? []).map(directory => this.normalizePath(directory));
+    }
+
+    async accepts(filePath: string): Promise<boolean> {
+        if (!this.isCMakeFileName(path.basename(filePath)) || !this.isInsideRoot(filePath)) {
+            return false;
         }
 
-        for (const entry of entries) {
-            const fullPath = path.join(dirPath, entry.name);
-            if (entry.isSymbolicLink()) {
-                continue;
+        let directoryPath = path.dirname(path.resolve(filePath));
+        while (this.isInsideRoot(directoryPath)) {
+            if (await this.shouldExcludeDirectory(directoryPath)) {
+                return false;
             }
-            if (entry.isDirectory()) {
-                if (ignoredDirectories.has(entry.name)) {
+            if (this.normalizePath(directoryPath) === this.normalizedRoot) {
+                break;
+            }
+            directoryPath = path.dirname(directoryPath);
+        }
+        return true;
+    }
+
+    async collectFiles(): Promise<string[]> {
+        const results: string[] = [];
+        const visit = async (directoryPath: string): Promise<void> => {
+            let entries: fs.Dirent[];
+            try {
+                entries = await fs.promises.readdir(directoryPath, { withFileTypes: true });
+            } catch {
+                return;
+            }
+            if (await this.shouldExcludeDirectory(directoryPath, entries)) {
+                return;
+            }
+
+            for (const entry of entries) {
+                if (entry.isSymbolicLink()) {
                     continue;
                 }
-                await visit(fullPath);
-                continue;
+                const fullPath = path.join(directoryPath, entry.name);
+                if (entry.isDirectory()) {
+                    await visit(fullPath);
+                } else if (entry.isFile() && this.isCMakeFileName(entry.name)) {
+                    results.push(fullPath);
+                }
             }
-            if (!entry.isFile()) {
-                continue;
-            }
-            if (entry.name === 'CMakeLists.txt' || entry.name.endsWith('.cmake')) {
-                results.push(fullPath);
-            }
-        }
-    };
+        };
 
-    await visit(rootPath);
-    return results;
+        await visit(this.rootPath);
+        return results;
+    }
+
+    private isCMakeFileName(fileName: string): boolean {
+        return fileName === 'CMakeLists.txt' || fileName.endsWith('.cmake');
+    }
+
+    private normalizeName(name: string): string {
+        return process.platform === 'win32' ? name.toLowerCase() : name;
+    }
+
+    private normalizePath(fsPath: string): string {
+        const normalized = path.resolve(fsPath);
+        return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+    }
+
+    private isInsideRoot(candidatePath: string): boolean {
+        const relative = path.relative(this.normalizedRoot, this.normalizePath(candidatePath));
+        return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+    }
+
+    private async shouldExcludeDirectory(directoryPath: string, entries?: fs.Dirent[]): Promise<boolean> {
+        const normalizedDirectory = this.normalizePath(directoryPath);
+        if (this.excludedDirectoryPaths.some(excluded => {
+            const relative = path.relative(excluded, normalizedDirectory);
+            return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+        })) {
+            return true;
+        }
+        if (normalizedDirectory !== this.normalizedRoot
+            && this.ignoredDirectoryNames.has(this.normalizeName(path.basename(directoryPath)))) {
+            return true;
+        }
+        if (this.options.excludeCMakeBuildDirectories === false) {
+            return false;
+        }
+
+        try {
+            const directoryEntries = entries ?? await fs.promises.readdir(directoryPath, { withFileTypes: true });
+            return directoryEntries.some(entry => entry.isFile() && entry.name === 'CMakeCache.txt')
+                && directoryEntries.some(entry => entry.isDirectory() && entry.name === 'CMakeFiles');
+        } catch {
+            return false;
+        }
+    }
 }

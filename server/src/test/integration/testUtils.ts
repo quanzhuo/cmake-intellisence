@@ -17,7 +17,7 @@ export function waitForServerReady(connection: ProtocolConnection, timeout = 300
     });
 }
 
-export function createCompatibleConfigurationResponse(extSettings: ExtensionSettings): [Record<string, unknown>, Record<string, unknown>] {
+export function createConfigurationResponse(extSettings: ExtensionSettings): [Record<string, unknown>] {
     const response = {
         cmakePath: extSettings.cmakePath,
         loggingLevel: extSettings.loggingLevel,
@@ -27,5 +27,5 @@ export function createCompatibleConfigurationResponse(extSettings: ExtensionSett
         excludeCMakeBuildDirectories: extSettings.excludeCMakeBuildDirectories,
     };
 
-    return [response, response];
+    return [response];
 }

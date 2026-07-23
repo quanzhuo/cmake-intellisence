@@ -1,5 +1,5 @@
 import { existsSync } from 'fs';
-import { Location } from 'vscode-languageserver';
+import { Location, Range } from 'vscode-languageserver';
 import { URI } from 'vscode-uri';
 
 function pathSeparatorFor(fsPath: string): '\\' | '/' {
@@ -7,7 +7,6 @@ function pathSeparatorFor(fsPath: string): '\\' | '/' {
 }
 
 const DEFAULT_MAX_FILE_CACHES = Number.POSITIVE_INFINITY;
-const MAX_VISIBLE_FILES_DEPTH = 100;
 
 export enum SymbolKind {
     // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -30,14 +29,48 @@ export enum SymbolKind {
     Target
 }
 
+export type SymbolNamespace = 'command' | 'variable' | 'cache-variable' | 'environment-variable' | 'target';
+export type SymbolOccurrenceRole = 'declaration' | 'reference' | 'write';
+export type SymbolWriteKind = 'assign' | 'unset';
+export type SemanticScopeKind = 'file' | 'function' | 'macro' | 'foreach' | 'block';
+
+export interface SemanticScope {
+    id: string;
+    kind: SemanticScopeKind;
+    parentId?: string;
+    startOrder: number;
+    endOrder: number;
+}
+
+export interface SymbolOccurrence {
+    name: string;
+    canonicalName: string;
+    namespace: SymbolNamespace;
+    role: SymbolOccurrenceRole;
+    uri: string;
+    range: Range;
+    scopeId: string;
+    order: number;
+    symbolId?: string;
+    safeForRename: boolean;
+    writeKind?: SymbolWriteKind;
+}
+
 export class Symbol {
     constructor(
         public name: string,
         public kind: SymbolKind,
         public uri: string,
         public line: number,
-        public column: number
+        public column: number,
+        public scopeId: string = `${uri}#file`,
+        public order: number = line,
+        private readonly semanticId?: string,
     ) { }
+
+    get id(): string {
+        return this.semanticId ?? `${this.uri}#${this.kind}:${this.line}:${this.column}:${this.name}`;
+    }
 
     getLocation(): Location {
         return {
@@ -61,6 +94,8 @@ export type DependencyType = 'include' | 'subdirectory';
 export interface Dependency {
     uri: string;
     type: DependencyType;
+    order?: number;
+    uncertain?: boolean;
 }
 
 /**
@@ -83,8 +118,64 @@ export class FileSymbolCache {
 
     // Dependencies in exact order of declaration
     public readonly dependencies: Dependency[] = [];
+    public readonly occurrences: SymbolOccurrence[] = [];
+    public readonly scopes: Map<string, SemanticScope> = new Map();
+    public readonly uncertainOrders: Set<number> = new Set();
+    public readonly conditionalOrders: Set<number> = new Set();
+    private readonly occurrencesByName = new Map<string, SymbolOccurrence[]>();
+    private readonly occurrencesByOrder = new Map<number, SymbolOccurrence[]>();
+    private readonly unsafeRenameNames = new Map<SymbolNamespace, Set<string>>();
 
-    constructor(public uri: string) { }
+    constructor(public uri: string) {
+        this.scopes.set(`${uri}#file`, {
+            id: `${uri}#file`,
+            kind: 'file',
+            startOrder: 0,
+            endOrder: Number.MAX_SAFE_INTEGER,
+        });
+    }
+
+    addScope(scope: SemanticScope): void {
+        this.scopes.set(scope.id, scope);
+    }
+
+    addOccurrence(occurrence: SymbolOccurrence): void {
+        this.occurrences.push(occurrence);
+        const key = `${occurrence.namespace}\0${occurrence.canonicalName}`;
+        const indexedOccurrences = this.occurrencesByName.get(key) ?? [];
+        indexedOccurrences.push(occurrence);
+        this.occurrencesByName.set(key, indexedOccurrences);
+        const orderedOccurrences = this.occurrencesByOrder.get(occurrence.order) ?? [];
+        orderedOccurrences.push(occurrence);
+        this.occurrencesByOrder.set(occurrence.order, orderedOccurrences);
+    }
+
+    getOccurrences(namespace: SymbolNamespace, canonicalName: string): readonly SymbolOccurrence[] {
+        return this.occurrencesByName.get(`${namespace}\0${canonicalName}`) ?? [];
+    }
+
+    getOccurrencesAtOrder(order: number): readonly SymbolOccurrence[] {
+        return this.occurrencesByOrder.get(order) ?? [];
+    }
+
+    markOrderUncertain(order: number): void {
+        this.uncertainOrders.add(order);
+    }
+
+    markOrderConditional(order: number): void {
+        this.conditionalOrders.add(order);
+    }
+
+    markRenameUnsafe(namespace: SymbolNamespace, canonicalName?: string): void {
+        const names = this.unsafeRenameNames.get(namespace) ?? new Set<string>();
+        names.add(canonicalName ?? '*');
+        this.unsafeRenameNames.set(namespace, names);
+    }
+
+    isRenameSafe(namespace: SymbolNamespace, canonicalName: string): boolean {
+        const names = this.unsafeRenameNames.get(namespace);
+        return !names?.has('*') && !names?.has(canonicalName);
+    }
 
     addCommand(symbol: Symbol) {
         const key = symbol.name.toLowerCase();
@@ -129,8 +220,13 @@ export class FileSymbolCache {
         this.properties.get(symbol.name)!.push(symbol);
     }
 
-    addDependency(uri: string, type: DependencyType) {
-        this.dependencies.push({ uri, type });
+    addDependency(uri: string, type: DependencyType, order?: number, uncertain?: boolean) {
+        this.dependencies.push({
+            uri,
+            type,
+            ...(order === undefined ? {} : { order }),
+            ...(uncertain ? { uncertain: true } : {}),
+        });
     }
 }
 
@@ -145,6 +241,7 @@ export class SymbolIndex {
     public pkgConfigModules: Map<string, string> = new Map();
     private fileCaches: Map<string, FileSymbolCache> = new Map();
     private fileCacheRevisionKeys: Map<string, string> = new Map();
+    private dependencyContexts = new Map<string, Map<string, { revisionKey?: string; dependencies: Dependency[] }>>();
     private systemCache: FileSymbolCache = new FileSymbolCache('cmake-builtin://system');
     private builtinModuleCommandCatalog: Map<string, string> = new Map();
     private generation = 0;
@@ -153,7 +250,6 @@ export class SymbolIndex {
     private readonly visibleFilesCache = new Map<string, { generation: number; value: string[] }>();
     private readonly workspaceSymbolNamesCache = new Map<SymbolKind, { generation: number; value: string[] }>();
     private userCommandNamesCache?: { generation: number; value: string[] };
-    private userCommandKindsCache?: { generation: number; value: Map<string, SymbolKind.Function | SymbolKind.Macro> };
 
     constructor(private readonly maxFileCaches: number = DEFAULT_MAX_FILE_CACHES) {
     }
@@ -176,7 +272,7 @@ export class SymbolIndex {
         this.builtinModuleCommandCatalog.clear();
     }
 
-    private isBuiltinModuleUri(uri: string): boolean {
+    isBuiltinModuleUri(uri: string): boolean {
         if (!this.cmakeModulePath || !uri.startsWith('file://')) {
             return false;
         }
@@ -197,10 +293,9 @@ export class SymbolIndex {
         this.visibleFilesCache.clear();
         this.workspaceSymbolNamesCache.clear();
         this.userCommandNamesCache = undefined;
-        this.userCommandKindsCache = undefined;
     }
 
-    setCache(uri: string, cache: FileSymbolCache, revisionKey?: string): void {
+    setCache(uri: string, cache: FileSymbolCache, revisionKey?: string, entryFile?: string): void {
         if (this.fileCaches.has(uri)) {
             this.fileCaches.delete(uri);
         }
@@ -210,16 +305,46 @@ export class SymbolIndex {
         } else {
             this.fileCacheRevisionKeys.set(uri, revisionKey);
         }
+        for (const contextsByUri of this.dependencyContexts.values()) {
+            const context = contextsByUri.get(uri);
+            if (context && context.revisionKey !== revisionKey) {
+                contextsByUri.delete(uri);
+            }
+        }
+        if (entryFile !== undefined) {
+            const contextsByUri = this.dependencyContexts.get(entryFile) ?? new Map();
+            contextsByUri.set(uri, {
+                revisionKey,
+                dependencies: cache.dependencies.map(dependency => ({ ...dependency })),
+            });
+            this.dependencyContexts.set(entryFile, contextsByUri);
+        }
         this.invalidateDerivedCaches();
         this.evictLeastRecentlyUsedCaches();
     }
 
-    hasCurrentCache(uri: string, revisionKey: string): boolean {
-        return this.fileCaches.has(uri) && this.fileCacheRevisionKeys.get(uri) === revisionKey;
+    hasCurrentCache(uri: string, revisionKey: string, entryFile?: string): boolean {
+        if (!this.fileCaches.has(uri) || this.fileCacheRevisionKeys.get(uri) !== revisionKey) {
+            return false;
+        }
+        return entryFile === undefined
+            || this.dependencyContexts.get(entryFile)?.get(uri)?.revisionKey === revisionKey;
     }
 
     getCacheRevisionKey(uri: string): string | undefined {
         return this.fileCacheRevisionKeys.get(uri);
+    }
+
+    hasDependencyContext(uri: string, entryFile: string): boolean {
+        return this.dependencyContexts.get(entryFile)?.has(uri) ?? false;
+    }
+
+    clearProjectContexts(): void {
+        if (this.dependencyContexts.size === 0) {
+            return;
+        }
+        this.dependencyContexts.clear();
+        this.invalidateDerivedCaches();
     }
 
     getGeneration(): number {
@@ -245,12 +370,14 @@ export class SymbolIndex {
             }
             this.fileCaches.delete(oldestUri);
             this.fileCacheRevisionKeys.delete(oldestUri);
+            this.deleteDependencyContextsForUri(oldestUri);
         }
     }
 
     deleteCache(uri: string): void {
         const deleted = this.fileCaches.delete(uri);
         this.fileCacheRevisionKeys.delete(uri);
+        this.deleteDependencyContextsForUri(uri);
         if (deleted) {
             this.invalidateDerivedCaches();
         }
@@ -268,6 +395,7 @@ export class SymbolIndex {
             if (fsPath === normalizedDirectory || fsPath.startsWith(`${normalizedDirectory}${fsPath.includes('\\') ? '\\' : '/'}`)) {
                 this.fileCaches.delete(uri);
                 this.fileCacheRevisionKeys.delete(uri);
+                this.deleteDependencyContextsForUri(uri);
                 deleted = true;
             }
         }
@@ -278,6 +406,15 @@ export class SymbolIndex {
 
     getAllCaches(): FileSymbolCache[] {
         return Array.from(this.fileCaches.values());
+    }
+
+    private deleteDependencyContextsForUri(uri: string): void {
+        for (const [entryFile, contextsByUri] of this.dependencyContexts) {
+            contextsByUri.delete(uri);
+            if (contextsByUri.size === 0) {
+                this.dependencyContexts.delete(entryFile);
+            }
+        }
     }
 
     private isUriLoadable(uri: string): boolean {
@@ -292,13 +429,25 @@ export class SymbolIndex {
         return existsSync(URI.parse(uri).fsPath);
     }
 
-    getAvailableDependencies(uri: string): Dependency[] {
-        const cache = this.getCache(uri);
+    getAvailableDependencies(
+        uri: string,
+        entryFile?: string,
+        cacheOverrides?: ReadonlyMap<string, FileSymbolCache>,
+    ): Dependency[] {
+        const override = cacheOverrides?.get(uri);
+        const cache = override ?? this.getCache(uri);
         if (!cache) {
             return [];
         }
 
-        return cache.dependencies.filter(dep => this.isUriLoadable(dep.uri));
+        const contextualDependencies = override || entryFile === undefined
+            ? undefined
+            : this.dependencyContexts.get(entryFile)?.get(uri)?.dependencies;
+        const dependencies = contextualDependencies
+            ?? (override || entryFile === undefined || this.fileCacheRevisionKeys.get(uri) === undefined
+                ? cache.dependencies
+                : []);
+        return dependencies.filter(dep => this.isUriLoadable(dep.uri));
     }
 
     findEntryFile(targetUri: string): string | undefined {
@@ -307,56 +456,72 @@ export class SymbolIndex {
             return cached.value;
         }
 
-        const allCaches = this.getAllCaches();
-        const incomingDependencies = new Set<string>();
-
-        for (const cache of allCaches) {
-            for (const dependency of this.getAvailableDependencies(cache.uri)) {
-                incomingDependencies.add(dependency.uri);
+        for (const entryFile of this.dependencyContexts.keys()) {
+            if (entryFile === targetUri) {
+                continue;
+            }
+            if (this.getReachableFiles(entryFile).includes(targetUri)) {
+                this.entryFileCache.set(targetUri, { generation: this.generation, value: entryFile });
+                return entryFile;
             }
         }
 
-        const canReachTarget = (startUri: string): boolean => {
-            const visited = new Set<string>();
-            const stack = [startUri];
-            while (stack.length > 0) {
-                const uri = stack.pop()!;
-                if (uri === targetUri) {
-                    return true;
-                }
-                if (visited.has(uri)) {
-                    continue;
-                }
-                visited.add(uri);
-
-                const dependencies = this.getAvailableDependencies(uri);
-                for (let index = dependencies.length - 1; index >= 0; index--) {
-                    stack.push(dependencies[index].uri);
-                }
-            }
-
-            return false;
-        };
-
-        const rootCandidates = allCaches
-            .map(cache => cache.uri)
-            .filter(uri => !incomingDependencies.has(uri));
-
-        for (const rootUri of rootCandidates) {
-            if (canReachTarget(rootUri)) {
-                this.entryFileCache.set(targetUri, { generation: this.generation, value: rootUri });
-                return rootUri;
-            }
+        if (this.dependencyContexts.get(targetUri)?.has(targetUri)) {
+            this.entryFileCache.set(targetUri, { generation: this.generation, value: targetUri });
+            return targetUri;
         }
 
-        for (const cache of allCaches) {
-            if (canReachTarget(cache.uri)) {
-                this.entryFileCache.set(targetUri, { generation: this.generation, value: cache.uri });
-                return cache.uri;
-            }
+        const contextFreeEntry = this.findContextFreeEntryFile(targetUri);
+        if (contextFreeEntry) {
+            this.entryFileCache.set(targetUri, { generation: this.generation, value: contextFreeEntry });
+            return contextFreeEntry;
+        }
+
+        if (this.fileCaches.has(targetUri)) {
+            this.entryFileCache.set(targetUri, { generation: this.generation, value: targetUri });
+            return targetUri;
         }
 
         this.entryFileCache.set(targetUri, { generation: this.generation, value: undefined });
+        return undefined;
+    }
+
+    private findContextFreeEntryFile(targetUri: string): string | undefined {
+        if (this.fileCacheRevisionKeys.get(targetUri) !== undefined) {
+            return undefined;
+        }
+
+        const parentsByUri = new Map<string, string[]>();
+        for (const [uri, cache] of this.fileCaches) {
+            if (this.fileCacheRevisionKeys.get(uri) !== undefined) {
+                continue;
+            }
+            for (const dependency of cache.dependencies) {
+                if (this.fileCacheRevisionKeys.get(dependency.uri) !== undefined) {
+                    continue;
+                }
+                const parents = parentsByUri.get(dependency.uri) ?? [];
+                parents.push(uri);
+                parentsByUri.set(dependency.uri, parents);
+            }
+        }
+
+        const ancestors = new Set<string>([targetUri]);
+        const pending = [targetUri];
+        for (let index = 0; index < pending.length; index++) {
+            for (const parent of parentsByUri.get(pending[index]) ?? []) {
+                if (!ancestors.has(parent)) {
+                    ancestors.add(parent);
+                    pending.push(parent);
+                }
+            }
+        }
+
+        for (const uri of ancestors) {
+            if ((parentsByUri.get(uri) ?? []).every(parent => !ancestors.has(parent))) {
+                return uri;
+            }
+        }
         return undefined;
     }
 
@@ -460,6 +625,10 @@ export class SymbolIndex {
         return false;
     }
 
+    hasCoreBuiltinCommand(name: string): boolean {
+        return this.systemCache.commands.has(name.toLowerCase());
+    }
+
     *getAllUserCommandSymbols(): IterableIterator<string> {
         if (this.userCommandNamesCache?.generation === this.generation) {
             yield* this.userCommandNamesCache.value;
@@ -492,27 +661,6 @@ export class SymbolIndex {
         }
         this.userCommandNamesCache = { generation: this.generation, value: names };
         yield* names;
-    }
-
-    getUserCommandKind(name: string): SymbolKind.Function | SymbolKind.Macro | undefined {
-        if (this.userCommandKindsCache?.generation !== this.generation) {
-            const kinds = new Map<string, SymbolKind.Function | SymbolKind.Macro>();
-            for (const cache of this.fileCaches.values()) {
-                for (const [commandName, symbols] of cache.commands) {
-                    for (const symbol of symbols) {
-                        if (symbol.kind === SymbolKind.Macro) {
-                            kinds.set(commandName, SymbolKind.Macro);
-                            break;
-                        }
-                        if (symbol.kind === SymbolKind.Function && !kinds.has(commandName)) {
-                            kinds.set(commandName, SymbolKind.Function);
-                        }
-                    }
-                }
-            }
-            this.userCommandKindsCache = { generation: this.generation, value: kinds };
-        }
-        return this.userCommandKindsCache.value.get(name.toLowerCase());
     }
 
     *getAllWorkspaceSymbols(kind: SymbolKind): IterableIterator<string> {
@@ -574,12 +722,13 @@ export class SymbolIndex {
     clear(): void {
         this.fileCaches.clear();
         this.fileCacheRevisionKeys.clear();
+        this.dependencyContexts.clear();
         this.builtinModuleCommandCatalog.clear();
         this.invalidateDerivedCaches();
     }
 
-    public getReachableFiles(startUri: string): string[] {
-        const cached = this.reachableFilesCache.get(startUri);
+    public getReachableFiles(startUri: string, cacheOverrides?: ReadonlyMap<string, FileSymbolCache>): string[] {
+        const cached = cacheOverrides?.size ? undefined : this.reachableFilesCache.get(startUri);
         if (cached?.generation === this.generation) {
             return [...cached.value];
         }
@@ -596,12 +745,14 @@ export class SymbolIndex {
             visited.add(uri);
             ordered.push(uri);
 
-            const dependencies = this.getAvailableDependencies(uri);
+            const dependencies = this.getAvailableDependencies(uri, startUri, cacheOverrides);
             for (let index = dependencies.length - 1; index >= 0; index--) {
                 stack.push(dependencies[index].uri);
             }
         }
-        this.reachableFilesCache.set(startUri, { generation: this.generation, value: ordered });
+        if (!cacheOverrides?.size) {
+            this.reachableFilesCache.set(startUri, { generation: this.generation, value: ordered });
+        }
         return [...ordered];
     }
 
@@ -609,73 +760,81 @@ export class SymbolIndex {
      * Returns the array of file URIs whose variables are visible from the targetUri
      * precisely simulating CMake's dynamic scoping (include vs add_subdirectory).
      */
-    public getVisibleFilesForVariable(startUri: string, targetUri: string): string[] {
+    public getVisibleFilesForVariable(
+        startUri: string,
+        targetUri: string,
+        cacheOverrides?: ReadonlyMap<string, FileSymbolCache>,
+    ): string[] {
         const cacheKey = `${startUri}\0${targetUri}`;
-        const cached = this.visibleFilesCache.get(cacheKey);
+        const cached = cacheOverrides?.size ? undefined : this.visibleFilesCache.get(cacheKey);
         if (cached?.generation === this.generation) {
             return [...cached.value];
         }
 
         const visited = new Set<string>();
-        const stack: Array<{ uri: string; visibleFiles: string[]; depth: number }> = [{ uri: startUri, visibleFiles: [], depth: 0 }];
+        const stack: Array<{ uri: string; visibleFiles: string[] }> = [{ uri: startUri, visibleFiles: [] }];
 
         while (stack.length > 0) {
             const current = stack.pop()!;
-            if (current.depth > MAX_VISIBLE_FILES_DEPTH || visited.has(current.uri)) {
+            if (visited.has(current.uri)) {
                 continue;
             }
             visited.add(current.uri);
 
             const visibleFiles = [...current.visibleFiles, current.uri];
             if (current.uri === targetUri) {
-                const result = this.collectVisibleIncludes(targetUri, visibleFiles);
-                this.visibleFilesCache.set(cacheKey, { generation: this.generation, value: result });
+                const result = this.collectVisibleIncludes(startUri, targetUri, visibleFiles, cacheOverrides);
+                if (!cacheOverrides?.size) {
+                    this.visibleFilesCache.set(cacheKey, { generation: this.generation, value: result });
+                }
                 return [...result];
             }
 
-            const cache = this.getCache(current.uri);
+            const cache = cacheOverrides?.get(current.uri) ?? this.getCache(current.uri);
             if (!cache) {
                 continue;
             }
 
-            const dependencies = this.getAvailableDependencies(cache.uri);
+            const dependencies = this.getAvailableDependencies(cache.uri, startUri, cacheOverrides);
             for (let index = dependencies.length - 1; index >= 0; index--) {
                 const dependency = dependencies[index];
                 stack.push({
                     uri: dependency.uri,
-                    visibleFiles: dependency.type === 'include' ? visibleFiles : [...visibleFiles],
-                    depth: current.depth + 1,
+                    visibleFiles,
                 });
             }
         }
 
-        this.visibleFilesCache.set(cacheKey, { generation: this.generation, value: [] });
+        if (!cacheOverrides?.size) {
+            this.visibleFilesCache.set(cacheKey, { generation: this.generation, value: [] });
+        }
         return [];
     }
 
-    private collectVisibleIncludes(targetUri: string, visibleFiles: string[]): string[] {
+    private collectVisibleIncludes(
+        startUri: string,
+        targetUri: string,
+        visibleFiles: string[],
+        cacheOverrides?: ReadonlyMap<string, FileSymbolCache>,
+    ): string[] {
         const result = [...visibleFiles];
         const seen = new Set(result);
-        const stack: Array<{ uri: string; depth: number }> = [{ uri: targetUri, depth: 0 }];
+        const stack: string[] = [targetUri];
 
         while (stack.length > 0) {
-            const current = stack.pop()!;
-            if (current.depth >= MAX_VISIBLE_FILES_DEPTH) {
-                continue;
-            }
-
-            const cache = this.getCache(current.uri);
+            const currentUri = stack.pop()!;
+            const cache = cacheOverrides?.get(currentUri) ?? this.getCache(currentUri);
             if (!cache) {
                 continue;
             }
 
-            for (const dependency of this.getAvailableDependencies(cache.uri)) {
+            for (const dependency of this.getAvailableDependencies(cache.uri, startUri, cacheOverrides)) {
                 if (dependency.type !== 'include' || seen.has(dependency.uri)) {
                     continue;
                 }
                 seen.add(dependency.uri);
                 result.push(dependency.uri);
-                stack.push({ uri: dependency.uri, depth: current.depth + 1 });
+                stack.push(dependency.uri);
             }
         }
 

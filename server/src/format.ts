@@ -140,7 +140,7 @@ export class Formatter {
         }
 
         let prevLineNo: number = token.line;
-        hiddenTokens.forEach((t, index) => {
+        hiddenTokens.forEach(t => {
             const curLineNo: number = t.line;
             if ((curLineNo !== prevLineNo) && (t.type === CMakeLexer.Comment)) {
                 result += ' '.repeat(indent);

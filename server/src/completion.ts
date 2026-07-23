@@ -6,6 +6,7 @@ import { URI } from "vscode-uri";
 import { ArgumentSemanticKind, getArgumentSemanticKinds, getTargetLinkLibraryKeywords, isTargetArgumentIndex } from './argumentSemantics';
 import * as builtinCmds from './builtin-cmds.json';
 import { FlatCommand } from "./flatCommands";
+import { GENERATOR_EXPRESSION_TARGET_ROOTS, isNamedGeneratorExpression, splitTopLevelGeneratorExpressionSegments } from './generatorExpressions';
 import CMakeLexer from "./generated/CMakeLexer";
 import { Logger } from "./logging";
 import { SymbolIndex, SymbolKind } from "./symbolIndex";
@@ -142,11 +143,6 @@ export interface CMakeCompletionInfo {
 export interface RecoveredCommandInfo {
     name: string,
     isOnCommandName: boolean,
-}
-
-export interface ProjectTargetInfo {
-    executables?: Set<string>,
-    libraries?: Set<string>,
 }
 
 function extractCompletionQuery(argText: string, cursorOffset: number): string {
@@ -873,43 +869,6 @@ type GeneratorExpressionContext = {
     arguments: string[],
 };
 
-function isNamedGeneratorExpression(text: string): boolean {
-    return /^[A-Z][A-Z0-9_]*$/.test(text.trim());
-}
-
-function splitTopLevelGenexSegments(text: string, separator: ':' | ','): string[] {
-    const segments: string[] = [];
-    let current = '';
-    let depth = 0;
-
-    for (let index = 0; index < text.length; index++) {
-        const char = text[index];
-        if (char === '$' && text[index + 1] === '<') {
-            depth++;
-            current += '$<';
-            index++;
-            continue;
-        }
-
-        if (char === '>' && depth > 0) {
-            depth--;
-            current += char;
-            continue;
-        }
-
-        if (char === separator && depth === 0) {
-            segments.push(current);
-            current = '';
-            continue;
-        }
-
-        current += char;
-    }
-
-    segments.push(current);
-    return segments;
-}
-
 function getGeneratorExpressionContext(argText: string, cursorOffset: number): GeneratorExpressionContext | null {
     const stack: number[] = [];
     const limit = Math.min(cursorOffset, argText.length);
@@ -932,7 +891,7 @@ function getGeneratorExpressionContext(argText: string, cursorOffset: number): G
     }
 
     const insideText = argText.slice(start + 2, limit);
-    const colonSegments = splitTopLevelGenexSegments(insideText, ':');
+    const colonSegments = splitTopLevelGeneratorExpressionSegments(insideText, ':');
 
     if (colonSegments.length === 0) {
         return null;
@@ -959,7 +918,7 @@ function getGeneratorExpressionContext(argText: string, cursorOffset: number): G
     }
 
     const argumentText = colonSegments.slice(1).join(':');
-    const args = splitTopLevelGenexSegments(argumentText, ',');
+    const args = splitTopLevelGeneratorExpressionSegments(argumentText, ',');
 
     return {
         name,
@@ -975,14 +934,13 @@ export default class Completion {
     constructor(
         private flatCommandsSource: FlatCommand[] | Map<string, FlatCommand[]>,
         private tokenStreamSource: CommonTokenStream | Map<string, CommonTokenStream>,
-        private targetInfo: ProjectTargetInfo = {} as ProjectTargetInfo,
+        private externalTargetNames: readonly string[],
         private word: string,
         private logger: Logger,
         private symbolIndex?: SymbolIndex,
         private currentUri?: string,
         private entryUri?: string,
         private workspaceKey?: string,
-        private snapshotTargetNames: string[] = [],
         private snapshotTestNames: string[] = [],
     ) { }
 
@@ -1009,9 +967,7 @@ export default class Completion {
     private getProjectTargetNames(): string[] {
         return Array.from(new Set<string>([
             ...this.getIndexedSymbols(SymbolKind.Target),
-            ...this.snapshotTargetNames,
-            ...this.targetInfo.executables ?? [],
-            ...this.targetInfo.libraries ?? [],
+            ...this.externalTargetNames,
         ]));
     }
 
@@ -1170,7 +1126,7 @@ export default class Completion {
         ];
         const similarCmds = allCommands.filter(cmd => { return cmd.name.toLowerCase().includes(word.toLowerCase()); });
         const similarNames = similarCmds.map(cmd => cmd.name);
-        const suggestedCommands: CompletionItem[] = similarCmds.map((command, index, array) => {
+        const suggestedCommands: CompletionItem[] = similarCmds.map(command => {
             return this.getCommandSuggestion(command.name, command.type);
         });
 
@@ -1285,7 +1241,7 @@ export default class Completion {
         return proposals;
     }
 
-    private async getFileSuggestions(info: CMakeCompletionInfo, word: string): Promise<CompletionItem[] | null> {
+    private async getFileSuggestions(word: string): Promise<CompletionItem[] | null> {
         if (!this.completionParams) {
             return null;
         }
@@ -1314,7 +1270,7 @@ export default class Completion {
         }
     }
 
-    private getVariableSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
+    private getVariableSuggestions(word: string): CompletionItem[] {
         const userVariables = new Set<string>();
 
         if (this.symbolIndex && this.entryUri && this.currentUri) {
@@ -1343,7 +1299,7 @@ export default class Completion {
             return matchesCompletionQuery(candidate, word);
         }) : [];
 
-        const suggestions: CompletionItem[] = similar.map((value, index, array) => {
+        const suggestions: CompletionItem[] = similar.map(value => {
             return {
                 label: value,
                 kind: CompletionItemKind.Variable,
@@ -1351,7 +1307,7 @@ export default class Completion {
             };
         });
 
-        const envVariables: CompletionItem[] = similarEnv.map((value, index, array) => {
+        const envVariables: CompletionItem[] = similarEnv.map(value => {
             return {
                 label: `ENV{${value}}`,
                 kind: CompletionItemKind.Variable,
@@ -1371,7 +1327,7 @@ export default class Completion {
         return [...suggestions, ...envVariables, ...userVarSuggestions];
     }
 
-    private getTargetsSuggestion(info: CMakeCompletionInfo): CompletionItem[] | undefined {
+    private getTargetsSuggestion(): CompletionItem[] | undefined {
         const targets = this.getProjectTargetNames();
         if (targets.length > 0) {
             return targets.map((target) => {
@@ -1388,7 +1344,7 @@ export default class Completion {
             return null;
         }
 
-        const targets = this.getTargetsSuggestion(info) ?? [];
+        const targets = this.getTargetsSuggestion() ?? [];
         if (info.command === 'target_link_libraries' && info.index > 0) {
             return [
                 ...targets,
@@ -1447,7 +1403,7 @@ export default class Completion {
         return kinds.size > 0 ? kinds : null;
     }
 
-    private getPropertySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
+    private getPropertySuggestions(word: string): CompletionItem[] {
         const properties = this.symbolIndex
             ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.Property))
             : [];
@@ -1455,7 +1411,7 @@ export default class Completion {
             return matchesCompletionQuery(candidate, word);
         });
 
-        const suggestions: CompletionItem[] = similar.map((value, index, array) => {
+        const suggestions: CompletionItem[] = similar.map(value => {
             return {
                 label: value,
                 kind: CompletionItemKind.Property,
@@ -1478,7 +1434,7 @@ export default class Completion {
             return matchesCompletionQuery(candidate, word);
         });
 
-        const suggestions: CompletionItem[] = similar.map((value, index, array) => {
+        const suggestions: CompletionItem[] = similar.map(value => {
             return {
                 label: value,
                 kind: CompletionItemKind.Unit,
@@ -1499,7 +1455,7 @@ export default class Completion {
                 : info.currentArgumentCursorOffset;
 
             if (argText !== undefined && cursorOffset !== undefined) {
-                const genexSuggestions = await this.getGeneratorExpressionSuggestions(info, word, argText, cursorOffset);
+                const genexSuggestions = await this.getGeneratorExpressionSuggestions(argText, cursorOffset);
                 if (genexSuggestions) {
                     return genexSuggestions;
                 }
@@ -1522,7 +1478,7 @@ export default class Completion {
 
         const argumentSemanticKinds = this.getArgumentSemanticKinds(info);
         if (argumentSemanticKinds?.has(ArgumentSemanticKind.Property)) {
-            return this.getPropertySuggestions(info, word);
+            return this.getPropertySuggestions(word);
         }
 
         if (argumentSemanticKinds?.has(ArgumentSemanticKind.FindPackage)) {
@@ -1533,7 +1489,7 @@ export default class Completion {
             return uniqueCompletionItems([
                 ...this.getModuleSuggestions(word, 'include'),
                 ...(argumentSemanticKinds.has(ArgumentSemanticKind.FilePath)
-                    ? (await this.getFileSuggestions(info, word) ?? [])
+                    ? (await this.getFileSuggestions(word) ?? [])
                     : []),
             ]);
         }
@@ -1543,7 +1499,7 @@ export default class Completion {
                 if (info.index === 1) {
                     const firstArg = info.context?.argument(0)?.getText() ?? args[0];
                     if (firstArg === 'GET' || firstArg === 'SET') {
-                        return this.getPolicySuggestions(info, word);
+                        return this.getPolicySuggestions(word);
                     }
                 }
                 break;
@@ -1568,13 +1524,13 @@ export default class Completion {
                     const arg1 = args[1];
                     if (arg1 !== 'DIRECTORY' && arg1 !== 'DEFINITION') {
                         return [
-                            ...this.getPropertySuggestions(info, word),
+                            ...this.getPropertySuggestions(word),
                             ...this.getKeywordSuggestions(['DIRECTORY', 'DEFINITION'], word),
                         ];
                     }
                 } else if (info.index === 3 && args[1] === 'DIRECTORY') {
                     return [
-                        ...this.getPropertySuggestions(info, word),
+                        ...this.getPropertySuggestions(word),
                         ...this.getKeywordSuggestions(['DEFINITION'], word),
                     ];
                 }
@@ -1585,18 +1541,18 @@ export default class Completion {
                     const arg2 = args[2];
                     if (arg2 !== 'DIRECTORY' && arg2 !== 'TARGET_DIRECTORY') {
                         return [
-                            ...this.getPropertySuggestions(info, word),
+                            ...this.getPropertySuggestions(word),
                             ...this.getKeywordSuggestions(['DIRECTORY', 'TARGET_DIRECTORY'], word),
                         ];
                     }
                 } else if (info.index === 4 && (args[2] === 'DIRECTORY' || args[2] === 'TARGET_DIRECTORY')) {
-                    return this.getPropertySuggestions(info, word);
+                    return this.getPropertySuggestions(word);
                 }
                 break;
             }
             case 'set': {
                 if (info.index === 0) {
-                    return this.getVariableSuggestions(info, word);
+                    return this.getVariableSuggestions(word);
                 }
                 break;
             }
@@ -1613,12 +1569,12 @@ export default class Completion {
             };
         });
 
-        const fileSuggestions = await this.getFileSuggestions(info, word);
+        const fileSuggestions = await this.getFileSuggestions(word);
         return [...argsCompletions, ...(fileSuggestions ?? [])];
 
     }
 
-    private getPolicySuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
+    private getPolicySuggestions(word: string): CompletionItem[] {
         const policies = this.symbolIndex
             ? Array.from(this.symbolIndex.getAllSystemSymbols(SymbolKind.Policy))
             : [];
@@ -1626,7 +1582,7 @@ export default class Completion {
             return matchesCompletionQuery(candidate, word);
         });
 
-        const suggestions: CompletionItem[] = similar.map((value, index, array) => {
+        const suggestions: CompletionItem[] = similar.map(value => {
             return {
                 label: value,
                 kind: CompletionItemKind.Constant,
@@ -1648,8 +1604,8 @@ export default class Completion {
             });
     }
 
-    private getDefinedNameSuggestions(info: CMakeCompletionInfo, word: string): CompletionItem[] {
-        const variableSuggestions = this.getVariableSuggestions(info, word);
+    private getDefinedNameSuggestions(word: string): CompletionItem[] {
+        const variableSuggestions = this.getVariableSuggestions(word);
         const specialSuggestions: CompletionItem[] = [
             {
                 label: 'CACHE{}',
@@ -1694,7 +1650,7 @@ export default class Completion {
         return this.getSimpleValueSuggestions(values, CompletionItemKind.EnumMember, word);
     }
 
-    private async getGeneratorExpressionSuggestions(info: CMakeCompletionInfo, word: string, argText: string, cursorOffset: number): Promise<CompletionItem[] | null> {
+    private async getGeneratorExpressionSuggestions(argText: string, cursorOffset: number): Promise<CompletionItem[] | null> {
         const context = getGeneratorExpressionContext(argText, cursorOffset);
         if (!context) {
             return null;
@@ -1711,34 +1667,39 @@ export default class Completion {
                     ...this.getGeneratorExpressionNameSuggestions(currentWord),
                     ...this.getKeywordSuggestions([...CONDITION_UNARY_KEYWORDS, 'NOT'], currentWord),
                     ...this.getConditionConstantSuggestions(currentWord),
-                    ...this.getVariableSuggestions(info, currentWord),
+                    ...this.getVariableSuggestions(currentWord),
                 ]);
             }
 
             return uniqueCompletionItems([
-                ...this.getVariableSuggestions(info, currentWord),
+                ...this.getVariableSuggestions(currentWord),
                 ...this.getGeneratorExpressionNameSuggestions(currentWord),
             ]);
         }
 
-        switch (context.name.toUpperCase()) {
+        const expressionName = context.name.toUpperCase();
+        if (GENERATOR_EXPRESSION_TARGET_ROOTS.has(expressionName)) {
+            return this.getTargetsSuggestion() ?? [];
+        }
+
+        switch (expressionName) {
             case 'CONFIG':
                 return this.getSimpleValueSuggestions(GENERATOR_EXPRESSION_CONFIGS, CompletionItemKind.EnumMember, currentWord);
             case 'BOOL':
                 return uniqueCompletionItems([
                     ...this.getConditionConstantSuggestions(currentWord),
-                    ...this.getVariableSuggestions(info, currentWord),
+                    ...this.getVariableSuggestions(currentWord),
                 ]);
             case 'IF':
                 if (context.argumentIndex === 0) {
                     return uniqueCompletionItems([
                         ...this.getGeneratorExpressionNameSuggestions(currentWord),
                         ...this.getConditionConstantSuggestions(currentWord),
-                        ...this.getVariableSuggestions(info, currentWord),
+                        ...this.getVariableSuggestions(currentWord),
                     ]);
                 }
                 return uniqueCompletionItems([
-                    ...this.getVariableSuggestions(info, currentWord),
+                    ...this.getVariableSuggestions(currentWord),
                     ...this.getGeneratorExpressionNameSuggestions(currentWord),
                 ]);
             case 'AND':
@@ -1747,25 +1708,13 @@ export default class Completion {
                 return uniqueCompletionItems([
                     ...this.getGeneratorExpressionNameSuggestions(currentWord),
                     ...this.getConditionConstantSuggestions(currentWord),
-                    ...this.getVariableSuggestions(info, currentWord),
+                    ...this.getVariableSuggestions(currentWord),
                 ]);
-            case 'TARGET_EXISTS':
-            case 'TARGET_NAME_IF_EXISTS':
-            case 'TARGET_FILE':
-            case 'TARGET_FILE_NAME':
-            case 'TARGET_FILE_DIR':
-            case 'TARGET_IMPORT_FILE':
-            case 'TARGET_IMPORT_FILE_NAME':
-            case 'TARGET_IMPORT_FILE_DIR':
-            case 'TARGET_LINKER_FILE':
-            case 'TARGET_LINKER_FILE_NAME':
-            case 'TARGET_LINKER_FILE_DIR':
-                return this.getTargetsSuggestion(info) ?? [];
             case 'TARGET_PROPERTY':
                 if (context.argumentIndex === 0) {
-                    return this.getTargetsSuggestion(info) ?? [];
+                    return this.getTargetsSuggestion() ?? [];
                 }
-                return this.getPropertySuggestions(info, currentWord);
+                return this.getPropertySuggestions(currentWord);
             case 'COMPILE_LANGUAGE':
             case 'LINK_LANGUAGE':
                 return this.getSimpleValueSuggestions(GENERATOR_EXPRESSION_LANGUAGES, CompletionItemKind.EnumMember, currentWord);
@@ -1802,7 +1751,7 @@ export default class Completion {
                     return this.getGeneratorNamespaceSuggestions(GENERATOR_EXPRESSION_HASH_ALGORITHMS, currentWord);
                 }
                 return uniqueCompletionItems([
-                    ...this.getVariableSuggestions(info, currentWord),
+                    ...this.getVariableSuggestions(currentWord),
                     ...this.getGeneratorExpressionNameSuggestions(currentWord),
                 ]);
             }
@@ -1824,7 +1773,7 @@ export default class Completion {
                     return this.getGeneratorNamespaceSuggestions(GENERATOR_EXPRESSION_LIST_SORT_OPTIONS, currentWord);
                 }
                 return uniqueCompletionItems([
-                    ...this.getVariableSuggestions(info, currentWord),
+                    ...this.getVariableSuggestions(currentWord),
                     ...this.getGeneratorExpressionNameSuggestions(currentWord),
                 ]);
             }
@@ -1840,8 +1789,8 @@ export default class Completion {
                     return this.getGeneratorNamespaceSuggestions(GENERATOR_EXPRESSION_PATH_LAST_ONLY, currentWord);
                 }
                 return uniqueCompletionItems([
-                    ...this.getVariableSuggestions(info, currentWord),
-                    ...(await this.getFileSuggestions(info, currentWord) ?? []),
+                    ...this.getVariableSuggestions(currentWord),
+                    ...(await this.getFileSuggestions(currentWord) ?? []),
                     ...this.getGeneratorExpressionNameSuggestions(currentWord),
                 ]);
             }
@@ -1851,7 +1800,7 @@ export default class Completion {
             case 'VERSION_LESS_EQUAL':
             case 'VERSION_GREATER_EQUAL':
                 return uniqueCompletionItems([
-                    ...this.getVariableSuggestions(info, currentWord),
+                    ...this.getVariableSuggestions(currentWord),
                     ...this.getConditionConstantSuggestions(currentWord),
                 ]);
             default:
@@ -1867,19 +1816,19 @@ export default class Completion {
             case 'command-name':
                 return this.getCommandNameSuggestions(word);
             case 'policy-id':
-                return this.getPolicySuggestions(info, word);
+                return this.getPolicySuggestions(word);
             case 'target-name':
-                return this.getTargetsSuggestion(info) ?? [];
+                return this.getTargetsSuggestion() ?? [];
             case 'test-name':
                 return this.getTestsSuggestion() ?? [];
             case 'defined-name':
-                return this.getDefinedNameSuggestions(info, word);
+                return this.getDefinedNameSuggestions(word);
             case 'list-variable':
-                return this.getVariableSuggestions(info, word);
+                return this.getVariableSuggestions(word);
             case 'file-path':
                 return uniqueCompletionItems([
-                    ...this.getVariableSuggestions(info, word),
-                    ...(await this.getFileSuggestions(info, word) ?? []),
+                    ...this.getVariableSuggestions(word),
+                    ...(await this.getFileSuggestions(word) ?? []),
                 ]);
             case 'operator':
                 return this.getKeywordSuggestions([...CONDITION_BINARY_KEYWORDS, 'AND', 'OR'], word);
@@ -1888,7 +1837,7 @@ export default class Completion {
                 return uniqueCompletionItems([
                     ...this.getKeywordSuggestions([...CONDITION_UNARY_KEYWORDS, 'NOT'], word),
                     ...this.getConditionConstantSuggestions(word),
-                    ...this.getVariableSuggestions(info, word),
+                    ...this.getVariableSuggestions(word),
                 ]);
         }
     }
@@ -1953,7 +1902,7 @@ export default class Completion {
         } else if (info.type === CMakeCompletionType.Argument) {
             return this.getArgumentSuggestions(info, this.getArgumentCompletionWord(info));
         } else if (info.type === CMakeCompletionType.Variable) {
-            return this.getVariableSuggestions(info, this.word);
+            return this.getVariableSuggestions(this.word);
         }
         return null;
     }

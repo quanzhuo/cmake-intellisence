@@ -167,17 +167,6 @@ suite('SymbolListener Comprehensive Tests', () => {
         assert.strictEqual(symbols.length, 0);
     });
 
-    // test('should handle incomplete commands gracefully', () => {
-    //     const input = `
-    //         function(IncompleteFunction
-    //             set(VAR value)
-    //     `;
-    //     const symbols = parseSymbols(input);
-    //     // Depending on the parser's error handling, we might get partial results or no results
-    //     // For the purpose of this test, we expect no symbols due to syntax error
-    //     assert.strictEqual(symbols.length, 0);
-    // });
-
     test('should handle variables defined after function ends', () => {
         const input = `
             function(MyFunction)

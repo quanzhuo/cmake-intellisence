@@ -22,7 +22,7 @@ import {
 } from "vscode-languageserver-protocol/node";
 import { URI } from "vscode-uri";
 import { ExtensionSettings } from "../../cmakeEnvironment";
-import { createCompatibleConfigurationResponse, waitForServerReady } from './testUtils';
+import { createConfigurationResponse, waitForServerReady } from './testUtils';
 
 suite("Rename Integration Tests", () => {
     let connection: ProtocolConnection;
@@ -38,7 +38,6 @@ suite("Rename Integration Tests", () => {
         pkgConfigPath: "",
         cmdCaseDiagnostics: false,
         loggingLevel: "off",
-        enableCMakeToolsIntegration: true,
     };
 
     function fileUri(relativePath: string): string {
@@ -104,7 +103,7 @@ suite("Rename Integration Tests", () => {
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest("workspace/configuration", () => {
             configurationRequested();
-            return createCompatibleConfigurationResponse(extSettings);
+            return createConfigurationResponse(extSettings);
         });
         connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
             diagnosticEmitter.emit(params.uri, params);
@@ -155,6 +154,70 @@ suite("Rename Integration Tests", () => {
         const utilsChanges = result.changes![utilsUri];
         assert.ok(utilsChanges && utilsChanges.length > 0, "Should modify utils.cmake");
         assert.ok(utilsChanges.some(c => c.range.start.line === 0), "Should edit utils.cmake line 1");
+    });
+
+    test("rename should not modify equal text or shadowing function parameters", async function () {
+        const uri = await openFixture("semantic-variables.cmake");
+        const result = await renameSymbol(uri, 0, 6, "RENAMED_NAME") as WorkspaceEdit;
+
+        assert.ok(result?.changes?.[uri], "Should return edits for the global variable");
+        const changedLines = result.changes![uri].map(edit => edit.range.start.line).sort((a, b) => a - b);
+        assert.deepStrictEqual(changedLines, [0, 1, 4]);
+        assert.strictEqual(result.changes![uri].find(edit => edit.range.start.line === 4)?.range.start.character, 2, "Multiline edits should use the exact line and column");
+    });
+
+    test("rename of a function parameter should stay inside its lexical scope", async function () {
+        const uri = await openFixture("semantic-variables.cmake");
+        const result = await renameSymbol(uri, 6, 18, "FIRST_NAME") as WorkspaceEdit;
+
+        assert.ok(result?.changes?.[uri]);
+        assert.deepStrictEqual(result.changes![uri].map(edit => edit.range.start.line).sort((a, b) => a - b), [6, 7]);
+    });
+
+    test("rename of a cache variable should not edit a shadowing ordinary variable", async function () {
+        const uri = await openFixture("cache-variables.cmake");
+        const result = await renameSymbol(uri, 0, 9, "RENAMED_CACHE_FLAG") as WorkspaceEdit;
+
+        assert.ok(result?.changes?.[uri]);
+        assert.deepStrictEqual(result.changes![uri].map(edit => edit.range.start.line).sort((a, b) => a - b), [0, 1, 4]);
+    });
+
+    test("rename should treat PARENT_SCOPE writes as references to the parent variable", async function () {
+        const uri = await openFixture("parent-scope-variables.cmake");
+        const result = await renameSymbol(uri, 0, 6, "RENAMED_PARENT") as WorkspaceEdit;
+
+        assert.ok(result?.changes?.[uri]);
+        assert.deepStrictEqual(result.changes![uri].map(edit => edit.range.start.line).sort((a, b) => a - b), [0, 3, 6]);
+    });
+
+    test("rename should follow the latest unconditional command declaration", async function () {
+        const uri = await openFixture("ordered-command.cmake");
+        const result = await renameSymbol(uri, 4, 4, "renamed_command") as WorkspaceEdit;
+
+        assert.ok(result?.changes?.[uri]);
+        assert.deepStrictEqual(result.changes![uri].map(edit => edit.range.start.line).sort((a, b) => a - b), [2, 4]);
+    });
+
+    test("rename should reject conditionally ambiguous command declarations", async function () {
+        const uri = await openFixture("conditional-command.cmake");
+        const result = await renameSymbol(uri, 7, 4, "renamed_command");
+
+        assert.strictEqual(result, null);
+    });
+
+    test("rename should reject command bindings that depend on executing a function body", async function () {
+        const uri = await openFixture("deferred-command.cmake");
+        const result = await renameSymbol(uri, 6, 5, "renamed_deferred_command");
+
+        assert.strictEqual(result, null);
+    });
+
+    test("rename should include a command invocation recovered from an incomplete parse", async function () {
+        const uri = await openFixture("incomplete-command.cmake");
+        const result = await renameSymbol(uri, 2, 5, "renamed_recovered") as WorkspaceEdit;
+
+        assert.ok(result?.changes?.[uri]);
+        assert.deepStrictEqual(result.changes![uri].map(edit => edit.range.start.line).sort((a, b) => a - b), [0, 2]);
     });
 
     test("rename should include unopened indexed files", async function () {

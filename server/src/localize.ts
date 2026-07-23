@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { resolve, join } from "path";
+import { resolve } from "path";
 
 export interface ILanguagePack {
     [key: string]: string;

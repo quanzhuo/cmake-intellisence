@@ -36,7 +36,7 @@ import { URI } from 'vscode-uri';
 import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION } from '../../cmakeToolsSnapshot';
 import { ExtensionSettings, initializeCMakeEnvironment } from '../../cmakeEnvironment';
 import { SymbolIndex, SymbolKind } from '../../symbolIndex';
-import { createCompatibleConfigurationResponse, waitForServerReady } from './testUtils';
+import { createConfigurationResponse, waitForServerReady } from './testUtils';
 
 suite('LSP Integration Tests', () => {
     let connection: ProtocolConnection;
@@ -50,7 +50,6 @@ suite('LSP Integration Tests', () => {
         pkgConfigPath: '',
         cmdCaseDiagnostics: true,
         loggingLevel: 'off',
-        enableCMakeToolsIntegration: true,
     };
 
     suiteSetup(async function () {
@@ -81,7 +80,7 @@ suite('LSP Integration Tests', () => {
         connection.onRequest('workspace/configuration', () => {
             configurationRequested();
             configurationPullWaiters.shift()?.();
-            return createCompatibleConfigurationResponse(extSettings);
+            return createConfigurationResponse(extSettings);
         });
 
         // Collect diagnostics via EventEmitter so each test can wait independently

@@ -5,9 +5,8 @@ import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { CommandCaseChecker } from '../../diagnostics';
 import { FileApiRawSnapshot } from '../../fileApiSnapshot';
-import { extractFlatCommands } from '../../flatCommands';
 import { PathDiagnosticsProvider, DIAG_CODE_MISSING_FILE_PATH } from '../../pathDiagnostics';
-import { getFileContext } from '../../utils';
+import { parseCMakeText } from '../../utils';
 import { FileSymbolCache, SymbolIndex } from '../../symbolIndex';
 
 suite('Diagnostics Tests', () => {
@@ -16,7 +15,7 @@ suite('Diagnostics Tests', () => {
         symbolIndex.setSystemCache(new FileSymbolCache('cmake-builtin://system'));
         symbolIndex.replaceBuiltinModuleCommandCatalog(['ColdStart_DoWork']);
 
-        const commands = extractFlatCommands(getFileContext('ColdStart_DoWork()'));
+        const commands = parseCMakeText('ColdStart_DoWork()').flatCommands;
         const checker = new CommandCaseChecker(symbolIndex);
         checker.check(commands);
 
@@ -31,7 +30,7 @@ suite('Diagnostics Tests', () => {
         symbolIndex.setSystemCache(new FileSymbolCache('cmake-builtin://system'));
         symbolIndex.replaceBuiltinModuleCommandCatalog(['coldstart_dowork']);
 
-        const commands = extractFlatCommands(getFileContext('coldstart_dowork()'));
+        const commands = parseCMakeText('coldstart_dowork()').flatCommands;
         const checker = new CommandCaseChecker(symbolIndex);
         checker.check(commands);
 
@@ -43,7 +42,7 @@ suite('Diagnostics Tests', () => {
         const sourcePath = path.join(workspaceDir, 'CMakeLists.txt');
         const knownInputPath = path.join(workspaceDir, 'missing', 'generated-include.cmake');
         const sourceUri = URI.file(sourcePath);
-        const commands = extractFlatCommands(getFileContext('include(missing/generated-include.cmake)\n'));
+        const commands = parseCMakeText('include(missing/generated-include.cmake)\n').flatCommands;
         const fileApiRawSnapshot: FileApiRawSnapshot = {
             replyDirectory: path.join(workspaceDir, '.cmake', 'api', 'v1', 'reply'),
             indexFile: 'index-test.json',
@@ -93,7 +92,7 @@ suite('Diagnostics Tests', () => {
         const sourcePath = path.join(workspaceDir, 'CMakeLists.txt');
         const generatedSourcePath = path.join(workspaceDir, 'missing', 'generated.cpp');
         const sourceUri = URI.file(sourcePath);
-        const commands = extractFlatCommands(getFileContext('add_library(test_lib STATIC missing/generated.cpp)\n'));
+        const commands = parseCMakeText('add_library(test_lib STATIC missing/generated.cpp)\n').flatCommands;
         const fileApiRawSnapshot: FileApiRawSnapshot = {
             replyDirectory: path.join(workspaceDir, '.cmake', 'api', 'v1', 'reply'),
             indexFile: 'index-test.json',

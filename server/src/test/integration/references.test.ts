@@ -22,7 +22,7 @@ import {
 } from "vscode-languageserver-protocol/node";
 import { URI } from "vscode-uri";
 import { ExtensionSettings } from "../../cmakeEnvironment";
-import { createCompatibleConfigurationResponse, waitForServerReady } from './testUtils';
+import { createConfigurationResponse, waitForServerReady } from './testUtils';
 
 suite("References Integration Tests", () => {
     let connection: ProtocolConnection;
@@ -38,7 +38,6 @@ suite("References Integration Tests", () => {
         pkgConfigPath: "",
         cmdCaseDiagnostics: false,
         loggingLevel: "off",
-        enableCMakeToolsIntegration: true,
     };
 
     function fileUri(relativePath: string): string {
@@ -104,7 +103,7 @@ suite("References Integration Tests", () => {
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest("workspace/configuration", () => {
             configurationRequested();
-            return createCompatibleConfigurationResponse(extSettings);
+            return createConfigurationResponse(extSettings);
         });
         connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
             diagnosticEmitter.emit(params.uri, params);
@@ -154,6 +153,50 @@ suite("References Integration Tests", () => {
         const utilsUri = fileUri("utils.cmake");
         assert.ok(locs.some(l => l.uri === utilsUri && l.range.start.line === 0), "Overwritten in utils.cmake line 1");
         assert.ok(locs.some(l => l.uri === utilsUri && l.range.start.line === 1), "Usage in utils.cmake message on line 2");
+    });
+
+    test("variable references should be structural, scoped, and multiline-safe", async function () {
+        const uri = await openFixture("semantic-variables.cmake");
+        const result = await getReferences(uri, 0, 6);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.ok(locs.some(l => l.range.start.line === 0), "Should include the global declaration");
+        assert.ok(locs.some(l => l.range.start.line === 1), "Should include explicit expansion");
+        assert.ok(locs.some(l => l.range.start.line === 4 && l.range.start.character === 2), "Should retain the exact range inside a multiline argument");
+        assert.ok(!locs.some(l => l.range.start.line === 2), "A string containing the same text is not a variable reference");
+        assert.ok(!locs.some(l => l.range.start.line === 6 || l.range.start.line === 7 || l.range.start.line === 9 || l.range.start.line === 10), "Function parameters must shadow the global variable");
+    });
+
+    test("function parameter references should stay inside their lexical scope", async function () {
+        const uri = await openFixture("semantic-variables.cmake");
+        const result = await getReferences(uri, 6, 18);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.deepStrictEqual(locs.map(location => location.range.start.line).sort((a, b) => a - b), [6, 7]);
+    });
+
+    test("cache-variable references should respect ordinary-variable shadowing", async function () {
+        const uri = await openFixture("cache-variables.cmake");
+        const result = await getReferences(uri, 0, 9);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.deepStrictEqual(locs.map(location => location.range.start.line).sort((a, b) => a - b), [0, 1, 4]);
+    });
+
+    test("PARENT_SCOPE writes should bind to the parent variable instead of a local shadow", async function () {
+        const uri = await openFixture("parent-scope-variables.cmake");
+        const result = await getReferences(uri, 0, 6);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.deepStrictEqual(locs.map(location => location.range.start.line).sort((a, b) => a - b), [0, 3, 6]);
+    });
+
+    test("command references should include an invocation recovered from an incomplete parse", async function () {
+        const uri = await openFixture("incomplete-command.cmake");
+        const result = await getReferences(uri, 2, 5);
+        const locs = (Array.isArray(result) ? result : [result]) as Location[];
+
+        assert.deepStrictEqual(locs.map(location => location.range.start.line).sort((a, b) => a - b), [0, 2]);
     });
 
     test("find references in unopened indexed files", async function () {
@@ -244,12 +287,12 @@ suite("References Integration Tests", () => {
     test("should treat math EXPR output as the variable declaration", async function () {
         const uri = await openFixture("CMakeLists.txt");
 
-        const result = await getReferences(uri, 17, 24, false);
+        const result = await getReferences(uri, 19, 15, false);
         const locs = (Array.isArray(result) ? result : [result]) as Location[];
 
         assert.ok(locs.length > 0, "Should find math output usages");
-        assert.ok(!locs.some(l => l.uri === uri && l.range.start.line === 16), "math output declaration should be excluded");
-        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 17), "math output usage should remain");
+        assert.ok(!locs.some(l => l.uri === uri && l.range.start.line === 19), "math output declaration should be excluded");
+        assert.ok(locs.some(l => l.uri === uri && l.range.start.line === 20), "math output usage should remain");
     });
 
     test("find references of a target across target-aware argument positions", async function () {

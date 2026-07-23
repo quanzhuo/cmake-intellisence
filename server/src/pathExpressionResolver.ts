@@ -2,7 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { FlatCommand } from './flatCommands';
-import { SymbolIndex } from './symbolIndex';
+import { SymbolBindingResolver } from './symbolBinding';
+import { FileSymbolCache, SymbolIndex } from './symbolIndex';
 
 const MAX_BEST_EFFORT_CANDIDATES = 1;
 
@@ -12,6 +13,7 @@ export interface PathExpressionResolverOptions {
     entryFile: URI;
     buildDirectory?: string;
     buildDirectoriesBySourcePath?: Record<string, string>;
+    cacheOverrides?: ReadonlyMap<string, FileSymbolCache>;
 }
 
 export interface PathExpressionRequest {
@@ -46,26 +48,8 @@ export class PathExpressionResolver {
     private readonly expandedRequestCache = new Map<string, Promise<ExpandedPathResult>>();
     private readonly fileRequestCache = new Map<string, Promise<FileExpressionResolutionResult>>();
     private readonly resolvedFileCache = new Map<string, URI | null>();
-    private readonly visibleFilesSignatureCache = new Map<string, string>();
 
     constructor(private readonly options: PathExpressionResolverOptions) {
-    }
-
-    private getVisibleFilesSignature(sourceUri: URI): string {
-        const cacheKey = sourceUri.toString();
-        const existing = this.visibleFilesSignatureCache.get(cacheKey);
-        if (existing) {
-            return existing;
-        }
-
-        const visibleFiles = this.options.symbolIndex.getVisibleFilesForVariable(this.options.entryFile.toString(), cacheKey);
-        if (!visibleFiles.includes(cacheKey)) {
-            visibleFiles.push(cacheKey);
-        }
-
-        const signature = visibleFiles.join('\0');
-        this.visibleFilesSignatureCache.set(cacheKey, signature);
-        return signature;
     }
 
     private createRequestCacheKey(kind: 'expand' | 'file', request: PathExpressionRequest): string {
@@ -75,7 +59,6 @@ export class PathExpressionResolver {
             request.sourceUri.toString(),
             request.maxLine.toString(),
             request.argText,
-            this.getVisibleFilesSignature(request.sourceUri),
         ].join('\0');
     }
 
@@ -169,9 +152,8 @@ export class PathExpressionResolver {
     }
 
     private isSimpleSetValue(value: string): boolean {
-        // Phase 2 intentionally supports only literal path fragments plus ${VAR}
-        // interpolation. List values, env/cache references, and generator
-        // expressions are left unresolved for now.
+        // Only deterministic scalar paths are safe to resolve statically. List
+        // values, env/cache references, and generator expressions stay unresolved.
         return !value.includes(';')
             && !value.includes('$ENV{')
             && !value.includes('$CACHE{')
@@ -197,17 +179,6 @@ export class PathExpressionResolver {
         return this.isSimpleSetValue(normalizedValue) ? normalizedValue : null;
     }
 
-    private async resolveVariableValue(
-        variableName: string,
-        sourceUri: URI,
-        maxLine: number,
-        seen: Set<string>,
-        depth: number,
-    ): Promise<string | null> {
-        const result = await this.resolveVariableValueDetailed(variableName, sourceUri, maxLine, seen, depth);
-        return result.expandedPath;
-    }
-
     private async resolveVariableValueDetailed(
         variableName: string,
         sourceUri: URI,
@@ -215,7 +186,18 @@ export class PathExpressionResolver {
         seen: Set<string>,
         depth: number,
     ): Promise<ExpandedPathResult> {
-        const recursionKey = `${sourceUri.toString()}::${variableName}`;
+        const binding = new SymbolBindingResolver(
+            this.options.symbolIndex,
+            this.options.entryFile.toString(),
+            sourceUri.toString(),
+            this.options.cacheOverrides,
+        ).resolveVariableAtLine(variableName, maxLine);
+        if (binding.declarations.length !== 1) {
+            return this.getMissingVariableResult(variableName);
+        }
+
+        const declaration = binding.declarations[0];
+        const recursionKey = `${declaration.uri}::${declaration.order}::${declaration.namespace}::${declaration.canonicalName}`;
         if (seen.has(recursionKey)) {
             return {
                 expandedPath: null,
@@ -226,45 +208,19 @@ export class PathExpressionResolver {
 
         seen.add(recursionKey);
         try {
-            const visibleFiles = this.options.symbolIndex.getVisibleFilesForVariable(this.options.entryFile.toString(), sourceUri.toString());
-            if (!visibleFiles.includes(sourceUri.toString())) {
-                visibleFiles.push(sourceUri.toString());
+            const commands = await this.options.getFlatCommands(declaration.uri);
+            const value = this.getSimpleSetValue(commands[declaration.order]);
+            if (!value) {
+                return this.getMissingVariableResult(variableName);
             }
 
-            for (let fileIndex = visibleFiles.length - 1; fileIndex >= 0; fileIndex--) {
-                const candidateUri = visibleFiles[fileIndex];
-                const commands = await this.options.getFlatCommands(candidateUri);
-                for (let commandIndex = commands.length - 1; commandIndex >= 0; commandIndex--) {
-                    const candidate = commands[commandIndex];
-                    if (candidate.commandName.toLowerCase() !== 'set') {
-                        continue;
-                    }
-
-                    if (candidateUri === sourceUri.toString() && candidate.start.line - 1 > maxLine) {
-                        continue;
-                    }
-
-                    const args = candidate.argument_list();
-                    if (args[0]?.getText() !== variableName) {
-                        continue;
-                    }
-
-                    const value = this.getSimpleSetValue(candidate);
-                    if (!value) {
-                        continue;
-                    }
-
-                    return this.expandPathVariablesDetailed(
-                        value,
-                        URI.parse(candidateUri),
-                        candidate.start.line - 1,
-                        seen,
-                        depth + 1,
-                    );
-                }
-            }
-
-            return this.getMissingVariableResult(variableName);
+            return this.expandPathVariablesDetailed(
+                value,
+                URI.parse(declaration.uri),
+                declaration.range.start.line,
+                seen,
+                depth + 1,
+            );
         } finally {
             seen.delete(recursionKey);
         }

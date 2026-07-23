@@ -1,0 +1,5 @@
+set(CONDITIONAL_VALUE base)
+if(ENABLE_OVERRIDE)
+    set(CONDITIONAL_VALUE override)
+endif()
+message("${CONDITIONAL_VALUE}")

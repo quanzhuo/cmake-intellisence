@@ -109,7 +109,7 @@ export function deserializeFileSymbolCache(serialized: SerializedFileSymbolCache
     restoreSymbols(serialized.policies, symbol => cache.addPolicy(symbol));
     restoreSymbols(serialized.properties, symbol => cache.addProperty(symbol));
     for (const dependency of serialized.dependencies) {
-        cache.addDependency(dependency.uri, dependency.type);
+        cache.addDependency(dependency.uri, dependency.type, dependency.order, dependency.uncertain);
     }
     return cache;
 }

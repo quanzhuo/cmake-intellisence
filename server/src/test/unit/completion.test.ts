@@ -6,10 +6,10 @@ import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { ExtensionSettings, initializeCMakeEnvironment } from "../../cmakeEnvironment";
 import Completion, { CMakeCompletionType, findCommandAtPosition, getCompletionInfoAtCursor, isCursorWithinParentheses } from '../../completion';
-import { extractFlatCommands, FlatCommand } from "../../flatCommands";
+import { FlatCommand } from "../../flatCommands";
 import { Logger } from '../../logging';
 import { SymbolIndex, SymbolKind } from "../../symbolIndex";
-import { getFileContext, getIncludeFileUri, parseCMakeText } from "../../utils";
+import { getIncludeFileUri, parseCMakeText } from "../../utils";
 
 suite('Completion Tests', () => {
     let symbolIndex: SymbolIndex;
@@ -22,7 +22,6 @@ suite('Completion Tests', () => {
             pkgConfigPath: "",
             cmdCaseDiagnostics: false,
             loggingLevel: 'off',
-            enableCMakeToolsIntegration: true,
         };
         await initializeCMakeEnvironment(extSettings, symbolIndex);
     });
@@ -69,7 +68,7 @@ suite('Completion Tests', () => {
         const completion = new Completion(
             new Map(),
             new Map(),
-            {},
+            [],
             'if',
             new Logger('test', 'off'),
             symbolIndex,
@@ -91,7 +90,7 @@ suite('Completion Tests', () => {
         const completion = new Completion(
             new Map(),
             new Map(),
-            {},
+            [],
             'cmake_mini',
             new Logger('test', 'off'),
             symbolIndex,
@@ -131,7 +130,7 @@ suite('Utility Function Tests', () => {
 mock_command ( arg1 
 arg2 ) 
 `;
-        const commands = extractFlatCommands(getFileContext(input));
+        const commands = parseCMakeText(input).flatCommands;
         const testCases = [
             {
                 pos: { line: 0, character: 0 },
@@ -176,7 +175,7 @@ mock_command ( arg1
 
 arg2  arg3          arg4 ) 
 `;
-        const commands = extractFlatCommands(getFileContext(input));
+        const commands = parseCMakeText(input).flatCommands;
         const testCases = [
             {
                 pos: { line: 1, character: 14 },
@@ -254,7 +253,7 @@ arg2  arg3          arg4 )
 
     test('getCompletionInfoAtCursor variable 1', () => {
         const input = 'mock_command(arg1 ${})';
-        const commands = extractFlatCommands(getFileContext(input));
+        const commands = parseCMakeText(input).flatCommands;
         const testCases = [
             {
                 pos: { line: 0, character: 20 },
@@ -279,7 +278,7 @@ arg2  arg3          arg4 )
 
     test('getCompletionInfoAtCursor variable 2', () => {
         const input = "mock_command( arg1 ${CMAKE})";
-        const commands = extractFlatCommands(getFileContext(input));
+        const commands = parseCMakeText(input).flatCommands;
         const testCases = [
             {
                 pos: { line: 0, character: 21 },
@@ -304,7 +303,7 @@ arg2  arg3          arg4 )
 
     test('getCompletionInfoAtCursor variable 3', () => {
         const input = "mock_command(arg1 ${CMAKE} ${FOO})";
-        const commands = extractFlatCommands(getFileContext(input));
+        const commands = parseCMakeText(input).flatCommands;
         const testCases = [
             {
                 pos: { line: 0, character: 20 },
@@ -344,7 +343,7 @@ arg2  arg3          arg4 )
 
     test('multi variable reference in single argument should work', () => {
         const input = 'mock_command(arg1 ${Foo}${Bar})';
-        const commands = extractFlatCommands(getFileContext(input));
+        const commands = parseCMakeText(input).flatCommands;
         const testCases = [
             {
                 pos: { line: 0, character: 19 },
@@ -372,7 +371,7 @@ arg2  arg3          arg4 )
 
     test('multiple variable references in a mixed argument should all be detected', () => {
         const input = 'mock_command(${FOO}_${BAR})';
-        const commands = extractFlatCommands(getFileContext(input));
+        const commands = parseCMakeText(input).flatCommands;
         const testCases = [
             { pos: { line: 0, character: 15 }, expected: CMakeCompletionType.Variable },
             { pos: { line: 0, character: 17 }, expected: CMakeCompletionType.Variable },
@@ -453,18 +452,17 @@ suite('Condition Completion Tests', () => {
             pkgConfigPath: '',
             cmdCaseDiagnostics: false,
             loggingLevel: 'off',
-            enableCMakeToolsIntegration: true,
         };
         await initializeCMakeEnvironment(extSettings, symbolIndex);
     });
 
-    async function completeCondition(input: string, word: string, character: number, targetInfo = {}): Promise<string[]> {
+    async function completeCondition(input: string, word: string, character: number, externalTargetNames: string[] = []): Promise<string[]> {
         const parsed = parseCMakeText(input);
         const uri = URI.file(path.resolve(__dirname, 'condition-completion.cmake')).toString();
         const completion = new Completion(
             new Map([[uri, parsed.flatCommands]]),
             new Map([[uri, parsed.tokenStream]]),
-            targetInfo,
+            externalTargetNames,
             word,
             new Logger('test', 'off'),
             symbolIndex,
@@ -509,10 +507,7 @@ suite('Condition Completion Tests', () => {
     });
 
     test('TARGET predicate should suggest project targets', async () => {
-        const labels = await completeCondition('if(TARGET My)', 'My', 12, {
-            executables: new Set(['MyExe']),
-            libraries: new Set(['MyLib']),
-        });
+        const labels = await completeCondition('if(TARGET My)', 'My', 12, ['MyExe', 'MyLib']);
 
         assert(labels.includes('MyExe'));
         assert(labels.includes('MyLib'));
@@ -533,7 +528,7 @@ suite('Condition Completion Tests', () => {
             const completion = new Completion(
                 new Map([[uri, parsed.flatCommands]]),
                 new Map([[uri, parsed.tokenStream]]),
-                {},
+                [],
                 'he',
                 new Logger('test', 'off'),
                 symbolIndex,
@@ -568,7 +563,7 @@ suite('Condition Completion Tests', () => {
             const completion = new Completion(
                 new Map([[uri, parsed.flatCommands]]),
                 new Map([[uri, parsed.tokenStream]]),
-                {},
+                [],
                 'ap',
                 new Logger('test', 'off'),
                 symbolIndex,
@@ -604,7 +599,7 @@ suite('Condition Completion Tests', () => {
             const completion = new Completion(
                 new Map([[uri, parsed.flatCommands]]),
                 new Map([[uri, parsed.tokenStream]]),
-                {},
+                [],
                 'config/in',
                 new Logger('test', 'off'),
                 symbolIndex,
@@ -638,7 +633,7 @@ suite('Condition Completion Tests', () => {
             const completion = new Completion(
                 new Map([[uri, parsed.flatCommands]]),
                 new Map([[uri, parsed.tokenStream]]),
-                {},
+                [],
                 'ap',
                 new Logger('test', 'off'),
                 symbolIndex,
@@ -674,7 +669,7 @@ suite('Condition Completion Tests', () => {
             const completion = new Completion(
                 new Map([[uri, parsed.flatCommands]]),
                 new Map([[uri, parsed.tokenStream]]),
-                {},
+                [],
                 'config/in',
                 new Logger('test', 'off'),
                 symbolIndex,
@@ -712,7 +707,7 @@ suite('Condition Completion Tests', () => {
             const completion = new Completion(
                 new Map([[uri, parsed.flatCommands]]),
                 new Map([[uri, parsed.tokenStream]]),
-                {},
+                [],
                 'out',
                 new Logger('test', 'off'),
                 symbolIndex,
@@ -748,7 +743,7 @@ suite('Condition Completion Tests', () => {
             const completion = new Completion(
                 new Map([[uri, parsed.flatCommands]]),
                 new Map([[uri, parsed.tokenStream]]),
-                {},
+                [],
                 'src/li',
                 new Logger('test', 'off'),
                 symbolIndex,
@@ -774,10 +769,7 @@ suite('Condition Completion Tests', () => {
         const completion = new Completion(
             new Map([[uri, parsed.flatCommands]]),
             new Map([[uri, parsed.tokenStream]]),
-            {
-                executables: new Set(['MyExe']),
-                libraries: new Set(['MyLib']),
-            },
+            ['MyExe', 'MyLib'],
             'My',
             new Logger('test', 'off'),
             symbolIndex,
@@ -801,10 +793,7 @@ suite('Condition Completion Tests', () => {
         const completion = new Completion(
             new Map([[uri, parsed.flatCommands]]),
             new Map([[uri, parsed.tokenStream]]),
-            {
-                executables: new Set(['MyExe']),
-                libraries: new Set(['MyLib']),
-            },
+            ['MyExe', 'MyLib'],
             'My',
             new Logger('test', 'off'),
             symbolIndex,
@@ -841,10 +830,7 @@ suite('Condition Completion Tests', () => {
             const completion = new Completion(
                 new Map([[uri, parsed.flatCommands]]),
                 new Map([[uri, parsed.tokenStream]]),
-                {
-                    executables: new Set(['MyExe']),
-                    libraries: new Set(['MyLib']),
-                },
+                ['MyExe', 'MyLib'],
                 'My',
                 new Logger('test', 'off'),
                 symbolIndex,
@@ -869,14 +855,13 @@ suite('Condition Completion Tests', () => {
         const completion = new Completion(
             new Map([[uri, parsed.flatCommands]]),
             new Map([[uri, parsed.tokenStream]]),
-            {},
+            ['ExtCore', 'ExtRuntime'],
             'Ext',
             new Logger('test', 'off'),
             symbolIndex,
             undefined,
             undefined,
             undefined,
-            ['ExtCore', 'ExtRuntime'],
         );
 
         const result = await completion.onCompletion({
@@ -897,14 +882,13 @@ suite('Condition Completion Tests', () => {
         const completion = new Completion(
             new Map([[uri, parsed.flatCommands]]),
             new Map([[uri, parsed.tokenStream]]),
-            {},
+            [],
             'Smoke',
             new Logger('test', 'off'),
             symbolIndex,
             undefined,
             undefined,
             undefined,
-            [],
             ['SmokeSuite', 'SmokeFast'],
         );
 
@@ -926,14 +910,13 @@ suite('Condition Completion Tests', () => {
         const completion = new Completion(
             new Map([[uri, parsed.flatCommands]]),
             new Map([[uri, parsed.tokenStream]]),
-            {},
+            [],
             'Smoke',
             new Logger('test', 'off'),
             symbolIndex,
             undefined,
             undefined,
             undefined,
-            [],
             ['SmokeSuite', 'SmokeFast'],
         );
 
@@ -955,14 +938,13 @@ suite('Condition Completion Tests', () => {
         const completion = new Completion(
             new Map([[uri, parsed.flatCommands]]),
             new Map([[uri, parsed.tokenStream]]),
-            {},
+            [],
             'Smoke',
             new Logger('test', 'off'),
             symbolIndex,
             undefined,
             undefined,
             undefined,
-            [],
             ['SmokeSuite', 'SmokeFast'],
         );
 
@@ -990,7 +972,7 @@ suite('Condition Completion Tests', () => {
             const completion = new Completion(
                 new Map([[uri, parsed.flatCommands]]),
                 new Map([[uri, parsed.tokenStream]]),
-                {},
+                [],
                 '',
                 new Logger('test', 'off'),
                 symbolIndex,
@@ -1023,7 +1005,7 @@ suite('Condition Completion Tests', () => {
             const completion = new Completion(
                 new Map([[uri, parsed.flatCommands]]),
                 new Map([[uri, parsed.tokenStream]]),
-                {},
+                [],
                 '',
                 new Logger('test', 'off'),
                 symbolIndex,
@@ -1060,14 +1042,13 @@ suite('Condition Completion Tests', () => {
             const completion = new Completion(
                 new Map([[uri, parsed.flatCommands]]),
                 new Map([[uri, parsed.tokenStream]]),
-                {},
+                [],
                 testCase.input.slice(0, testCase.cursor).split(/[^A-Za-z0-9_]+/).pop() ?? '',
                 new Logger('test', 'off'),
                 symbolIndex,
                 undefined,
                 undefined,
                 undefined,
-                [],
                 ['SmokeSuite', 'SmokeFast'],
             );
 
@@ -1109,18 +1090,17 @@ suite('Generator Expression Completion Tests', () => {
             pkgConfigPath: '',
             cmdCaseDiagnostics: false,
             loggingLevel: 'off',
-            enableCMakeToolsIntegration: true,
         };
         await initializeCMakeEnvironment(extSettings, symbolIndex);
     });
 
-    async function completeGenex(input: string, word: string, character: number, targetInfo = {}): Promise<string[]> {
+    async function completeGenex(input: string, word: string, character: number, externalTargetNames: string[] = []): Promise<string[]> {
         const parsed = parseCMakeText(input);
         const uri = URI.file(path.resolve(__dirname, 'genex-completion.cmake')).toString();
         const completion = new Completion(
             new Map([[uri, parsed.flatCommands]]),
             new Map([[uri, parsed.tokenStream]]),
-            targetInfo,
+            externalTargetNames,
             word,
             new Logger('test', 'off'),
             symbolIndex,
@@ -1159,10 +1139,7 @@ suite('Generator Expression Completion Tests', () => {
 
     test('TARGET_PROPERTY genex should suggest targets first', async () => {
         const input = 'target_compile_definitions(tgt PRIVATE $<TARGET_PROPERTY:My>)';
-        const labels = await completeGenex(input, 'My', 'target_compile_definitions(tgt PRIVATE $<TARGET_PROPERTY:My'.length, {
-            executables: new Set(['MyExe']),
-            libraries: new Set(['MyLib']),
-        });
+        const labels = await completeGenex(input, 'My', 'target_compile_definitions(tgt PRIVATE $<TARGET_PROPERTY:My'.length, ['MyExe', 'MyLib']);
 
         assert(labels.includes('MyExe'));
         assert(labels.includes('MyLib'));
@@ -1170,9 +1147,7 @@ suite('Generator Expression Completion Tests', () => {
 
     test('TARGET_PROPERTY genex should suggest properties after target name', async () => {
         const input = 'target_compile_definitions(tgt PRIVATE $<TARGET_PROPERTY:MyExe,IN>)';
-        const labels = await completeGenex(input, 'IN', 'target_compile_definitions(tgt PRIVATE $<TARGET_PROPERTY:MyExe,IN'.length, {
-            executables: new Set(['MyExe']),
-        });
+        const labels = await completeGenex(input, 'IN', 'target_compile_definitions(tgt PRIVATE $<TARGET_PROPERTY:MyExe,IN'.length, ['MyExe']);
 
         assert(labels.includes('INCLUDE_DIRECTORIES'));
     });
@@ -1202,10 +1177,7 @@ suite('Generator Expression Completion Tests', () => {
 
     test('TARGET_FILE genex should suggest targets', async () => {
         const input = 'target_compile_definitions(tgt PRIVATE $<TARGET_FILE:My>)';
-        const labels = await completeGenex(input, 'My', 'target_compile_definitions(tgt PRIVATE $<TARGET_FILE:My'.length, {
-            executables: new Set(['MyExe']),
-            libraries: new Set(['MyLib']),
-        });
+        const labels = await completeGenex(input, 'My', 'target_compile_definitions(tgt PRIVATE $<TARGET_FILE:My'.length, ['MyExe', 'MyLib']);
 
         assert(labels.includes('MyExe'));
         assert(labels.includes('MyLib'));

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import { OutputChannel } from 'vscode';
-import { getCompatibleSetting } from './config';
+import { getSetting } from './config';
 
 export enum LogLevel {
     DEBUG = 0,
@@ -98,5 +98,5 @@ export class Logger {
  * @returns `LogLevel` enum value
  */
 export function getConfigLogLevel(): LogLevel {
-    return LogLevel[getCompatibleSetting('loggingLevel', 'off').toUpperCase() as keyof typeof LogLevel];
+    return LogLevel[getSetting('loggingLevel', 'off').toUpperCase() as keyof typeof LogLevel];
 }

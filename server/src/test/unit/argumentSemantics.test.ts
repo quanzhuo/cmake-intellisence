@@ -14,6 +14,16 @@ suite('Argument Semantics Tests', () => {
         assert.strictEqual(result.argumentIndex, 0);
     });
 
+    test('getArgumentSpanAtPosition should locate positions inside multiline arguments', () => {
+        const command = parseCMakeText('message("before\n${VALUE}\nafter")\n').flatCommands[0];
+        const result = getArgumentSpanAtPosition(command, { line: 1, character: 4 });
+
+        assert(result !== null);
+        assert.strictEqual(result.argumentIndex, 0);
+        assert.strictEqual(result.start.line, 0);
+        assert.strictEqual(result.end.line, 2);
+    });
+
     test('resolveCursorTarget should classify target_include_directories receiver as target', () => {
         const command = parseCMakeText('target_include_directories(app PRIVATE include)\n').flatCommands[0];
         const arg = command.argument_list()[0];
@@ -72,6 +82,38 @@ suite('Argument Semantics Tests', () => {
         assert.strictEqual(result.text, 'ROOT_VAR');
     });
 
+    test('shared target semantics should cover declarations, aliases, dependencies, and property commands', () => {
+        const cases: Array<[string, number]> = [
+            ['add_custom_target(generate)', 0],
+            ['add_library(alias ALIAS core)', 2],
+            ['add_dependencies(app generate core)', 2],
+            ['add_custom_command(TARGET app POST_BUILD COMMAND echo)', 1],
+            ['set_target_properties(app core PROPERTIES OUTPUT_NAME sample)', 1],
+            ['set_property(TARGET app core PROPERTY POSITION_INDEPENDENT_CODE ON)', 2],
+            ['get_property(out TARGET app PROPERTY TYPE)', 2],
+            ['install(TARGETS app core RUNTIME DESTINATION bin)', 2],
+            ['export(TARGETS app core FILE targets.cmake)', 2],
+        ];
+
+        for (const [source, argumentIndex] of cases) {
+            const command = parseCMakeText(`${source}\n`).flatCommands[0];
+            assert(
+                getArgumentSemanticKinds(command, argumentIndex).has(ArgumentSemanticKind.Target),
+                `${source} argument ${argumentIndex} should be a target`,
+            );
+        }
+    });
+
+    test('resolveCursorTarget should prefer an embedded variable over the surrounding target argument', () => {
+        const command = parseCMakeText('target_link_libraries(app PRIVATE ${LIB_TARGET})\n').flatCommands[0];
+        const arg = command.argument_list()[2];
+        const position = { line: arg.start.line - 1, character: arg.start.column + 4 };
+
+        const result = resolveCursorTarget(command, '', position);
+        assert.strictEqual(result.subject, DefinitionSubject.Variable);
+        assert.strictEqual(result.text, 'LIB_TARGET');
+    });
+
     test('resolveCursorTarget should preserve full target names with namespace separators', () => {
         const command = parseCMakeText('target_link_libraries(app PRIVATE Qt6::Core)\n').flatCommands[0];
         const arg = command.argument_list()[2];
@@ -94,6 +136,16 @@ suite('Argument Semantics Tests', () => {
 
     test('resolveCursorTarget should classify TARGET_PROPERTY generator-expression target operands as targets', () => {
         const command = parseCMakeText('target_compile_definitions(app PRIVATE $<TARGET_PROPERTY:core,INTERFACE_INCLUDE_DIRECTORIES>)\n').flatCommands[0];
+        const arg = command.argument_list()[2];
+        const position = { line: arg.start.line - 1, character: arg.start.column + arg.getText().indexOf('core') + 1 };
+
+        const result = resolveCursorTarget(command, '', position);
+        assert.strictEqual(result.subject, DefinitionSubject.Target);
+        assert.strictEqual(result.text, 'core');
+    });
+
+    test('target arguments should resolve embedded generator-expression targets instead of the whole expression', () => {
+        const command = parseCMakeText('target_link_libraries(app PRIVATE $<TARGET_NAME_IF_EXISTS:core>)\n').flatCommands[0];
         const arg = command.argument_list()[2];
         const position = { line: arg.start.line - 1, character: arg.start.column + arg.getText().indexOf('core') + 1 };
 

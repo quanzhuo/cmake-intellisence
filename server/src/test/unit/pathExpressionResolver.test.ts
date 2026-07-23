@@ -3,13 +3,31 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { URI } from 'vscode-uri';
+import { FlatCommand } from '../../flatCommands';
 import { PathExpressionResolver } from '../../pathExpressionResolver';
+import { extractSymbols } from '../../symbolExtractor';
 import { SymbolIndex } from '../../symbolIndex';
 import { parseCMakeText } from '../../utils';
 
 function normalizeDirectoryMapKeyForTest(filePath: string): string {
     const normalized = path.normalize(filePath);
     return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+async function createIndexedResolver(
+    fileUri: URI,
+    commands: FlatCommand[],
+    getFlatCommands: (uri: string) => Promise<FlatCommand[]> = async () => commands,
+): Promise<PathExpressionResolver> {
+    const symbolIndex = new SymbolIndex();
+    const cache = await extractSymbols(
+        fileUri.toString(),
+        commands,
+        URI.file(path.dirname(fileUri.fsPath)),
+        symbolIndex,
+    );
+    symbolIndex.setCache(fileUri.toString(), cache, 'test', fileUri.toString());
+    return new PathExpressionResolver({ symbolIndex, getFlatCommands, entryFile: fileUri });
 }
 
 suite('Path Expression Resolver Tests', () => {
@@ -158,11 +176,7 @@ suite('Path Expression Resolver Tests', () => {
             'include(${HELPER_FILE})',
         ].join('\n')).flatCommands;
 
-        const resolver = new PathExpressionResolver({
-            symbolIndex: new SymbolIndex(),
-            getFlatCommands: async () => commands,
-            entryFile: fileUri,
-        });
+        const resolver = await createIndexedResolver(fileUri, commands);
 
         try {
             const expanded = await resolver.expandPathVariables('${HELPER_FILE}', fileUri, 2);
@@ -170,6 +184,24 @@ suite('Path Expression Resolver Tests', () => {
                 normalizeForComparison(expanded),
                 normalizeForComparison(path.join(workspaceDir, 'include', 'helpers.cmake')),
             );
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
+
+    test('expandPathVariables should bind a set right-hand side to the previous variable version', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-reassign-'));
+        const fileUri = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const commands = parseCMakeText([
+            'set(HELPER_DIR include)',
+            'set(HELPER_DIR ${HELPER_DIR}/nested)',
+            'include(${HELPER_DIR}/helpers.cmake)',
+        ].join('\n')).flatCommands;
+        const resolver = await createIndexedResolver(fileUri, commands);
+
+        try {
+            const expanded = await resolver.expandPathVariables('${HELPER_DIR}/helpers.cmake', fileUri, 2);
+            assert.strictEqual(expanded, path.normalize('include/nested/helpers.cmake'));
         } finally {
             fs.rmSync(workspaceDir, { recursive: true, force: true });
         }
@@ -185,11 +217,7 @@ suite('Path Expression Resolver Tests', () => {
             'set(HELPER_FILE ${HELPER_DIR}/helpers.cmake)',
         ].join('\n')).flatCommands;
 
-        const resolver = new PathExpressionResolver({
-            symbolIndex: new SymbolIndex(),
-            getFlatCommands: async () => commands,
-            entryFile: fileUri,
-        });
+        const resolver = await createIndexedResolver(fileUri, commands);
 
         try {
             fs.mkdirSync(includeDir, { recursive: true });
@@ -343,11 +371,7 @@ suite('Path Expression Resolver Tests', () => {
             'include(${HELPER_FILE})',
         ].join('\n')).flatCommands;
 
-        const resolver = new PathExpressionResolver({
-            symbolIndex: new SymbolIndex(),
-            getFlatCommands: async () => commands,
-            entryFile: fileUri,
-        });
+        const resolver = await createIndexedResolver(fileUri, commands);
 
         try {
             const result = await resolver.expandPathVariablesDetailed('${HELPER_FILE}', fileUri, 1);
@@ -371,13 +395,9 @@ suite('Path Expression Resolver Tests', () => {
         ].join('\n')).flatCommands;
         let loadCount = 0;
 
-        const resolver = new PathExpressionResolver({
-            symbolIndex: new SymbolIndex(),
-            getFlatCommands: async () => {
+        const resolver = await createIndexedResolver(fileUri, commands, async () => {
                 loadCount++;
                 return commands;
-            },
-            entryFile: fileUri,
         });
 
         try {

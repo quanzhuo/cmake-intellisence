@@ -23,7 +23,7 @@ import { URI } from 'vscode-uri';
 import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION } from '../../cmakeToolsSnapshot';
 import { ExtensionSettings } from '../../cmakeEnvironment';
 import { DIAG_CODE_MISSING_FILE_PATH, DIAG_CODE_MISSING_SUBDIRECTORY } from '../../pathDiagnostics';
-import { createCompatibleConfigurationResponse, waitForServerReady } from './testUtils';
+import { createConfigurationResponse, waitForServerReady } from './testUtils';
 
 suite('Diagnostics Integration Tests', () => {
     let connection: ProtocolConnection;
@@ -39,7 +39,6 @@ suite('Diagnostics Integration Tests', () => {
         pkgConfigPath: '',
         cmdCaseDiagnostics: false,
         loggingLevel: 'off',
-        enableCMakeToolsIntegration:true,
     };
 
     function fileUri(relativePath: string): string {
@@ -96,7 +95,7 @@ suite('Diagnostics Integration Tests', () => {
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest('workspace/configuration', () => {
             configurationRequested();
-            return createCompatibleConfigurationResponse(extSettings);
+            return createConfigurationResponse(extSettings);
         });
         connection.onNotification(PublishDiagnosticsNotification.type, params => {
             diagnosticEmitter.emit(params.uri, params);

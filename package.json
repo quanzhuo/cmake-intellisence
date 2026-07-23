@@ -99,22 +99,10 @@
             "default": "cmake",
             "description": "%cmakePath%"
           },
-          "cmakeIntelliSence.cmakePath": {
-            "type": "string",
-            "default": "cmake",
-            "description": "%cmakePath%",
-            "deprecationMessage": "%cmakePath.deprecated%"
-          },
           "cmakeIntelliSense.pkgConfigPath": {
             "type": "string",
             "default": "pkg-config",
             "description": "%pkgConfigPath%"
-          },
-          "cmakeIntelliSence.pkgConfigPath": {
-            "type": "string",
-            "default": "pkg-config",
-            "description": "%pkgConfigPath%",
-            "deprecationMessage": "%pkgConfigPath.deprecated%"
           },
           "cmakeIntelliSense.workspaceIgnoreDirectories": {
             "type": "array",
@@ -134,25 +122,6 @@
             ],
             "description": "%workspaceIgnoreDirectories%"
           },
-          "cmakeIntelliSence.workspaceIgnoreDirectories": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "default": [
-              ".git",
-              ".hg",
-              ".svn",
-              "node_modules",
-              "dist",
-              "out",
-              "build",
-              "cmake-build-debug",
-              "cmake-build-release"
-            ],
-            "description": "%workspaceIgnoreDirectories%",
-            "deprecationMessage": "%workspaceIgnoreDirectories.deprecated%"
-          },
           "cmakeIntelliSense.excludeCMakeBuildDirectories": {
             "type": "boolean",
             "default": true,
@@ -162,12 +131,6 @@
             "type": "boolean",
             "description": "%cmdCaseDiagnostics%",
             "default": false
-          },
-          "cmakeIntelliSence.cmdCaseDiagnostics": {
-            "type": "boolean",
-            "description": "%cmdCaseDiagnostics%",
-            "default": false,
-            "deprecationMessage": "%cmdCaseDiagnostics.deprecated%"
           },
           "cmakeIntelliSense.loggingLevel": {
             "type": "string",
@@ -181,19 +144,6 @@
             "default": "off",
             "markdownDescription": "%loggingLevel%"
           },
-          "cmakeIntelliSence.loggingLevel": {
-            "type": "string",
-            "enum": [
-              "off",
-              "error",
-              "warning",
-              "info",
-              "debug"
-            ],
-            "default": "off",
-            "markdownDescription": "%loggingLevel%",
-            "deprecationMessage": "%loggingLevel.deprecated%"
-          },
           "cmakeIntelliSense.trace.server": {
             "type": "string",
             "enum": [
@@ -202,16 +152,6 @@
               "off"
             ],
             "default": "off"
-          },
-          "cmakeIntelliSence.trace.server": {
-            "type": "string",
-            "enum": [
-              "verbose",
-              "message",
-              "off"
-            ],
-            "default": "off",
-            "deprecationMessage": "%traceServer.deprecated%"
           },
           "cmakeIntelliSense.enableCMakeToolsIntegration": {
             "type": "boolean",

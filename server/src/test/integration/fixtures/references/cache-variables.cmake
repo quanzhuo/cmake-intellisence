@@ -1,0 +1,5 @@
+option(CACHED_FLAG "cache flag" OFF)
+message("${CACHED_FLAG}")
+set(CACHED_FLAG local)
+message("${CACHED_FLAG}")
+message("$CACHE{CACHED_FLAG}")

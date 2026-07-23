@@ -8,7 +8,7 @@ export interface PopulateIndexTopDownOptions {
     rootUri: string;
     symbolIndex: SymbolIndex;
     loadFlatCommands: (uri: string) => Promise<unknown>;
-    ensureFileIndexed?: (uri: string) => Promise<boolean>;
+    ensureFileIndexed?: (uri: string, entryFile: string) => Promise<boolean>;
     shouldCancel?: () => boolean;
     visited?: Set<string>;
     onDependencyError?: (uri: string, error: unknown) => DependencyErrorAction | Promise<DependencyErrorAction>;
@@ -18,10 +18,21 @@ export async function ensureSymbolIndexCache(
     symbolIndex: SymbolIndex,
     loadFlatCommands: (uri: string) => Promise<unknown>,
     uri: string,
+    entryFile: string,
     shouldCancel?: () => boolean,
-    ensureFileIndexed?: (uri: string) => Promise<boolean>,
+    ensureFileIndexed?: (uri: string, entryFile: string) => Promise<boolean>,
 ): Promise<boolean> {
-    if (symbolIndex.getCache(uri)) {
+    const existingCache = symbolIndex.getCache(uri);
+    const isContextFreeCache = existingCache && symbolIndex.getCacheRevisionKey(uri) === undefined;
+    if (isContextFreeCache) {
+        return true;
+    }
+    if (existingCache && ensureFileIndexed) {
+        return ensureFileIndexed(uri, entryFile);
+    }
+    const isUsableCache = (): boolean => !!symbolIndex.getCache(uri)
+        && symbolIndex.hasDependencyContext(uri, entryFile);
+    if (isUsableCache()) {
         return true;
     }
 
@@ -38,13 +49,12 @@ export async function ensureSymbolIndexCache(
     if (!hydrated) {
         throwIfCancelled(shouldCancel);
         if (ensureFileIndexed) {
-            return await ensureFileIndexed(uri);
-        } else {
-            await loadFlatCommands(uri);
+            return ensureFileIndexed(uri, entryFile);
         }
+        await loadFlatCommands(uri);
     }
 
-    return hydrated || !!symbolIndex.getCache(uri);
+    return hydrated || isUsableCache();
 }
 
 export async function populateIndexTopDown(options: PopulateIndexTopDownOptions): Promise<void> {
@@ -64,6 +74,7 @@ export async function populateIndexTopDown(options: PopulateIndexTopDownOptions)
                 options.symbolIndex,
                 options.loadFlatCommands,
                 uri,
+                options.rootUri,
                 options.shouldCancel,
                 options.ensureFileIndexed,
             );
@@ -83,7 +94,7 @@ export async function populateIndexTopDown(options: PopulateIndexTopDownOptions)
             throw error;
         }
 
-        const dependencies = options.symbolIndex.getAvailableDependencies(uri);
+        const dependencies = options.symbolIndex.getAvailableDependencies(uri, options.rootUri);
         for (let index = dependencies.length - 1; index >= 0; index--) {
             stack.push(dependencies[index].uri);
         }

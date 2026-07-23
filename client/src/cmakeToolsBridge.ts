@@ -69,27 +69,29 @@ export class CMakeToolsSnapshotBridge implements vscode.Disposable {
     private readonly projectDisposables = new Map<string, vscode.Disposable[]>();
     private readonly trackedProjects = new Map<string, ExternalCMakeToolsProject | undefined>();
     private readonly lastPublishedSnapshots = new Map<string, CMakeToolsProjectSnapshot | null>();
+    private readonly workspaceRefreshSequences = new Map<string, number>();
     private providerExtensionId?: string;
     private providerApi?: ExternalCMakeToolsApi;
     private providerDisposable?: vscode.Disposable;
     private serverReady = false;
+    private startPromise?: Promise<void>;
 
     constructor(
         private readonly client: LanguageClient,
         private readonly logger: Logger,
     ) {
-        this.client.onNotification(READY_NOTIFICATION, () => {
-            void this.handleServerReady();
-        });
-
         this.disposables.push(
+            this.client.onNotification(READY_NOTIFICATION, () => {
+                void this.start();
+            }),
             vscode.workspace.onDidChangeWorkspaceFolders(() => {
-                void this.ensureAttachedAndRefresh('workspace-folders-changed');
+                this.refreshInBackground('workspace-folders-changed');
             }),
         );
     }
 
     dispose(): void {
+        this.serverReady = false;
         this.providerDisposable?.dispose();
         this.providerDisposable = undefined;
         this.disposeTrackedProjects();
@@ -98,26 +100,48 @@ export class CMakeToolsSnapshotBridge implements vscode.Disposable {
         }
     }
 
-    private async handleServerReady(): Promise<void> {
+    start(): Promise<void> {
+        if (this.startPromise) {
+            return this.startPromise;
+        }
         this.serverReady = true;
-        await this.ensureAttachedAndRefresh('server-ready');
+        this.startPromise = this.ensureAttachedAndRefresh('server-ready').catch(error => {
+            this.logger.warn(`CMake Tools startup refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+        });
+        return this.startPromise;
+    }
+
+    private refreshInBackground(reason: string): void {
+        void this.ensureAttachedAndRefresh(reason).catch(error => {
+            this.logger.warn(`CMake Tools refresh failed (${reason}): ${error instanceof Error ? error.message : String(error)}`);
+        });
     }
 
     private async ensureAttachedAndRefresh(reason: string): Promise<void> {
-        const providerExtension = this.getPreferredProviderExtension();
-        if (!providerExtension) {
+        const providerExtensions = this.getProviderExtensions();
+        if (providerExtensions.length === 0) {
             this.detachProvider();
             await this.publishNullSnapshots('provider-not-installed');
             return;
         }
 
-        if (!providerExtension.isActive) {
-            this.detachProvider();
-            await this.publishNullSnapshots('provider-not-active');
-            return;
+        let attached = false;
+        for (const providerExtension of providerExtensions) {
+            if (!providerExtension.isActive) {
+                try {
+                    await providerExtension.activate();
+                } catch (error) {
+                    this.logger.warn(`Failed to activate ${providerExtension.id}: ${error}`);
+                    continue;
+                }
+            }
+            if (this.attachProviderApi(providerExtension)) {
+                attached = true;
+                break;
+            }
         }
-
-        if (!this.attachProviderApi(providerExtension)) {
+        if (!attached) {
+            this.detachProvider();
             await this.publishNullSnapshots('provider-api-unavailable');
             return;
         }
@@ -125,13 +149,10 @@ export class CMakeToolsSnapshotBridge implements vscode.Disposable {
         await this.refreshAllWorkspaces(reason);
     }
 
-    private getPreferredProviderExtension(): vscode.Extension<ExternalCMakeToolsExtensionExports> | undefined {
-        const preferred = vscode.extensions.getExtension<ExternalCMakeToolsExtensionExports>(KYLIN_CMAKE_TOOLS_EXTENSION_ID);
-        if (preferred) {
-            return preferred;
-        }
-
-        return vscode.extensions.getExtension<ExternalCMakeToolsExtensionExports>(MICROSOFT_CMAKE_TOOLS_EXTENSION_ID);
+    private getProviderExtensions(): vscode.Extension<ExternalCMakeToolsExtensionExports>[] {
+        return [KYLIN_CMAKE_TOOLS_EXTENSION_ID, MICROSOFT_CMAKE_TOOLS_EXTENSION_ID]
+            .map(extensionId => vscode.extensions.getExtension<ExternalCMakeToolsExtensionExports>(extensionId))
+            .filter((extension): extension is vscode.Extension<ExternalCMakeToolsExtensionExports> => extension !== undefined);
     }
 
     private attachProviderApi(providerExtension: vscode.Extension<ExternalCMakeToolsExtensionExports>): boolean {
@@ -150,7 +171,7 @@ export class CMakeToolsSnapshotBridge implements vscode.Disposable {
         this.providerExtensionId = providerExtension.id;
         this.providerApi = api;
         this.providerDisposable = api.onActiveProjectChanged?.(() => {
-            void this.refreshAllWorkspaces('active-project-changed');
+            this.refreshInBackground('active-project-changed');
         });
         this.logger.info(`Attached CMake Tools bridge to ${providerExtension.id}`);
         return true;
@@ -200,15 +221,30 @@ export class CMakeToolsSnapshotBridge implements vscode.Disposable {
         }
 
         const workspaceFolderUri = workspaceFolder.uri.toString();
-        const project = await this.providerApi?.getProject(sourceUri);
+        const refreshSequence = (this.workspaceRefreshSequences.get(workspaceFolderUri) ?? 0) + 1;
+        this.workspaceRefreshSequences.set(workspaceFolderUri, refreshSequence);
+        const providerApi = this.providerApi;
+        const providerExtensionId = this.providerExtensionId;
+        const project = await providerApi?.getProject(sourceUri);
+        if (!this.serverReady
+            || !this.client.isRunning()
+            || this.providerApi !== providerApi
+            || this.workspaceRefreshSequences.get(workspaceFolderUri) !== refreshSequence) {
+            return;
+        }
         this.trackProject(workspaceFolderUri, workspaceFolder, project);
 
-        if (!project || !this.providerExtensionId) {
+        if (!project || !providerExtensionId) {
             this.sendSnapshot({ workspaceFolderUri, snapshot: null }, reason);
             return;
         }
 
-        const snapshot = await this.createSnapshot(workspaceFolder, sourceUri, project, this.providerExtensionId);
+        const snapshot = await this.createSnapshot(workspaceFolder, sourceUri, project, providerExtensionId);
+        if (!this.serverReady
+            || this.providerApi !== providerApi
+            || this.workspaceRefreshSequences.get(workspaceFolderUri) !== refreshSequence) {
+            return;
+        }
         this.sendSnapshot({ workspaceFolderUri, snapshot }, reason);
     }
 
@@ -236,17 +272,24 @@ export class CMakeToolsSnapshotBridge implements vscode.Disposable {
         const disposables: vscode.Disposable[] = [];
         if (project.onCodeModelChanged) {
             disposables.push(project.onCodeModelChanged(() => {
-                void this.publishWorkspaceSnapshot(workspaceFolder, this.getPreferredUriForWorkspace(workspaceFolder), 'code-model-changed');
+                this.publishWorkspaceSnapshotInBackground(workspaceFolder, 'code-model-changed');
             }));
         }
         if (project.onSelectedConfigurationChanged) {
             disposables.push(project.onSelectedConfigurationChanged(() => {
-                void this.publishWorkspaceSnapshot(workspaceFolder, this.getPreferredUriForWorkspace(workspaceFolder), 'selected-configuration-changed');
+                this.publishWorkspaceSnapshotInBackground(workspaceFolder, 'selected-configuration-changed');
             }));
         }
 
         this.trackedProjects.set(workspaceFolderUri, project);
         this.projectDisposables.set(workspaceFolderUri, disposables);
+    }
+
+    private publishWorkspaceSnapshotInBackground(workspaceFolder: vscode.WorkspaceFolder, reason: string): void {
+        void this.publishWorkspaceSnapshot(workspaceFolder, this.getPreferredUriForWorkspace(workspaceFolder), reason)
+            .catch(error => {
+                this.logger.warn(`CMake Tools workspace refresh failed (${reason}): ${error instanceof Error ? error.message : String(error)}`);
+            });
     }
 
     private async createSnapshot(

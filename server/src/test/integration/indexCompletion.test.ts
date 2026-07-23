@@ -26,7 +26,7 @@ import {
 } from 'vscode-languageserver-protocol/node';
 import { URI } from 'vscode-uri';
 import { ExtensionSettings } from '../../cmakeEnvironment';
-import { createCompatibleConfigurationResponse, waitForServerReady } from './testUtils';
+import { createConfigurationResponse, waitForServerReady } from './testUtils';
 
 suite('Index Completion Integration Tests', () => {
     let connection: ProtocolConnection;
@@ -42,7 +42,6 @@ suite('Index Completion Integration Tests', () => {
         pkgConfigPath: '',
         cmdCaseDiagnostics: false,
         loggingLevel: 'off',
-        enableCMakeToolsIntegration: true,
     };
 
     function fileUri(relativePath: string): string {
@@ -113,7 +112,7 @@ suite('Index Completion Integration Tests', () => {
         connection.onRequest(RegistrationRequest.type, () => { });
         connection.onRequest('workspace/configuration', () => {
             configurationRequested();
-            return createCompatibleConfigurationResponse(extSettings);
+            return createConfigurationResponse(extSettings);
         });
         connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
             diagnosticEmitter.emit(params.uri, params);

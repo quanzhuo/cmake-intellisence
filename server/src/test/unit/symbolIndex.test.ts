@@ -1,20 +1,25 @@
 import * as assert from 'assert';
 import { FileSymbolCache, SymbolIndex } from '../../symbolIndex';
+import { ensureSymbolIndexCache } from '../../symbolIndexManager';
 
 suite('Symbol Index Tests', () => {
-    test('tracks the source revision associated with a file cache', () => {
+    test('tracks the source revision and project entry associated with a file cache', () => {
         const symbolIndex = new SymbolIndex();
         const uri = 'file:///versioned.cmake';
         const cache = new FileSymbolCache(uri);
 
-        symbolIndex.setCache(uri, cache, 'document:3');
+        symbolIndex.setCache(uri, cache, 'document:3', 'file:///project/CMakeLists.txt');
 
         assert.strictEqual(symbolIndex.hasCurrentCache(uri, 'document:3'), true);
+        assert.strictEqual(symbolIndex.hasCurrentCache(uri, 'document:3', 'file:///project/CMakeLists.txt'), true);
+        assert.strictEqual(symbolIndex.hasCurrentCache(uri, 'document:3', 'file:///other/CMakeLists.txt'), false);
         assert.strictEqual(symbolIndex.hasCurrentCache(uri, 'document:2'), false);
         assert.strictEqual(symbolIndex.getCacheRevisionKey(uri), 'document:3');
+        assert.strictEqual(symbolIndex.hasDependencyContext(uri, 'file:///project/CMakeLists.txt'), true);
 
         symbolIndex.deleteCache(uri);
         assert.strictEqual(symbolIndex.getCacheRevisionKey(uri), undefined);
+        assert.strictEqual(symbolIndex.hasDependencyContext(uri, 'file:///project/CMakeLists.txt'), false);
     });
 
     test('getCache should refresh LRU order before eviction', () => {
@@ -32,6 +37,54 @@ suite('Symbol Index Tests', () => {
         assert.strictEqual(symbolIndex.getCache(cacheA.uri), cacheA);
         assert.strictEqual(symbolIndex.getCache(cacheB.uri), undefined);
         assert.strictEqual(symbolIndex.getCache(cacheC.uri), cacheC);
+    });
+
+    test('project traversal should rebuild a source cache created for another entry file', async () => {
+        const symbolIndex = new SymbolIndex();
+        const uri = 'file:///project/child.cmake';
+        const rootEntry = 'file:///project/CMakeLists.txt';
+        symbolIndex.setCache(uri, new FileSymbolCache(uri), 'disk:1', uri);
+
+        let requestedEntry: string | undefined;
+        const available = await ensureSymbolIndexCache(
+            symbolIndex,
+            async () => undefined,
+            uri,
+            rootEntry,
+            undefined,
+            async (targetUri, entryFile) => {
+                requestedEntry = entryFile;
+                symbolIndex.setCache(targetUri, new FileSymbolCache(targetUri), 'disk:1', entryFile);
+                return true;
+            },
+        );
+
+        assert.strictEqual(available, true);
+        assert.strictEqual(requestedEntry, rootEntry);
+        assert.strictEqual(symbolIndex.hasCurrentCache(uri, 'disk:1', rootEntry), true);
+    });
+
+    test('project traversal should index a dependency that has no cache yet', async () => {
+        const symbolIndex = new SymbolIndex();
+        const uri = 'file:///project/new-dependency.cmake';
+        const rootEntry = 'file:///project/CMakeLists.txt';
+        let indexed = false;
+
+        const available = await ensureSymbolIndexCache(
+            symbolIndex,
+            async () => undefined,
+            uri,
+            rootEntry,
+            undefined,
+            async (targetUri, entryFile) => {
+                indexed = true;
+                symbolIndex.setCache(targetUri, new FileSymbolCache(targetUri), 'disk:1', entryFile);
+                return true;
+            },
+        );
+
+        assert.strictEqual(available, true);
+        assert.strictEqual(indexed, true);
     });
 
     test('default cache retains the complete compact workspace index', () => {
@@ -64,7 +117,9 @@ suite('Symbol Index Tests', () => {
 
         assert.doesNotThrow(() => {
             const visibleFiles = symbolIndex.getVisibleFilesForVariable(rootUri, `file:///include-${depth}.cmake`);
-            assert.deepStrictEqual(visibleFiles, []);
+            assert.strictEqual(visibleFiles.length, depth + 1);
+            assert.strictEqual(visibleFiles[0], rootUri);
+            assert.strictEqual(visibleFiles[depth], `file:///include-${depth}.cmake`);
         });
     });
 
@@ -85,5 +140,20 @@ suite('Symbol Index Tests', () => {
         const leafUri = `file:///deep/include-${depth}.cmake`;
         assert.strictEqual(symbolIndex.getReachableFiles(rootUri).length, depth + 1);
         assert.strictEqual(symbolIndex.findEntryFile(leafUri), rootUri);
+    });
+
+    test('project context should take precedence over a standalone file context', () => {
+        const symbolIndex = new SymbolIndex();
+        const rootUri = 'file:///workspace/CMakeLists.txt';
+        const childUri = 'file:///workspace/child.cmake';
+        const childCache = new FileSymbolCache(childUri);
+        symbolIndex.setCache(childUri, childCache, 'document:1', childUri);
+
+        const rootCache = new FileSymbolCache(rootUri);
+        rootCache.addDependency(childUri, 'include');
+        symbolIndex.setCache(rootUri, rootCache, 'document:1', rootUri);
+        symbolIndex.setCache(childUri, childCache, 'document:1', rootUri);
+
+        assert.strictEqual(symbolIndex.findEntryFile(childUri), rootUri);
     });
 });

@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, TransportKind } from 'vscode-languageclient/node';
 import { CMakeToolsSnapshotBridge } from './cmakeToolsBridge';
 import * as which from 'which';
-import { affectsCompatibleConfiguration, CONFIGURATION_SECTION, getCompatibleSetting } from './config';
+import { affectsConfiguration, CONFIGURATION_SECTION, getSetting } from './config';
 import { getConfigLogLevel, Logger } from './logging';
 
 export const SERVER_ID = CONFIGURATION_SECTION;
@@ -20,15 +20,15 @@ export async function activate(context: vscode.ExtensionContext) {
     logger.setLogLevel(getConfigLogLevel());
 
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async (e) => {
-        if (affectsCompatibleConfiguration(e, 'loggingLevel')) {
+        if (affectsConfiguration(e, 'loggingLevel')) {
             logger.setLogLevel(getConfigLogLevel());
         }
 
-        if (affectsCompatibleConfiguration(e, 'trace.server')) {
+        if (affectsConfiguration(e, 'trace.server')) {
             await applyTraceConfiguration();
         }
 
-        if (affectsCompatibleConfiguration(e, 'cmakePath')) {
+        if (affectsConfiguration(e, 'cmakePath')) {
             cmakeToolsSnapshotBridge?.dispose();
             cmakeToolsSnapshotBridge = undefined;
             if (client && client.isRunning()) {
@@ -38,10 +38,11 @@ export async function activate(context: vscode.ExtensionContext) {
             await checkAndStart(newCmakePath);
         }
 
-        if (affectsCompatibleConfiguration(e, 'enableCMakeToolsIntegration')) {
-            const enabled = getCompatibleSetting('enableCMakeToolsIntegration', true);
+        if (affectsConfiguration(e, 'enableCMakeToolsIntegration')) {
+            const enabled = getSetting('enableCMakeToolsIntegration', true);
             if (enabled && !cmakeToolsSnapshotBridge && client) {
                 cmakeToolsSnapshotBridge = new CMakeToolsSnapshotBridge(client, logger);
+                await cmakeToolsSnapshotBridge.start();
                 logger.info('CMake Tools integration enabled');
             } else if (!enabled && cmakeToolsSnapshotBridge) {
                 cmakeToolsSnapshotBridge.dispose();
@@ -67,7 +68,7 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 async function getCMakePath(): Promise<string | null> {
-    let cmakePath: string | null = getCompatibleSetting('cmakePath', 'cmake');
+    let cmakePath: string | null = getSetting('cmakePath', 'cmake');
     cmakePath = await which(cmakePath, { nothrow: true });
     if (cmakePath) {
         return cmakePath;
@@ -110,7 +111,7 @@ async function startLanguageServer(cmakePath: string, serverModule: string, chan
     client = new LanguageClient(SERVER_ID, SERVER_NAME, serverOptions, clientOptions);
     cmakeToolsSnapshotBridge?.dispose();
     cmakeToolsSnapshotBridge = undefined;
-    if (getCompatibleSetting('enableCMakeToolsIntegration', true)) {
+    if (getSetting('enableCMakeToolsIntegration', true)) {
         cmakeToolsSnapshotBridge = new CMakeToolsSnapshotBridge(client, logger);
     } else {
         logger.info('CMake Tools integration is disabled by configuration');
@@ -119,6 +120,7 @@ async function startLanguageServer(cmakePath: string, serverModule: string, chan
     // start the client. This will also launch the server
     logger.info(`Start ${SERVER_NAME} ...`);
     await client.start();
+    await cmakeToolsSnapshotBridge?.start();
     await applyTraceConfiguration();
 }
 
@@ -127,7 +129,7 @@ async function applyTraceConfiguration(): Promise<void> {
         return;
     }
 
-    await client.setTrace(Trace.fromString(getCompatibleSetting('trace.server', 'off')));
+    await client.setTrace(Trace.fromString(getSetting('trace.server', 'off')));
 }
 
 
