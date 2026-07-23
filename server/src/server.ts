@@ -1132,8 +1132,9 @@ export class CMakeLanguageServer {
             const cmakeSnapshotGeneration = workspaceState.cmakeSnapshotGeneration;
             const projectGeneration = this.captureProjectGeneration(workspaceState, document.uri);
             const workspaceSymbolGeneration = workspaceState.workspaceSymbolGeneration;
-            // Only the current document is on completion's foreground path. Other
-            // open documents are refreshed by their debounced diagnostics.
+            // Keep completion scoped to the current document. Newly discovered
+            // direct dependencies are hydrated on demand so commands introduced
+            // by include() do not wait for a workspace-wide background scan.
             const snapshot = await this.ensureParsedFile(document.uri, 'completion');
             if (!await this.ensureFileIndexedAsync(document.uri, snapshot, analysisGeneration)
                 || workspaceState.analysisGeneration !== analysisGeneration
@@ -1142,9 +1143,30 @@ export class CMakeLanguageServer {
                 || !await this.isParsedSnapshotCurrent(snapshot)) {
                 continue;
             }
+            const entryFileSource = this.getEntryFilePath(document.uri);
+            if (this.hasUnindexedDirectDependencies(
+                workspaceState.symbolIndex,
+                document.uri,
+                entryFileSource,
+            )) {
+                await this.populateIndexTopDownInWorkspaceAsync(
+                    workspaceState,
+                    document.uri,
+                    new Set(),
+                    token,
+                    'completion dependency traversal',
+                    analysisGeneration,
+                    entryFileSource,
+                );
+            }
+            if (workspaceState.analysisGeneration !== analysisGeneration
+                || workspaceState.cmakeSnapshotGeneration !== cmakeSnapshotGeneration
+                || !this.isProjectGenerationCurrent(workspaceState, document.uri, projectGeneration)
+                || !await this.isParsedSnapshotCurrent(snapshot)) {
+                continue;
+            }
             throwIfCancelled(token);
 
-            const entryFileSource = this.getEntryFilePath(document.uri);
             const word = getWordAtPosition(document, params.position).text;
             const snapshotTargetNames = workspaceState.cmakeToolsProjectSnapshot?.targetNames ?? [];
             const snapshotTestNames = workspaceState.cmakeToolsProjectSnapshot?.testNames ?? [];
@@ -1372,7 +1394,13 @@ export class CMakeLanguageServer {
                 () => token.isCancellationRequested,
                 workspaceState.fileApiRawSnapshot,
                 workspaceState.cmakeToolsProjectSnapshot?.buildDirectory,
-                this.ensureFileIndexedForEntry.bind(this),
+                (targetUri, entryFile) => this.ensureFileIndexedInWorkspaceAsync(
+                    workspaceState,
+                    targetUri,
+                    undefined,
+                    analysisGeneration,
+                    entryFile,
+                ),
             );
             const result = await resolver.resolve(params);
             if (workspaceState.analysisGeneration === analysisGeneration
@@ -1426,7 +1454,13 @@ export class CMakeLanguageServer {
                 command,
                 this.logger,
                 () => token.isCancellationRequested,
-                this.ensureFileIndexedForEntry.bind(this),
+                (targetUri, entryFile) => this.ensureFileIndexedInWorkspaceAsync(
+                    workspaceState,
+                    targetUri,
+                    undefined,
+                    analysisGeneration,
+                    entryFile,
+                ),
             );
             const result = await resolver.resolve(params);
             if (workspaceState.analysisGeneration === analysisGeneration
@@ -1492,7 +1526,13 @@ export class CMakeLanguageServer {
                 command,
                 this.logger,
                 () => token.isCancellationRequested,
-                this.ensureFileIndexedForEntry.bind(this),
+                (targetUri, entryFile) => this.ensureFileIndexedInWorkspaceAsync(
+                    workspaceState,
+                    targetUri,
+                    undefined,
+                    analysisGeneration,
+                    entryFile,
+                ),
             );
             const renameResolver = new RenameResolver(refResolver);
             const result = await renameResolver.resolve(params, () => token.isCancellationRequested);
@@ -2889,7 +2929,8 @@ export class CMakeLanguageServer {
                     || !await this.isParsedSnapshotCurrent(snapshot)) {
                     return;
                 }
-                await this.ensureFileIndexedAsync(
+                await this.ensureFileIndexedInWorkspaceAsync(
+                    workspaceState,
                     snapshot.uri,
                     snapshot,
                     generation,
@@ -2957,6 +2998,24 @@ export class CMakeLanguageServer {
         parseTrigger = 'symbol index',
     ): Promise<boolean> {
         const workspaceState = this.getWorkspaceStateForUri(uri);
+        return this.ensureFileIndexedInWorkspaceAsync(
+            workspaceState,
+            uri,
+            snapshot,
+            generation,
+            entryFile,
+            parseTrigger,
+        );
+    }
+
+    private async ensureFileIndexedInWorkspaceAsync(
+        workspaceState: WorkspaceState,
+        uri: string,
+        snapshot?: ParsedFileSnapshot,
+        generation?: number,
+        entryFile?: string,
+        parseTrigger = 'symbol index',
+    ): Promise<boolean> {
         const expectedGeneration = generation ?? workspaceState.analysisGeneration;
         if (workspaceState.analysisGeneration !== expectedGeneration) {
             return false;
@@ -3037,10 +3096,6 @@ export class CMakeLanguageServer {
             && workspaceState.symbolIndex.hasCurrentCache(uri, revisionKey, effectiveEntryFile);
     }
 
-    private ensureFileIndexedForEntry(uri: string, entryFile: string): Promise<boolean> {
-        return this.ensureFileIndexedAsync(uri, undefined, undefined, entryFile);
-    }
-
     private async ensureOpenDocumentIndexes(workspaceState: WorkspaceState): Promise<void> {
         for (const document of this.documents.all()) {
             if (document.languageId !== 'cmake') {
@@ -3067,13 +3122,34 @@ export class CMakeLanguageServer {
 
                 const analysisGeneration = workspaceState.analysisGeneration;
                 const snapshot = await this.ensureParsedFile(document.uri, 'open document index refresh');
-                if (await this.ensureFileIndexedAsync(document.uri, snapshot, analysisGeneration, entryFile)
+                if (await this.ensureFileIndexedInWorkspaceAsync(
+                    workspaceState,
+                    document.uri,
+                    snapshot,
+                    analysisGeneration,
+                    entryFile,
+                )
                     && workspaceState.analysisGeneration === analysisGeneration
                     && await this.isParsedSnapshotCurrent(snapshot)) {
                     break;
                 }
             }
         }
+    }
+
+    private hasUnindexedDirectDependencies(
+        symbolIndex: SymbolIndex,
+        uri: string,
+        entryFile: string,
+    ): boolean {
+        return symbolIndex.getAvailableDependencies(uri, entryFile).some(dependency => {
+            if (!symbolIndex.getCache(dependency.uri)) {
+                return true;
+            }
+
+            return symbolIndex.getCacheRevisionKey(dependency.uri) !== undefined
+                && !symbolIndex.hasDependencyContext(dependency.uri, entryFile);
+        });
     }
 
     private async populateIndexTopDownAsync(
@@ -3084,12 +3160,33 @@ export class CMakeLanguageServer {
         expectedGeneration?: number,
     ): Promise<void> {
         const workspaceState = this.getWorkspaceStateForUri(uri);
+        await this.populateIndexTopDownInWorkspaceAsync(
+            workspaceState,
+            uri,
+            visited,
+            token,
+            parseTrigger,
+            expectedGeneration,
+        );
+    }
+
+    private async populateIndexTopDownInWorkspaceAsync(
+        workspaceState: WorkspaceState,
+        uri: string,
+        visited: Set<string>,
+        token?: CancellationToken,
+        parseTrigger = 'dependency traversal',
+        expectedGeneration?: number,
+        entryFile = uri,
+    ): Promise<void> {
         await populateIndexTopDown({
             rootUri: uri,
+            entryFile,
             visited,
             symbolIndex: workspaceState.symbolIndex,
             loadFlatCommands: async targetUri => (await this.ensureParsedFile(targetUri, parseTrigger)).flatCommands,
-            ensureFileIndexed: (targetUri, entryFile) => this.ensureFileIndexedAsync(
+            ensureFileIndexed: (targetUri, entryFile) => this.ensureFileIndexedInWorkspaceAsync(
+                workspaceState,
                 targetUri,
                 undefined,
                 expectedGeneration,

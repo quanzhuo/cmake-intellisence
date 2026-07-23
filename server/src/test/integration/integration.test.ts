@@ -9,6 +9,7 @@ import {
     CompletionItemKind,
     CompletionRequest,
     CompletionResolveRequest,
+    DidChangeWorkspaceFoldersNotification,
     DidChangeConfigurationNotification,
     DidChangeTextDocumentNotification,
     DidOpenTextDocumentNotification,
@@ -103,6 +104,7 @@ suite('LSP Integration Tests', () => {
             processId: process.pid,
             capabilities: {
                 workspace: {
+                    workspaceFolders: true,
                     semanticTokens: {
                         refreshSupport: true,
                     },
@@ -273,6 +275,33 @@ suite('LSP Integration Tests', () => {
         const items = Array.isArray(result) ? result : result!.items;
         const match = items.find(i => i.label === 'cmake_minimum_required');
         assert(match !== undefined, 'Should suggest "cmake_minimum_required" for partial input');
+    });
+
+    test('should retain builtin module command completion in dynamically added workspace folders', async function () {
+        const workspaceUri = 'file:///test-workspace-added';
+        const configurationPull = waitForConfigurationPull();
+        connection.sendNotification(DidChangeWorkspaceFoldersNotification.type, {
+            event: {
+                added: [{ uri: workspaceUri, name: 'added' }],
+                removed: [],
+            },
+        });
+        await configurationPull;
+
+        const uri = `${workspaceUri}/CMakeLists.txt`;
+        const content = 'include(FetchContent)\nFetch';
+        openDocument(uri, content);
+        const result = await connection.sendRequest(CompletionRequest.type, {
+            textDocument: { uri },
+            position: { line: 1, character: 'Fetch'.length },
+        });
+
+        assert(result !== null);
+        const items = Array.isArray(result) ? result : result!.items;
+        assert(
+            items.some(item => item.label === 'FetchContent_Declare'),
+            'A newly added workspace should expose commands from included builtin modules',
+        );
     });
 
     test('should resolve builtin completion documentation', async function () {

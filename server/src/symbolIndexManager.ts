@@ -6,6 +6,7 @@ type DependencyErrorAction = 'continue' | 'throw';
 
 export interface PopulateIndexTopDownOptions {
     rootUri: string;
+    entryFile?: string;
     symbolIndex: SymbolIndex;
     loadFlatCommands: (uri: string) => Promise<unknown>;
     ensureFileIndexed?: (uri: string, entryFile: string) => Promise<boolean>;
@@ -60,6 +61,7 @@ export async function ensureSymbolIndexCache(
 export async function populateIndexTopDown(options: PopulateIndexTopDownOptions): Promise<void> {
     const visited = options.visited ?? new Set<string>();
     const stack = [options.rootUri];
+    const entryFile = options.entryFile ?? options.rootUri;
 
     while (stack.length > 0) {
         throwIfCancelled(options.shouldCancel);
@@ -74,7 +76,7 @@ export async function populateIndexTopDown(options: PopulateIndexTopDownOptions)
                 options.symbolIndex,
                 options.loadFlatCommands,
                 uri,
-                options.rootUri,
+                entryFile,
                 options.shouldCancel,
                 options.ensureFileIndexed,
             );
@@ -94,7 +96,7 @@ export async function populateIndexTopDown(options: PopulateIndexTopDownOptions)
             throw error;
         }
 
-        const dependencies = options.symbolIndex.getAvailableDependencies(uri, options.rootUri);
+        const dependencies = options.symbolIndex.getAvailableDependencies(uri, entryFile);
         for (let index = dependencies.length - 1; index >= 0; index--) {
             stack.push(dependencies[index].uri);
         }

@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { FileSymbolCache, SymbolIndex } from '../../symbolIndex';
-import { ensureSymbolIndexCache } from '../../symbolIndexManager';
+import { ensureSymbolIndexCache, populateIndexTopDown } from '../../symbolIndexManager';
 
 suite('Symbol Index Tests', () => {
     test('tracks the source revision and project entry associated with a file cache', () => {
@@ -85,6 +85,45 @@ suite('Symbol Index Tests', () => {
 
         assert.strictEqual(available, true);
         assert.strictEqual(indexed, true);
+    });
+
+    test('dependency traversal should preserve an explicit project entry when starting from a child file', async () => {
+        const symbolIndex = new SymbolIndex();
+        const projectEntry = 'file:///project/CMakeLists.txt';
+        const childUri = 'file:///project/child.cmake';
+        const dependencyUri = 'file:///project/dependency.cmake';
+        const childCache = new FileSymbolCache(childUri);
+        childCache.addDependency(dependencyUri, 'include');
+        symbolIndex.setCache(childUri, childCache, 'disk:1', projectEntry);
+        symbolIndex.setCache(
+            dependencyUri,
+            new FileSymbolCache(dependencyUri),
+            'disk:1',
+            dependencyUri,
+        );
+
+        let requestedEntry: string | undefined;
+        await populateIndexTopDown({
+            rootUri: childUri,
+            entryFile: projectEntry,
+            symbolIndex,
+            loadFlatCommands: async () => undefined,
+            ensureFileIndexed: async (targetUri, entryFile) => {
+                if (targetUri === dependencyUri) {
+                    requestedEntry = entryFile;
+                }
+                symbolIndex.setCache(
+                    targetUri,
+                    symbolIndex.getCache(targetUri) ?? new FileSymbolCache(targetUri),
+                    'disk:1',
+                    entryFile,
+                );
+                return true;
+            },
+        });
+
+        assert.strictEqual(requestedEntry, projectEntry);
+        assert.strictEqual(symbolIndex.hasDependencyContext(dependencyUri, projectEntry), true);
     });
 
     test('default cache retains the complete compact workspace index', () => {
