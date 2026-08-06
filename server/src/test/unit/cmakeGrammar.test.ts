@@ -169,6 +169,13 @@ suite('CMake TextMate grammar', () => {
         assertNoScope(line, 'app', 'support.function.generator-expression.cmake', 1);
     });
 
+    test('does not classify escaped generator expression prefixes in quoted regex strings', () => {
+        const line = 'if("${value}" MATCHES "\\\\$<")';
+        assertScope(line, '\\\\', 'constant.character.escape.cmake');
+        assertScope(line, '$<', 'string.quoted.double.cmake');
+        assertNoScope(line, '$<', 'meta.generator-expression.cmake');
+    });
+
     test('limits condition operators to condition command arguments', () => {
         const condition = 'if((not exists "${path}") AND value strequal expected)';
         for (const operator of ['not', 'exists', 'AND', 'strequal']) {

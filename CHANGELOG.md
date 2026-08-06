@@ -1,5 +1,11 @@
 # Change Log
 
+## v0.8.2
+
+Bug Fixes:
+
+* 修复 CMake 正则字符串中转义的 `$<` 被误高亮为生成器表达式
+
 ## v0.8.1
 
 Improvements:

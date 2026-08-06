@@ -112,7 +112,7 @@ repository:
 
   generator-expression:
     name: meta.generator-expression.cmake
-    begin: '(\$<)([A-Za-z_][A-Za-z0-9_]*)?'
+    begin: '((?<!\\)\$<)([A-Za-z_][A-Za-z0-9_]*)?'
     beginCaptures:
       "1": { name: punctuation.definition.generator-expression.begin.cmake }
       "2": { name: support.function.generator-expression.cmake }
