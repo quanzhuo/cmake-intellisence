@@ -4,7 +4,7 @@ import { FlatCommand } from './flatCommands';
 import { GENERATOR_EXPRESSION_TARGET_ROOTS, isNamedGeneratorExpression, splitTopLevelGeneratorExpressionSegments } from './generatorExpressions';
 import CMakeLexer from './generated/CMakeLexer';
 import { positionAtTextOffset, textOffsetAtPosition, tokenStartPosition } from './sourcePosition';
-import { normalizeQuotedArgument } from './utils';
+import { isIncludeModuleReference, normalizeQuotedArgument } from './utils';
 import { findVariableReferences } from './variableReferences';
 
 export enum ArgumentSemanticKind {
@@ -673,9 +673,9 @@ function getDefinitionSubject(command: FlatCommand, word: string, pos: Position)
     switch (commandName) {
         case 'include':
             if (argumentSpan.argumentIndex === 0) {
-                return argumentSpan.text.includes('/') || argumentSpan.text.includes('\\') || argumentSpan.text.includes('${')
-                    ? DefinitionSubject.FilePath
-                    : DefinitionSubject.IncludeModule;
+                return isIncludeModuleReference(argumentSpan.text)
+                    ? DefinitionSubject.IncludeModule
+                    : DefinitionSubject.FilePath;
             }
             break;
         case 'find_package':

@@ -220,6 +220,33 @@ suite('Document Link Integration Tests', () => {
         assert(linkTargets.has(fileUri('extra/extra.cpp')), 'target_sources(... ${VAR}) should link the expanded source file');
     });
 
+    test('should link nested include modules resolved through CMAKE_MODULE_PATH', async function () {
+        const uri = await openFixture('nested-module-link.cmake');
+
+        const links = await connection.sendRequest(DocumentLinkRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(links !== null && Array.isArray(links), 'Should return a link array');
+        const linkTargets = new Set(links.map(link => link.target));
+        assert(linkTargets.has(fileUri('modules/Sub/Mod.cmake')), 'include(Sub/Mod) should link to the nested module file');
+    });
+
+    test('should preserve extensionless local include fallback when no module resolves', async function () {
+        const uri = await openFixture('extensionless-local-link.cmake');
+
+        const links = await connection.sendRequest(DocumentLinkRequest.type, {
+            textDocument: { uri }
+        });
+
+        assert(links !== null && Array.isArray(links), 'Should return a link array');
+        const linkTargets = new Set(links.map(link => link.target));
+        assert(
+            linkTargets.has(fileUri('local/include-local-noext')),
+            'Extensionless local include should link to the real fallback file',
+        );
+    });
+
     test('should link quoted file and directory arguments via shared path resolution', async function () {
         const uri = await openFixture('quoted-links.cmake');
 

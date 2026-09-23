@@ -175,6 +175,24 @@ suite('Argument Semantics Tests', () => {
         assert.strictEqual(result.text, 'CMakePrintHelpers');
     });
 
+    test('resolveArgumentTarget should classify nested and dotted include module arguments as modules', () => {
+        const slashCommand = parseCMakeText('include(Sub/Mod)\n').flatCommands[0];
+        const dottedCommand = parseCMakeText('include(Sub/Foo.Bar)\n').flatCommands[0];
+
+        assert.strictEqual(resolveArgumentTarget(slashCommand, 0)?.subject, DefinitionSubject.IncludeModule);
+        assert.strictEqual(resolveArgumentTarget(slashCommand, 0)?.text, 'Sub/Mod');
+        assert.strictEqual(resolveArgumentTarget(dottedCommand, 0)?.subject, DefinitionSubject.IncludeModule);
+        assert.strictEqual(resolveArgumentTarget(dottedCommand, 0)?.text, 'Sub/Foo.Bar');
+    });
+
+    test('resolveArgumentTarget should keep explicit and variable-backed include paths as file paths', () => {
+        const explicitFile = parseCMakeText('include(Sub/Mod.cmake)\n').flatCommands[0];
+        const variablePath = parseCMakeText('include(${MODULE_DIR}/Mod)\n').flatCommands[0];
+
+        assert.strictEqual(resolveArgumentTarget(explicitFile, 0)?.subject, DefinitionSubject.FilePath);
+        assert.strictEqual(resolveArgumentTarget(variablePath, 0)?.subject, DefinitionSubject.FilePath);
+    });
+
     test('resolveArgumentTarget should classify add_library source arguments as file paths', () => {
         const command = parseCMakeText('add_library(sample STATIC src/lib.cpp include/lib.h)\n').flatCommands[0];
 

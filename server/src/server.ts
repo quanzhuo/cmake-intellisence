@@ -40,7 +40,7 @@ import { CMAKE_TOOLS_PROJECT_SNAPSHOT_NOTIFICATION, CMakeToolsProjectSnapshot, C
 import { PathExpressionResolver } from './pathExpressionResolver';
 import { ParsedFileSnapshot, ParsedFileStore, SourceRevision, sourceRevisionKey, sourceRevisionsEqual } from './parsedFileStore';
 import { isPathEqualOrInside } from './pathUtils';
-import { parseCMakeText } from './utils';
+import { matchesIncludeModulePath, parseCMakeText } from './utils';
 import { findVariableReferences } from './variableReferences';
 import { WorkspaceSymbolResolver } from './workspaceSymbol';
 import { WorkspaceCMakeFilePolicy } from './workspaceScanner';
@@ -958,11 +958,10 @@ export class CMakeLanguageServer {
                 }
             }
         } else if (cursorTarget.semanticKind === ArgumentSemanticKind.IncludeModule) {
-            const moduleFileName = `${cursorTarget.text}.cmake`.toLowerCase();
             const matchedInput = workspaceState.fileApiRawSnapshot?.cmakeInputs.find((input) => {
                 return path.isAbsolute(input.path)
                     && path.extname(input.path).toLowerCase() === '.cmake'
-                    && path.basename(input.path).toLowerCase() === moduleFileName;
+                    && matchesIncludeModulePath(cursorTarget.text, input.path);
             });
             if (matchedInput) {
                 entityLabel = this.formatHoverLine('hover.entity.module', cursorTarget.text);

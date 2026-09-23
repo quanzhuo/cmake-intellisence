@@ -213,6 +213,40 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(includeLocations[0].uri, fileUri('custom-modules/NoFileApiHelpers.cmake'));
     });
 
+    test('nested include module should resolve through CMAKE_MODULE_PATH without File API', async function () {
+        const uri = await openFixture('nested-module-path-entry.cmake');
+
+        const includeResult = await getDefinition(uri, 1, 10);
+        assert(includeResult !== null, 'Nested include() module should resolve through source-derived CMAKE_MODULE_PATH');
+        const includeLocations = (Array.isArray(includeResult) ? includeResult : [includeResult]) as Location[];
+        assert.strictEqual(includeLocations.length, 1);
+        assert.strictEqual(includeLocations[0].uri, fileUri('custom-modules/Sub/Mod.cmake'));
+
+        const functionResult = await getDefinition(uri, 2, 5);
+        assert(functionResult !== null, 'Symbols from the nested module should be indexed through the same dependency');
+        const functionLocations = (Array.isArray(functionResult) ? functionResult : [functionResult]) as Location[];
+        assert.strictEqual(functionLocations.length, 1);
+        assert.strictEqual(functionLocations[0].uri, fileUri('custom-modules/Sub/Mod.cmake'));
+        assert.strictEqual(functionLocations[0].range.start.line, 0);
+    });
+
+    test('extensionless local include should remain a fallback when no module resolves', async function () {
+        const uri = await openFixture('extensionless-local-entry.cmake');
+
+        const includeResult = await getDefinition(uri, 0, 12);
+        assert(includeResult !== null, 'Extensionless local include should still resolve when no module exists');
+        const includeLocations = (Array.isArray(includeResult) ? includeResult : [includeResult]) as Location[];
+        assert.strictEqual(includeLocations.length, 1);
+        assert.strictEqual(includeLocations[0].uri, fileUri('local/NoExt'));
+
+        const functionResult = await getDefinition(uri, 1, 5);
+        assert(functionResult !== null, 'Symbols from an extensionless local include should remain indexed');
+        const functionLocations = (Array.isArray(functionResult) ? functionResult : [functionResult]) as Location[];
+        assert.strictEqual(functionLocations.length, 1);
+        assert.strictEqual(functionLocations[0].uri, fileUri('local/NoExt'));
+        assert.strictEqual(functionLocations[0].range.start.line, 0);
+    });
+
     test('CMAKE_MODULE_PATH set by an earlier include should flow into a subdirectory without File API', async function () {
         const uri = await openFixture('module-consumer/CMakeLists.txt');
         const result = await getDefinition(uri, 1, 5);
