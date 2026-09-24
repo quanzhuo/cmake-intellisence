@@ -5,6 +5,14 @@
 Bug Fixes:
 
 * 修复 CMake 正则字符串中转义的 `$<` 被误高亮为生成器表达式
+* 修复 #18：`include(Sub/Mod)` 无法通过 `CMAKE_MODULE_PATH` 定位嵌套模块；同时支持带路径和点号的模块名
+* 修复 `include(${MODULE_NAME})` 展开为嵌套模块名时，定义跳转、文档链接和依赖索引无法正确定位模块
+* 修复被 `include()` 的文件中，相对 `include()`、`add_subdirectory()` 路径及相关诊断错误地使用文件所在目录；现在按调用方的 `CMAKE_CURRENT_SOURCE_DIR` 解析，并保留 `CMAKE_CURRENT_LIST_DIR` 的原有含义
+* 修复内置模块文档链接可能指向同名目录的问题
+
+Improvements:
+
+* 索引时复用文件的当前源目录，减少大型项目中重复遍历依赖图的开销
 
 ## v0.8.1
 
