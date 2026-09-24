@@ -50,6 +50,19 @@ suite('Utils Tests', () => {
         }
     });
 
+    test('getIncludeModuleUri should not link a directory named like a module file', () => {
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-utils-module-directory-'));
+        const symbolIndex = new SymbolIndex();
+        symbolIndex.cmakeModulePath = tempDir;
+
+        try {
+            fs.mkdirSync(path.join(tempDir, 'NotAFile.cmake'));
+            assert.strictEqual(getIncludeModuleUri(symbolIndex, 'NotAFile'), null);
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
     test('include module helpers should preserve nested module path components', () => {
         assert.strictEqual(isIncludeModuleReference('Sub/Mod'), true);
         assert.strictEqual(isIncludeModuleReference('Sub\\Mod'), true);

@@ -172,7 +172,7 @@ export function getIncludeModuleUri(symbolIndex: SymbolIndex, includeFileName: s
 
     if (symbolIndex.cmakeModulePath) {
         const resPath = path.join(symbolIndex.cmakeModulePath, `${normalizedIncludeFileName}.cmake`);
-        if (existsSync(resPath)) {
+        if (existsSync(resPath) && !statSync(resPath).isDirectory()) {
             return URI.file(resPath);
         }
     }
