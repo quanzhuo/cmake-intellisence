@@ -9,7 +9,7 @@ import { ArgumentContext } from './generated/CMakeParser';
 import { PathExpressionRequest, PathExpressionResolver } from './pathExpressionResolver';
 import { rangeForTextOffsets, tokenStartPosition } from './sourcePosition';
 import { SymbolIndex } from './symbolIndex';
-import { getFindPackageUri, getIncludeModuleUri } from './utils';
+import { getFindPackageUri, getIncludeModuleDependencyUri, getIncludeModuleUri } from './utils';
 
 export class DocumentLinkInfo {
     private _links: DocumentLink[] = [];
@@ -231,11 +231,22 @@ export class DocumentLinkInfo {
         }
 
         if (resolved.subject === DefinitionSubject.IncludeModule) {
+            const indexedDependency = getIncludeModuleDependencyUri(
+                this.symbolIndex,
+                this.uri,
+                this.entryFile,
+                resolved.text,
+            );
+            if (indexedDependency) {
+                return [this.createLink(firstArg, indexedDependency)];
+            }
+
             if (this.symbolIndex.getSystemCache().modules.has(resolved.text)) {
                 return this.includeSystemModule(firstArg);
             }
 
-            const targetUri = getIncludeModuleUri(this.symbolIndex, resolved.text, this.fileApiRawSnapshot);
+            const targetUri = getIncludeModuleUri(this.symbolIndex, resolved.text, this.fileApiRawSnapshot)
+                ?? await this.resolveFileArgument(cmd.commandName.toLowerCase(), resolved.text, firstArg.start.line - 1);
             return targetUri ? [this.createLink(firstArg, targetUri)] : [];
         }
 

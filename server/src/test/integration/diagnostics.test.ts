@@ -158,6 +158,12 @@ suite('Diagnostics Integration Tests', () => {
         assert.strictEqual(diagnostics.length, 0, 'Quoted existing paths should not emit diagnostics');
     });
 
+    test('should not report nested include modules as missing file paths', async function () {
+        const diagnostics = (await openFixture('nested-module-path.cmake')).diagnostics;
+
+        assert.strictEqual(diagnostics.length, 0, 'include(Sub/Mod) should be treated as a module reference');
+    });
+
     test('should suppress include missing-file diagnostics for File API known inputs', async function () {
         const buildDir = path.join(fixtureDir, 'build-file-api');
         const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');

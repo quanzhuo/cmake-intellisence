@@ -9,7 +9,7 @@ import { SymbolBindingResolver } from './symbolBinding';
 import { SymbolNamespace } from './symbolIndex';
 import { SymbolResolverBase } from "./symbolResolverBase";
 import { FlatCommand } from './flatCommands';
-import { getFindPackageUri, getIncludeFileUri, getIncludeModuleUri } from './utils';
+import { getFindPackageUri, getIncludeFileUri, getIncludeModuleDependencyUri, getIncludeModuleUri, isIncludeModuleReference } from './utils';
 
 export class DefinitionResolver extends SymbolResolverBase {
     private pathExpressionResolver?: PathExpressionResolver;
@@ -107,20 +107,28 @@ export class DefinitionResolver extends SymbolResolverBase {
                     return includeUri;
                 }
 
-                const normalizedModuleName = includeArg.replace(/^["']|["']$/g, '');
-                const indexedDependency = this.symbolIndex.getAvailableDependencies(
-                    sourceUri.toString(),
-                    this.entryFile.toString(),
-                ).find(dependency => {
-                    if (dependency.type !== 'include' || normalizedModuleName.includes('/') || normalizedModuleName.includes('\\')) {
-                        return false;
+                if (isIncludeModuleReference(argText)) {
+                    const indexedDependency = getIncludeModuleDependencyUri(
+                        this.symbolIndex,
+                        sourceUri.toString(),
+                        this.entryFile.toString(),
+                        includeArg,
+                    );
+                    const moduleUri = indexedDependency
+                        ?? getIncludeModuleUri(this.symbolIndex, includeArg, this.fileApiRawSnapshot);
+                    if (moduleUri) {
+                        return moduleUri;
                     }
-                    return path.basename(URI.parse(dependency.uri).fsPath).toLowerCase() === `${normalizedModuleName}.cmake`.toLowerCase();
-                });
 
-                return getIncludeFileUri(this.symbolIndex, sourceBaseDir, includeArg)
-                    ?? (indexedDependency ? URI.parse(indexedDependency.uri) : null)
-                    ?? getIncludeModuleUri(this.symbolIndex, includeArg, this.fileApiRawSnapshot);
+                    const fallbackFileUri = await pathResolver.resolveFileRequest(request)
+                        ?? getIncludeFileUri(this.symbolIndex, sourceBaseDir, includeArg);
+                    return fallbackFileUri
+                        && (fs.existsSync(fallbackFileUri.fsPath) || this.symbolIndex.getCache(fallbackFileUri.toString()))
+                        ? fallbackFileUri
+                        : null;
+                }
+
+                return getIncludeFileUri(this.symbolIndex, sourceBaseDir, includeArg);
             case 'add_subdirectory': {
                 if (argIndex !== 0) {
                     return null;

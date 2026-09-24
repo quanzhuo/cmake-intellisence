@@ -79,6 +79,48 @@ export function normalizeQuotedArgument(argText: string): string {
     return argText;
 }
 
+export function isIncludeModuleReference(includeFileName: string): boolean {
+    const normalizedIncludeFileName = normalizeQuotedArgument(includeFileName);
+    return normalizedIncludeFileName.length > 0
+        && !normalizedIncludeFileName.includes('${')
+        && !path.isAbsolute(normalizedIncludeFileName)
+        && !normalizedIncludeFileName.endsWith('.cmake');
+}
+
+function normalizeIncludeModulePathForComparison(value: string): string {
+    const normalized = path.posix.normalize(value.replace(/\\/g, '/'));
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+export function matchesIncludeModulePath(includeFileName: string, candidatePath: string): boolean {
+    if (!isIncludeModuleReference(includeFileName)) {
+        return false;
+    }
+
+    const normalizedModuleName = normalizeQuotedArgument(includeFileName).replace(/\\/g, '/');
+    const expectedRelativePath = normalizeIncludeModulePathForComparison(`${normalizedModuleName}.cmake`);
+    const normalizedCandidatePath = normalizeIncludeModulePathForComparison(candidatePath);
+    return normalizedCandidatePath === expectedRelativePath
+        || normalizedCandidatePath.endsWith(`/${expectedRelativePath}`);
+}
+
+export function getIncludeModuleDependencyUri(
+    symbolIndex: SymbolIndex,
+    sourceUri: string,
+    entryFile: string,
+    includeFileName: string,
+): URI | null {
+    if (!isIncludeModuleReference(includeFileName)) {
+        return null;
+    }
+
+    const dependency = symbolIndex.getAvailableDependencies(sourceUri, entryFile).find(candidate =>
+        candidate.type === 'include'
+        && matchesIncludeModulePath(includeFileName, URI.parse(candidate.uri).fsPath)
+    );
+    return dependency ? URI.parse(dependency.uri) : null;
+}
+
 export function getIncludeFileUri(symbolIndex: SymbolIndex, baseDir: URI, includeFileName: string): URI | null {
     const normalizedArgText = normalizeQuotedArgument(includeFileName);
     if (normalizedArgText.endsWith('/') || normalizedArgText.endsWith('\\')) {
@@ -113,12 +155,10 @@ function getIncludeModuleUriFromFileApiSnapshot(fileApiRawSnapshot: FileApiRawSn
         return null;
     }
 
-    const normalizedIncludeFileName = normalizeQuotedArgument(includeFileName);
-    const expectedFileName = `${normalizedIncludeFileName}.cmake`.toLowerCase();
     const matchedInput = fileApiRawSnapshot.cmakeInputs.find((input) => {
         return path.isAbsolute(input.path)
             && path.extname(input.path).toLowerCase() === '.cmake'
-            && path.basename(input.path).toLowerCase() === expectedFileName;
+            && matchesIncludeModulePath(includeFileName, input.path);
     });
 
     return matchedInput ? URI.file(path.normalize(matchedInput.path)) : null;
@@ -126,7 +166,7 @@ function getIncludeModuleUriFromFileApiSnapshot(fileApiRawSnapshot: FileApiRawSn
 
 export function getIncludeModuleUri(symbolIndex: SymbolIndex, includeFileName: string, fileApiRawSnapshot?: FileApiRawSnapshot): URI | null {
     const normalizedIncludeFileName = normalizeQuotedArgument(includeFileName);
-    if (normalizedIncludeFileName.includes('/') || normalizedIncludeFileName.includes('\\') || path.extname(normalizedIncludeFileName) !== '') {
+    if (!isIncludeModuleReference(normalizedIncludeFileName)) {
         return null;
     }
 

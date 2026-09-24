@@ -4,7 +4,7 @@ import { URI, Utils } from 'vscode-uri';
 import { FlatCommand } from './flatCommands';
 import { PathExpressionRequest, PathExpressionResolver } from './pathExpressionResolver';
 import { FileSymbolCache, SymbolIndex } from './symbolIndex';
-import { getIncludeFileUri, getIncludeModuleUri, normalizeQuotedArgument } from './utils';
+import { getIncludeFileUri, getIncludeModuleUri, isIncludeModuleReference, normalizeQuotedArgument } from './utils';
 
 export interface SourceDependencyOptions {
     entryFile: string;
@@ -38,11 +38,16 @@ export async function extractIncludeDependency(
         return;
     }
 
+    const moduleReference = isIncludeModuleReference(includeText);
     const resolvedFileUri = pathExpressionResolver
         ? await pathExpressionResolver.resolveFileRequest(createPathExpressionRequest(cmd, includeText, sourceUri, maxLine))
         : null;
     const localFileUri = getIncludeFileUri(symbolIndex, baseDir, includeText);
-    const sourceModuleUri = pathExpressionResolver && options
+    const existingLocalFileUri = localFileUri
+        && (fs.existsSync(localFileUri.fsPath) || symbolIndex.getCache(localFileUri.toString()))
+        ? localFileUri
+        : null;
+    const sourceModuleUri = moduleReference && pathExpressionResolver && options
         ? await resolveModuleFromSourceConfiguration(
             includeText,
             sourceUri,
@@ -53,10 +58,13 @@ export async function extractIncludeDependency(
             options,
         )
         : null;
-    const targetUri = resolvedFileUri
-        ?? localFileUri
-        ?? sourceModuleUri
-        ?? getIncludeModuleUri(symbolIndex, includeText);
+    const targetUri = moduleReference
+        ? sourceModuleUri
+            ?? getIncludeModuleUri(symbolIndex, includeText)
+            ?? resolvedFileUri
+            ?? existingLocalFileUri
+        : resolvedFileUri
+            ?? localFileUri;
     if (targetUri) {
         cache.addDependency(targetUri.toString(), 'include', order, uncertain);
     }
@@ -72,7 +80,7 @@ async function resolveModuleFromSourceConfiguration(
     options: SourceDependencyOptions,
 ): Promise<URI | null> {
     const moduleName = normalizeQuotedArgument(includeText);
-    if (!moduleName || moduleName.includes('/') || moduleName.includes('\\') || path.extname(moduleName) !== '') {
+    if (!isIncludeModuleReference(moduleName)) {
         return null;
     }
 
