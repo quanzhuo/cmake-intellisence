@@ -9,7 +9,7 @@ import { ArgumentContext } from './generated/CMakeParser';
 import { PathExpressionRequest, PathExpressionResolver } from './pathExpressionResolver';
 import { rangeForTextOffsets, tokenStartPosition } from './sourcePosition';
 import { SymbolIndex } from './symbolIndex';
-import { getFindPackageUri, getIncludeModuleDependencyUri, getIncludeModuleUri } from './utils';
+import { getFindPackageUri, getIncludeModuleDependencyUri, getIncludeModuleUri, isIncludeModuleReference } from './utils';
 
 export class DocumentLinkInfo {
     private _links: DocumentLink[] = [];
@@ -133,7 +133,6 @@ export class DocumentLinkInfo {
     }
 
     private async resolveSubdirectoryTarget(commandName: string, argText: string, maxLine: number): Promise<URI | null> {
-        const currentUri = this.getCurrentDocumentUri();
         const expanded = await this.getPathExpressionResolver().expandPathExpression(this.createPathExpressionRequest(commandName, argText, maxLine));
         if (!expanded) {
             return null;
@@ -141,7 +140,7 @@ export class DocumentLinkInfo {
 
         const cmakeLists = path.isAbsolute(expanded)
             ? URI.file(path.join(path.normalize(expanded), 'CMakeLists.txt'))
-            : URI.file(path.resolve(path.dirname(currentUri.fsPath), expanded, 'CMakeLists.txt'));
+            : URI.file(path.resolve(this.getPathExpressionResolver().getCurrentSourceDirectory(this.getCurrentDocumentUri()), expanded, 'CMakeLists.txt'));
 
         if (!await this.fileExists(cmakeLists.fsPath)) {
             return null;
@@ -230,23 +229,26 @@ export class DocumentLinkInfo {
             return [];
         }
 
-        if (resolved.subject === DefinitionSubject.IncludeModule) {
+        const expanded = await this.getPathExpressionResolver().expandPathExpression(
+            this.createPathExpressionRequest(cmd.commandName.toLowerCase(), firstArg.getText(), firstArg.start.line - 1),
+        );
+        if (!expanded) {
+            return [];
+        }
+
+        if (isIncludeModuleReference(expanded)) {
             const indexedDependency = getIncludeModuleDependencyUri(
                 this.symbolIndex,
                 this.uri,
                 this.entryFile,
-                resolved.text,
+                expanded,
             );
             if (indexedDependency) {
                 return [this.createLink(firstArg, indexedDependency)];
             }
 
-            if (this.symbolIndex.getSystemCache().modules.has(resolved.text)) {
-                return this.includeSystemModule(firstArg);
-            }
-
-            const targetUri = getIncludeModuleUri(this.symbolIndex, resolved.text, this.fileApiRawSnapshot)
-                ?? await this.resolveFileArgument(cmd.commandName.toLowerCase(), resolved.text, firstArg.start.line - 1);
+            const targetUri = getIncludeModuleUri(this.symbolIndex, expanded, this.fileApiRawSnapshot)
+                ?? this.getPathExpressionResolver().resolveExpandedFile(expanded, this.getCurrentDocumentUri());
             return targetUri ? [this.createLink(firstArg, targetUri)] : [];
         }
 
@@ -283,32 +285,6 @@ export class DocumentLinkInfo {
         }
 
         return this.addSemanticFileLinks(cmd, [0, 1]);
-    }
-
-    private includeSystemModule(arg: ArgumentContext): Promise<DocumentLink[]> {
-        const argName = arg.getText();
-        return this.builtinModule(arg, `${argName}.cmake`);
-    }
-
-    private async builtinModule(arg: ArgumentContext, moduleName: string): Promise<DocumentLink[]> {
-        if (!arg.stop) {
-            return [];
-        }
-        const argName = arg.getText();
-        if (!this.symbolIndex.cmakeModulePath) {
-            return [];
-        }
-
-        const modulePath = path.join(this.symbolIndex.cmakeModulePath, moduleName);
-        if (await this.fileExists(modulePath)) {
-            return [{
-                range: rangeForTextOffsets(tokenStartPosition(arg.start), argName, 0, argName.length),
-                target: URI.file(modulePath).toString(),
-                tooltip: modulePath,
-            }];
-        } else {
-            return [];
-        }
     }
 
     private addSourceFiles(cmd: FlatCommand): Promise<DocumentLink[]> {

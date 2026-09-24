@@ -85,7 +85,6 @@ export class DefinitionResolver extends SymbolResolverBase {
 
         const commandName = command.ID().symbol.text.toLowerCase();
         const sourceUri = this.curFile;
-        const sourceBaseDir = URI.file(path.dirname(sourceUri.fsPath));
         const request = this.createPathExpressionRequest(commandName, argText, sourceUri, position.line);
 
         switch (commandName) {
@@ -94,6 +93,7 @@ export class DefinitionResolver extends SymbolResolverBase {
                     return null;
                 }
                 const pathResolver = this.getPathExpressionResolver();
+                const sourceBaseDir = URI.file(pathResolver.getCurrentSourceDirectory(sourceUri));
                 const includeArg = await pathResolver.expandPathExpression(request);
                 if (!includeArg) {
                     return null;
@@ -107,7 +107,7 @@ export class DefinitionResolver extends SymbolResolverBase {
                     return includeUri;
                 }
 
-                if (isIncludeModuleReference(argText)) {
+                if (isIncludeModuleReference(includeArg)) {
                     const indexedDependency = getIncludeModuleDependencyUri(
                         this.symbolIndex,
                         sourceUri.toString(),
@@ -120,7 +120,7 @@ export class DefinitionResolver extends SymbolResolverBase {
                         return moduleUri;
                     }
 
-                    const fallbackFileUri = await pathResolver.resolveFileRequest(request)
+                    const fallbackFileUri = pathResolver.resolveExpandedFile(includeArg, sourceUri)
                         ?? getIncludeFileUri(this.symbolIndex, sourceBaseDir, includeArg);
                     return fallbackFileUri
                         && (fs.existsSync(fallbackFileUri.fsPath) || this.symbolIndex.getCache(fallbackFileUri.toString()))
@@ -139,7 +139,7 @@ export class DefinitionResolver extends SymbolResolverBase {
                 }
                 const cmakeLists = path.isAbsolute(subdirArg)
                     ? URI.file(path.join(path.normalize(subdirArg), 'CMakeLists.txt'))
-                    : URI.file(path.resolve(path.dirname(sourceUri.fsPath), subdirArg, 'CMakeLists.txt'));
+                    : URI.file(path.resolve(this.getPathExpressionResolver().getCurrentSourceDirectory(sourceUri), subdirArg, 'CMakeLists.txt'));
                 return fs.existsSync(cmakeLists.fsPath) ? cmakeLists : null;
             }
             case 'configure_file':
@@ -257,4 +257,3 @@ export class DefinitionResolver extends SymbolResolverBase {
         return results;
     }
 }
-

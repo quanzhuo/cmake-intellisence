@@ -48,6 +48,7 @@ export class PathExpressionResolver {
     private readonly expandedRequestCache = new Map<string, Promise<ExpandedPathResult>>();
     private readonly fileRequestCache = new Map<string, Promise<FileExpressionResolutionResult>>();
     private readonly resolvedFileCache = new Map<string, URI | null>();
+    private readonly sourceDirectoryCache = new Map<string, string>();
 
     constructor(private readonly options: PathExpressionResolverOptions) {
     }
@@ -96,8 +97,53 @@ export class PathExpressionResolver {
         return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
     }
 
+    public getCurrentSourceDirectory(sourceUri: URI): string {
+        // include() inherits its caller's source directory; add_subdirectory()
+        // switches to the child CMakeLists.txt directory.
+        const entryUri = this.options.entryFile.toString();
+        const targetUri = sourceUri.toString();
+        const cached = this.sourceDirectoryCache.get(targetUri);
+        if (cached) {
+            return cached;
+        }
+        const indexed = this.options.symbolIndex.getSourceDirectoryContext(entryUri, targetUri);
+        if (indexed) {
+            this.sourceDirectoryCache.set(targetUri, indexed);
+            return indexed;
+        }
+        const pending = [{ uri: entryUri, sourceDirectory: path.dirname(this.options.entryFile.fsPath) }];
+        const visited = new Set<string>();
+        for (let index = 0; index < pending.length; index++) {
+            const { uri, sourceDirectory } = pending[index];
+            if (uri === targetUri) {
+                this.sourceDirectoryCache.set(targetUri, sourceDirectory);
+                return sourceDirectory;
+            }
+            const key = `${uri}\0${sourceDirectory}`;
+            if (visited.has(key)) {
+                continue;
+            }
+            visited.add(key);
+
+            for (const dependency of this.options.symbolIndex.getAvailableDependencies(
+                uri,
+                entryUri,
+                this.options.cacheOverrides,
+            )) {
+                pending.push({
+                    uri: dependency.uri,
+                    sourceDirectory: dependency.type === 'subdirectory'
+                        ? path.dirname(URI.parse(dependency.uri).fsPath)
+                        : sourceDirectory,
+                });
+            }
+        }
+
+        return path.dirname(sourceUri.fsPath);
+    }
+
     private getCurrentBinaryDirectory(sourceUri: URI): string | null {
-        const currentSourceDir = path.dirname(sourceUri.fsPath);
+        const currentSourceDir = this.getCurrentSourceDirectory(sourceUri);
         const normalizedCurrentSourceDir = this.normalizePathKey(currentSourceDir);
         const mappedBuildDirectory = this.options.buildDirectoriesBySourcePath?.[normalizedCurrentSourceDir];
         if (mappedBuildDirectory) {
@@ -113,13 +159,14 @@ export class PathExpressionResolver {
     }
 
     private getKnownPathVariableValue(name: string, sourceUri: URI): string | null {
-        const sourceDir = path.dirname(sourceUri.fsPath);
+        const listDir = path.dirname(sourceUri.fsPath);
         const rootDir = path.dirname(this.options.entryFile.fsPath);
 
         switch (name) {
             case 'CMAKE_CURRENT_LIST_DIR':
+                return listDir;
             case 'CMAKE_CURRENT_SOURCE_DIR':
-                return sourceDir;
+                return this.getCurrentSourceDirectory(sourceUri);
             case 'CMAKE_SOURCE_DIR':
             case 'PROJECT_SOURCE_DIR':
                 return rootDir;
@@ -370,7 +417,7 @@ export class PathExpressionResolver {
         const normalizedArgText = this.normalizePathArgument(argText);
         return path.isAbsolute(normalizedArgText)
             ? URI.file(path.normalize(normalizedArgText))
-            : URI.file(path.resolve(path.dirname(sourceUri.fsPath), normalizedArgText));
+            : URI.file(path.resolve(this.getCurrentSourceDirectory(sourceUri), normalizedArgText));
     }
 
     public resolveExpandedFile(argText: string, sourceUri: URI): URI | null {

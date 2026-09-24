@@ -232,6 +232,26 @@ suite('Document Link Integration Tests', () => {
         assert(linkTargets.has(fileUri('modules/Sub/Mod.cmake')), 'include(Sub/Mod) should link to the nested module file');
     });
 
+    test('should link variable-expanded nested modules', async function () {
+        const uri = await openFixture('variable-nested-module-link.cmake');
+        const links = await connection.sendRequest(DocumentLinkRequest.type, {
+            textDocument: { uri }
+        });
+        assert(links !== null && Array.isArray(links));
+        assert(links.some(link => link.target === fileUri('modules/Sub/Mod.cmake')));
+    });
+
+    test('relative include links should use the caller source directory', async function () {
+        await openFixture('relative-source/CMakeLists.txt');
+        const uri = await openFixture('relative-source/nested/Nested.cmake');
+        const links = await connection.sendRequest(DocumentLinkRequest.type, {
+            textDocument: { uri }
+        });
+        assert(links !== null && Array.isArray(links));
+        assert(links.some(link => link.target === fileUri('relative-source/relsrc/R.cmake')));
+        assert(!links.some(link => link.target === fileUri('relative-source/nested/relsrc/R.cmake')));
+    });
+
     test('should preserve extensionless local include fallback when no module resolves', async function () {
         const uri = await openFixture('extensionless-local-link.cmake');
 

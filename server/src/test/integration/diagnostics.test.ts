@@ -164,6 +164,31 @@ suite('Diagnostics Integration Tests', () => {
         assert.strictEqual(diagnostics.length, 0, 'include(Sub/Mod) should be treated as a module reference');
     });
 
+    test('should not report variable-expanded nested modules as missing paths', async function () {
+        const diagnostics = (await openFixture('variable-nested-module.cmake')).diagnostics;
+        assert.strictEqual(diagnostics.length, 0);
+    });
+
+    test('relative include diagnostics should use the caller source directory', async function () {
+        await openFixture('relative-source/CMakeLists.txt');
+        const valid = (await openFixture('relative-source/nested/Valid.cmake')).diagnostics;
+        const invalid = (await openFixture('relative-source/nested/Invalid.cmake')).diagnostics;
+
+        assert.strictEqual(valid.length, 0);
+        assert.strictEqual(invalid.length, 1);
+        assert.strictEqual(invalid[0].code, DIAG_CODE_MISSING_FILE_PATH);
+    });
+
+    test('subdirectory diagnostics in included files use the caller source directory', async function () {
+        await openFixture('relative-source/CMakeLists.txt');
+        const valid = (await openFixture('relative-source/nested/ValidSubdir.cmake')).diagnostics;
+        const invalid = (await openFixture('relative-source/nested/InvalidSubdir.cmake')).diagnostics;
+
+        assert.strictEqual(valid.length, 0);
+        assert.strictEqual(invalid.length, 1);
+        assert.strictEqual(invalid[0].code, DIAG_CODE_MISSING_SUBDIRECTORY);
+    });
+
     test('should suppress include missing-file diagnostics for File API known inputs', async function () {
         const buildDir = path.join(fixtureDir, 'build-file-api');
         const replyDir = path.join(buildDir, '.cmake', 'api', 'v1', 'reply');

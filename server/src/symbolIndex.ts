@@ -262,6 +262,7 @@ export class SymbolIndex {
     private fileCaches: Map<string, FileSymbolCache> = new Map();
     private fileCacheRevisionKeys: Map<string, string> = new Map();
     private dependencyContexts = new Map<string, Map<string, { revisionKey?: string; dependencies: Dependency[] }>>();
+    private sourceDirectoriesByEntry = new Map<string, Map<string, string>>();
     private retainedDependencyContexts = new Map<string, Map<string, Dependency[]>>();
     private systemCache: FileSymbolCache = new FileSymbolCache('cmake-builtin://system');
     private builtinModuleCommandCatalog: Map<string, string> = new Map();
@@ -327,6 +328,19 @@ export class SymbolIndex {
         entryFile?: string,
         options?: SetFileCacheOptions,
     ): void {
+        const sameDependencyRoutes = (left: readonly Dependency[], right: readonly Dependency[]): boolean =>
+            left.length === right.length && left.every((dependency, index) =>
+                dependency.uri === right[index].uri
+                && dependency.type === right[index].type
+                && dependency.order === right[index].order);
+        const retainedContexts = this.retainedDependencyContexts.get(uri);
+        if (!options?.preserveDependencyContexts) {
+            for (const [retainedEntry, dependencies] of retainedContexts ?? []) {
+                if (retainedEntry !== entryFile || !sameDependencyRoutes(dependencies, cache.dependencies)) {
+                    this.sourceDirectoriesByEntry.delete(retainedEntry);
+                }
+            }
+        }
         if (this.fileCaches.has(uri)) {
             this.fileCaches.delete(uri);
         }
@@ -337,7 +351,6 @@ export class SymbolIndex {
             this.fileCacheRevisionKeys.set(uri, revisionKey);
         }
         if (options?.preserveDependencyContexts) {
-            const retainedContexts = this.retainedDependencyContexts.get(uri);
             for (const [retainedEntry, dependencies] of retainedContexts ?? []) {
                 const contextsByUri = this.dependencyContexts.get(retainedEntry) ?? new Map();
                 contextsByUri.set(uri, {
@@ -348,13 +361,16 @@ export class SymbolIndex {
             }
         }
         this.retainedDependencyContexts.delete(uri);
-        for (const contextsByUri of this.dependencyContexts.values()) {
+        for (const [contextEntry, contextsByUri] of this.dependencyContexts) {
             const context = contextsByUri.get(uri);
             if (context && context.revisionKey !== revisionKey) {
                 if (options?.preserveDependencyContexts) {
                     context.revisionKey = revisionKey;
                 } else {
                     contextsByUri.delete(uri);
+                    if (contextEntry !== entryFile || !sameDependencyRoutes(context.dependencies, cache.dependencies)) {
+                        this.sourceDirectoriesByEntry.delete(contextEntry);
+                    }
                 }
             }
         }
@@ -393,16 +409,33 @@ export class SymbolIndex {
         return this.dependencyContexts.get(entryFile)?.has(uri) ?? false;
     }
 
+    setSourceDirectoryContext(entryFile: string, uri: string, directory: string): void {
+        const directories = this.sourceDirectoriesByEntry.get(entryFile) ?? new Map<string, string>();
+        directories.set(uri, directory);
+        this.sourceDirectoriesByEntry.set(entryFile, directories);
+    }
+
+    getSourceDirectoryContext(entryFile: string, uri: string): string | undefined {
+        return this.sourceDirectoriesByEntry.get(entryFile)?.get(uri);
+    }
+
+    deleteSourceDirectoryContext(entryFile: string, uri: string): void {
+        this.sourceDirectoriesByEntry.get(entryFile)?.delete(uri);
+    }
+
     clearProjectContexts(): void {
-        if (this.dependencyContexts.size === 0) {
+        if (this.dependencyContexts.size === 0 && this.sourceDirectoriesByEntry.size === 0) {
             return;
         }
         this.dependencyContexts.clear();
+        this.sourceDirectoriesByEntry.clear();
         this.invalidateDerivedCaches();
     }
 
     clearProjectContext(entryFile: string): void {
-        if (!this.dependencyContexts.delete(entryFile)) {
+        const hadDependencies = this.dependencyContexts.delete(entryFile);
+        const hadSourceDirectories = this.sourceDirectoriesByEntry.delete(entryFile);
+        if (!hadDependencies && !hadSourceDirectories) {
             return;
         }
         this.invalidateDerivedCaches();
@@ -502,7 +535,7 @@ export class SymbolIndex {
         } else {
             this.retainedDependencyContexts.delete(uri);
         }
-        this.deleteDependencyContextsForUri(uri);
+        this.deleteDependencyContextsForUri(uri, options?.retainDependencyContexts === true);
         if (deleted) {
             this.invalidateDerivedCaches();
         }
@@ -544,9 +577,18 @@ export class SymbolIndex {
         return Array.from(this.fileCaches.values());
     }
 
-    private deleteDependencyContextsForUri(uri: string): void {
+    private deleteDependencyContextsForUri(uri: string, retainSourceDirectories = false): void {
+        if (!retainSourceDirectories) {
+            for (const directories of this.sourceDirectoriesByEntry.values()) {
+                directories.delete(uri);
+            }
+        }
         for (const [entryFile, contextsByUri] of this.dependencyContexts) {
-            contextsByUri.delete(uri);
+            if (contextsByUri.delete(uri)) {
+                if (!retainSourceDirectories) {
+                    this.sourceDirectoriesByEntry.delete(entryFile);
+                }
+            }
             if (contextsByUri.size === 0) {
                 this.dependencyContexts.delete(entryFile);
             }

@@ -9,6 +9,7 @@ import { ArgumentContext } from './generated/CMakeParser';
 import localize from './localize';
 import { PathExpressionResolver } from './pathExpressionResolver';
 import { SymbolIndex } from './symbolIndex';
+import { isIncludeModuleReference } from './utils';
 
 export const DIAG_CODE_MISSING_FILE_PATH = 'missing-file-path';
 export const DIAG_CODE_MISSING_SUBDIRECTORY = 'missing-subdirectory';
@@ -123,7 +124,7 @@ export class PathDiagnosticsProvider {
             return [...resolvedCandidates, expandedPath];
         }
 
-        return [...resolvedCandidates, path.resolve(path.dirname(this.options.sourceUri.fsPath), expandedPath)];
+        return [...resolvedCandidates, path.resolve(this.resolver.getCurrentSourceDirectory(this.options.sourceUri), expandedPath)];
     }
 
     private isKnownCMakeInput(expandedPath: string | null, candidates: URI[]): boolean {
@@ -164,7 +165,7 @@ export class PathDiagnosticsProvider {
                 knownPaths.add(this.normalizeFsPath(path.resolve(targetSnapshot.buildDirectory, generatedPath)));
             }
 
-            knownPaths.add(this.normalizeFsPath(path.resolve(path.dirname(this.options.sourceUri.fsPath), generatedPath)));
+            knownPaths.add(this.normalizeFsPath(path.resolve(this.resolver.getCurrentSourceDirectory(this.options.sourceUri), generatedPath)));
         }
 
         return knownPaths;
@@ -186,9 +187,11 @@ export class PathDiagnosticsProvider {
             return [];
         }
 
-        const result = await this.resolver.resolveFileRequestDetailed(
-            this.createRequest(command.commandName.toLowerCase(), pathArgument.argText, pathArgument.argCtx),
-        );
+        const request = this.createRequest(command.commandName.toLowerCase(), pathArgument.argText, pathArgument.argCtx);
+        const result = await this.resolver.resolveFileRequestDetailed(request);
+        if (result.expandedPath && isIncludeModuleReference(result.expandedPath)) {
+            return [];
+        }
         if (result.reason !== 'missing-file' || !result.expandedPath) {
             return [];
         }
@@ -271,7 +274,7 @@ export class PathDiagnosticsProvider {
 
         const cmakeListsPath = path.isAbsolute(expanded.expandedPath)
             ? path.join(path.normalize(expanded.expandedPath), 'CMakeLists.txt')
-            : path.resolve(path.dirname(this.options.sourceUri.fsPath), expanded.expandedPath, 'CMakeLists.txt');
+            : path.resolve(this.resolver.getCurrentSourceDirectory(this.options.sourceUri), expanded.expandedPath, 'CMakeLists.txt');
 
         if (this.directoryHasCMakeLists(cmakeListsPath)) {
             return [];

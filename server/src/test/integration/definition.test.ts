@@ -230,6 +230,33 @@ suite('Definition Integration Tests', () => {
         assert.strictEqual(functionLocations[0].range.start.line, 0);
     });
 
+    test('variable-expanded nested module should resolve through CMAKE_MODULE_PATH', async function () {
+        const uri = await openFixture('variable-nested-module-entry.cmake');
+        const includeResult = await getDefinition(uri, 2, 12);
+        assert(includeResult !== null);
+        const includeLocations = (Array.isArray(includeResult) ? includeResult : [includeResult]) as Location[];
+        assert.strictEqual(includeLocations[0].uri, fileUri('custom-modules/Sub/Mod.cmake'));
+
+        const functionResult = await getDefinition(uri, 3, 5);
+        assert(functionResult !== null);
+        const functionLocations = (Array.isArray(functionResult) ? functionResult : [functionResult]) as Location[];
+        assert.strictEqual(functionLocations[0].uri, fileUri('custom-modules/Sub/Mod.cmake'));
+    });
+
+    test('relative includes inside an included file use the caller source directory', async function () {
+        await openFixture('relative-source/CMakeLists.txt');
+        const uri = await openFixture('relative-source/nested/Nested.cmake');
+        const includeResult = await getDefinition(uri, 0, 12);
+        assert(includeResult !== null);
+        const includeLocations = (Array.isArray(includeResult) ? includeResult : [includeResult]) as Location[];
+        assert.strictEqual(includeLocations[0].uri, fileUri('relative-source/relsrc/R.cmake'));
+
+        const functionResult = await getDefinition(uri, 1, 5);
+        assert(functionResult !== null);
+        const functionLocations = (Array.isArray(functionResult) ? functionResult : [functionResult]) as Location[];
+        assert.strictEqual(functionLocations[0].uri, fileUri('relative-source/relsrc/R.cmake'));
+    });
+
     test('extensionless local include should remain a fallback when no module resolves', async function () {
         const uri = await openFixture('extensionless-local-entry.cmake');
 

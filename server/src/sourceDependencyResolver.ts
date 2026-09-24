@@ -38,18 +38,27 @@ export async function extractIncludeDependency(
         return;
     }
 
-    const moduleReference = isIncludeModuleReference(includeText);
+    const expandedInclude = pathExpressionResolver
+        ? await pathExpressionResolver.expandPathExpression(createPathExpressionRequest(cmd, includeText, sourceUri, maxLine))
+        : normalizeQuotedArgument(includeText);
+    if (!expandedInclude) {
+        return;
+    }
+    const moduleReference = isIncludeModuleReference(expandedInclude);
+    const sourceBaseDir = pathExpressionResolver
+        ? URI.file(pathExpressionResolver.getCurrentSourceDirectory(sourceUri))
+        : baseDir;
     const resolvedFileUri = pathExpressionResolver
-        ? await pathExpressionResolver.resolveFileRequest(createPathExpressionRequest(cmd, includeText, sourceUri, maxLine))
+        ? pathExpressionResolver.resolveExpandedFile(expandedInclude, sourceUri)
         : null;
-    const localFileUri = getIncludeFileUri(symbolIndex, baseDir, includeText);
+    const localFileUri = getIncludeFileUri(symbolIndex, sourceBaseDir, expandedInclude);
     const existingLocalFileUri = localFileUri
         && (fs.existsSync(localFileUri.fsPath) || symbolIndex.getCache(localFileUri.toString()))
         ? localFileUri
         : null;
     const sourceModuleUri = moduleReference && pathExpressionResolver && options
         ? await resolveModuleFromSourceConfiguration(
-            includeText,
+            expandedInclude,
             sourceUri,
             order,
             cache,
@@ -60,7 +69,7 @@ export async function extractIncludeDependency(
         : null;
     const targetUri = moduleReference
         ? sourceModuleUri
-            ?? getIncludeModuleUri(symbolIndex, includeText)
+            ?? getIncludeModuleUri(symbolIndex, expandedInclude)
             ?? resolvedFileUri
             ?? existingLocalFileUri
         : resolvedFileUri
@@ -261,9 +270,12 @@ export async function extractSubdirectoryDependency(
         return;
     }
 
+    const sourceBaseDir = pathExpressionResolver
+        ? URI.file(pathExpressionResolver.getCurrentSourceDirectory(sourceUri))
+        : baseDir;
     const cmakeListsUri = path.isAbsolute(expandedDirectory)
         ? URI.file(path.join(path.normalize(expandedDirectory), 'CMakeLists.txt'))
-        : Utils.joinPath(baseDir, expandedDirectory.replace(/\\/g, '/'), 'CMakeLists.txt');
+        : Utils.joinPath(sourceBaseDir, expandedDirectory.replace(/\\/g, '/'), 'CMakeLists.txt');
     if (fs.existsSync(cmakeListsUri.fsPath)) {
         cache.addDependency(cmakeListsUri.toString(), 'subdirectory', order, uncertain);
     }

@@ -6,7 +6,7 @@ import { URI } from 'vscode-uri';
 import { FlatCommand } from '../../flatCommands';
 import { PathExpressionResolver } from '../../pathExpressionResolver';
 import { extractSymbols } from '../../symbolExtractor';
-import { SymbolIndex } from '../../symbolIndex';
+import { FileSymbolCache, SymbolIndex } from '../../symbolIndex';
 import { parseCMakeText } from '../../utils';
 
 function normalizeDirectoryMapKeyForTest(filePath: string): string {
@@ -32,6 +32,83 @@ async function createIndexedResolver(
 
 suite('Path Expression Resolver Tests', () => {
     const normalizeForComparison = (value: string | null) => path.normalize(value ?? '').toLowerCase();
+
+    test('relative include paths use the caller source directory while list variables use the included file', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-include-source-dir-'));
+        const entryFile = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const includedFile = URI.file(path.join(workspaceDir, 'nested', 'Nested.cmake'));
+        const correctFile = URI.file(path.join(workspaceDir, 'relsrc', 'R.cmake'));
+        const wrongFile = URI.file(path.join(workspaceDir, 'nested', 'relsrc', 'R.cmake'));
+
+        try {
+            fs.mkdirSync(path.dirname(includedFile.fsPath), { recursive: true });
+            fs.mkdirSync(path.dirname(correctFile.fsPath), { recursive: true });
+            fs.mkdirSync(path.dirname(wrongFile.fsPath), { recursive: true });
+            for (const file of [entryFile, includedFile, correctFile, wrongFile]) {
+                fs.writeFileSync(file.fsPath, '# test\n', 'utf8');
+            }
+
+            const symbolIndex = new SymbolIndex();
+            const entryCache = new FileSymbolCache(entryFile.toString());
+            entryCache.addDependency(includedFile.toString(), 'include');
+            symbolIndex.setCache(entryFile.toString(), entryCache, 'test', entryFile.toString());
+            const resolver = new PathExpressionResolver({
+                symbolIndex,
+                getFlatCommands: async () => [],
+                entryFile,
+            });
+
+            assert.strictEqual(
+                (await resolver.resolveFileExpression('relsrc/R.cmake', includedFile, 0))?.toString(),
+                correctFile.toString(),
+            );
+            assert.strictEqual(
+                normalizeForComparison(await resolver.expandPathVariables('${CMAKE_CURRENT_SOURCE_DIR}', includedFile, 0)),
+                normalizeForComparison(workspaceDir),
+            );
+            assert.strictEqual(
+                normalizeForComparison(await resolver.expandPathVariables('${CMAKE_CURRENT_LIST_DIR}', includedFile, 0)),
+                normalizeForComparison(path.dirname(includedFile.fsPath)),
+            );
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
+
+    test('included files under add_subdirectory inherit the child source directory', async () => {
+        const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-subdir-source-dir-'));
+        const entryFile = URI.file(path.join(workspaceDir, 'CMakeLists.txt'));
+        const childFile = URI.file(path.join(workspaceDir, 'child', 'CMakeLists.txt'));
+        const includedFile = URI.file(path.join(workspaceDir, 'child', 'scripts', 'Nested.cmake'));
+        const targetFile = URI.file(path.join(workspaceDir, 'child', 'relsrc', 'R.cmake'));
+
+        try {
+            for (const file of [entryFile, childFile, includedFile, targetFile]) {
+                fs.mkdirSync(path.dirname(file.fsPath), { recursive: true });
+                fs.writeFileSync(file.fsPath, '# test\n', 'utf8');
+            }
+
+            const symbolIndex = new SymbolIndex();
+            const entryCache = new FileSymbolCache(entryFile.toString());
+            entryCache.addDependency(childFile.toString(), 'subdirectory');
+            symbolIndex.setCache(entryFile.toString(), entryCache, 'test', entryFile.toString());
+            const childCache = new FileSymbolCache(childFile.toString());
+            childCache.addDependency(includedFile.toString(), 'include');
+            symbolIndex.setCache(childFile.toString(), childCache, 'test', entryFile.toString());
+
+            const resolver = new PathExpressionResolver({
+                symbolIndex,
+                getFlatCommands: async () => [],
+                entryFile,
+            });
+            assert.strictEqual(
+                (await resolver.resolveFileExpression('relsrc/R.cmake', includedFile, 0))?.toString(),
+                targetFile.toString(),
+            );
+        } finally {
+            fs.rmSync(workspaceDir, { recursive: true, force: true });
+        }
+    });
 
     test('expandPathVariables should resolve builtin directory variables', async () => {
         const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmake-intellisence-path-builtins-'));

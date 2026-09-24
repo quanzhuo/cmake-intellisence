@@ -1,4 +1,6 @@
 import * as assert from 'assert';
+import * as path from 'path';
+import { URI } from 'vscode-uri';
 import { FileSymbolCache, SymbolIndex } from '../../symbolIndex';
 import { ensureSymbolIndexCache, populateIndexTopDown } from '../../symbolIndexManager';
 
@@ -90,8 +92,11 @@ suite('Symbol Index Tests', () => {
     test('dependency traversal should preserve an explicit project entry when starting from a child file', async () => {
         const symbolIndex = new SymbolIndex();
         const projectEntry = 'file:///project/CMakeLists.txt';
-        const childUri = 'file:///project/child.cmake';
-        const dependencyUri = 'file:///project/dependency.cmake';
+        const childUri = 'file:///project/nested/child.cmake';
+        const dependencyUri = 'file:///project/nested/dependency.cmake';
+        const projectCache = new FileSymbolCache(projectEntry);
+        projectCache.addDependency(childUri, 'include');
+        symbolIndex.setCache(projectEntry, projectCache, 'disk:1', projectEntry);
         const childCache = new FileSymbolCache(childUri);
         childCache.addDependency(dependencyUri, 'include');
         symbolIndex.setCache(childUri, childCache, 'disk:1', projectEntry);
@@ -124,6 +129,36 @@ suite('Symbol Index Tests', () => {
 
         assert.strictEqual(requestedEntry, projectEntry);
         assert.strictEqual(symbolIndex.hasDependencyContext(dependencyUri, projectEntry), true);
+        assert.strictEqual(
+            symbolIndex.getSourceDirectoryContext(projectEntry, dependencyUri),
+            path.dirname(URI.parse(projectEntry).fsPath),
+        );
+    });
+
+    test('dependency traversal carries the current source directory through includes and subdirectories', async () => {
+        const symbolIndex = new SymbolIndex();
+        const entry = 'file:///project/CMakeLists.txt';
+        const child = 'file:///project/sub/CMakeLists.txt';
+        const included = 'file:///project/sub/scripts/Nested.cmake';
+        const entryCache = new FileSymbolCache(entry);
+        entryCache.addDependency(child, 'subdirectory');
+        const childCache = new FileSymbolCache(child);
+        childCache.addDependency(included, 'include');
+        symbolIndex.setCache(entry, entryCache);
+        symbolIndex.setCache(child, childCache);
+        symbolIndex.setCache(included, new FileSymbolCache(included));
+
+        await populateIndexTopDown({
+            rootUri: entry,
+            symbolIndex,
+            loadFlatCommands: async () => undefined,
+        });
+
+        const childDirectory = path.dirname(URI.parse(child).fsPath);
+        assert.strictEqual(symbolIndex.getSourceDirectoryContext(entry, child), childDirectory);
+        assert.strictEqual(symbolIndex.getSourceDirectoryContext(entry, included), childDirectory);
+        symbolIndex.clearProjectContext(entry);
+        assert.strictEqual(symbolIndex.getSourceDirectoryContext(entry, included), undefined);
     });
 
     test('default cache retains the complete compact workspace index', () => {
@@ -265,5 +300,28 @@ suite('Symbol Index Tests', () => {
             [dependencyUri],
         );
         assert.strictEqual(symbolIndex.hasCurrentCache(rootUri, 'document:2', rootUri), true);
+    });
+
+    test('keeps source directories across ordinary edits and invalidates them when the graph changes', () => {
+        const symbolIndex = new SymbolIndex();
+        const rootUri = 'file:///workspace/CMakeLists.txt';
+        const childUri = 'file:///workspace/child.cmake';
+        const firstCache = new FileSymbolCache(rootUri);
+        firstCache.addDependency(childUri, 'include');
+        symbolIndex.setCache(rootUri, firstCache, 'document:1', rootUri);
+        symbolIndex.setSourceDirectoryContext(rootUri, rootUri, '/workspace');
+        symbolIndex.setSourceDirectoryContext(rootUri, childUri, '/workspace');
+
+        symbolIndex.deleteCache(rootUri, { retainDependencyContexts: true });
+        assert.strictEqual(symbolIndex.getSourceDirectoryContext(rootUri, childUri), '/workspace');
+
+        const editedCache = new FileSymbolCache(rootUri);
+        editedCache.addDependency(childUri, 'include');
+        symbolIndex.setCache(rootUri, editedCache, 'document:2', rootUri);
+        assert.strictEqual(symbolIndex.getSourceDirectoryContext(rootUri, childUri), '/workspace');
+
+        symbolIndex.deleteCache(rootUri, { retainDependencyContexts: true });
+        symbolIndex.setCache(rootUri, new FileSymbolCache(rootUri), 'document:3', rootUri);
+        assert.strictEqual(symbolIndex.getSourceDirectoryContext(rootUri, childUri), undefined);
     });
 });

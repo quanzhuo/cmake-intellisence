@@ -1,5 +1,8 @@
+import * as path from 'path';
+import { URI } from 'vscode-uri';
 import { hydrateBuiltinModuleCacheEntry } from './builtinModuleIndex';
 import { isCancellationError, throwIfCancelled } from './cancellation';
+import { PathExpressionResolver } from './pathExpressionResolver';
 import { SymbolIndex } from './symbolIndex';
 
 type DependencyErrorAction = 'continue' | 'throw';
@@ -9,7 +12,7 @@ export interface PopulateIndexTopDownOptions {
     entryFile?: string;
     symbolIndex: SymbolIndex;
     loadFlatCommands: (uri: string) => Promise<unknown>;
-    ensureFileIndexed?: (uri: string, entryFile: string) => Promise<boolean>;
+    ensureFileIndexed?: (uri: string, entryFile: string, sourceDirectory: string) => Promise<boolean>;
     shouldCancel?: () => boolean;
     visited?: Set<string>;
     onDependencyError?: (uri: string, error: unknown) => DependencyErrorAction | Promise<DependencyErrorAction>;
@@ -21,7 +24,8 @@ export async function ensureSymbolIndexCache(
     uri: string,
     entryFile: string,
     shouldCancel?: () => boolean,
-    ensureFileIndexed?: (uri: string, entryFile: string) => Promise<boolean>,
+    ensureFileIndexed?: (uri: string, entryFile: string, sourceDirectory: string) => Promise<boolean>,
+    sourceDirectory = path.dirname(URI.parse(uri).fsPath),
 ): Promise<boolean> {
     const existingCache = symbolIndex.getCache(uri);
     const isContextFreeCache = existingCache && symbolIndex.getCacheRevisionKey(uri) === undefined;
@@ -29,7 +33,7 @@ export async function ensureSymbolIndexCache(
         return true;
     }
     if (existingCache && ensureFileIndexed) {
-        return ensureFileIndexed(uri, entryFile);
+        return ensureFileIndexed(uri, entryFile, sourceDirectory);
     }
     const isUsableCache = (): boolean => !!symbolIndex.getCache(uri)
         && symbolIndex.hasDependencyContext(uri, entryFile);
@@ -50,7 +54,7 @@ export async function ensureSymbolIndexCache(
     if (!hydrated) {
         throwIfCancelled(shouldCancel);
         if (ensureFileIndexed) {
-            return ensureFileIndexed(uri, entryFile);
+            return ensureFileIndexed(uri, entryFile, sourceDirectory);
         }
         await loadFlatCommands(uri);
     }
@@ -60,16 +64,23 @@ export async function ensureSymbolIndexCache(
 
 export async function populateIndexTopDown(options: PopulateIndexTopDownOptions): Promise<void> {
     const visited = options.visited ?? new Set<string>();
-    const stack = [options.rootUri];
     const entryFile = options.entryFile ?? options.rootUri;
+    const rootDirectory = options.symbolIndex.getSourceDirectoryContext(entryFile, options.rootUri)
+        ?? new PathExpressionResolver({
+            symbolIndex: options.symbolIndex,
+            getFlatCommands: async () => [],
+            entryFile: URI.parse(entryFile),
+        }).getCurrentSourceDirectory(URI.parse(options.rootUri));
+    const stack = [{ uri: options.rootUri, sourceDirectory: rootDirectory }];
 
     while (stack.length > 0) {
         throwIfCancelled(options.shouldCancel);
-        const uri = stack.pop()!;
+        const { uri, sourceDirectory } = stack.pop()!;
         if (visited.has(uri)) {
             continue;
         }
         visited.add(uri);
+        options.symbolIndex.setSourceDirectoryContext(entryFile, uri, sourceDirectory);
 
         try {
             const cacheAvailable = await ensureSymbolIndexCache(
@@ -79,10 +90,13 @@ export async function populateIndexTopDown(options: PopulateIndexTopDownOptions)
                 entryFile,
                 options.shouldCancel,
                 options.ensureFileIndexed,
+                sourceDirectory,
             );
             if (!cacheAvailable) {
+                options.symbolIndex.deleteSourceDirectoryContext(entryFile, uri);
                 continue;
             }
+            options.symbolIndex.setSourceDirectoryContext(entryFile, uri, sourceDirectory);
             throwIfCancelled(options.shouldCancel);
         } catch (error) {
             if (isCancellationError(error)) {
@@ -91,6 +105,7 @@ export async function populateIndexTopDown(options: PopulateIndexTopDownOptions)
 
             const action = await options.onDependencyError?.(uri, error) ?? 'throw';
             if (action === 'continue') {
+                options.symbolIndex.deleteSourceDirectoryContext(entryFile, uri);
                 continue;
             }
             throw error;
@@ -98,7 +113,13 @@ export async function populateIndexTopDown(options: PopulateIndexTopDownOptions)
 
         const dependencies = options.symbolIndex.getAvailableDependencies(uri, entryFile);
         for (let index = dependencies.length - 1; index >= 0; index--) {
-            stack.push(dependencies[index].uri);
+            const dependency = dependencies[index];
+            stack.push({
+                uri: dependency.uri,
+                sourceDirectory: dependency.type === 'subdirectory'
+                    ? path.dirname(URI.parse(dependency.uri).fsPath)
+                    : sourceDirectory,
+            });
         }
     }
 }
